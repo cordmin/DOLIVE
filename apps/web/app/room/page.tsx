@@ -25,6 +25,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
+import { Switch } from "@/components/Switch";
 import { AVATARS, savedAvatar } from "@/lib/dolive";
 
 // 20명 대비: 웹캠은 540p, 화면공유만 1080p. 안 보이는 영상은 받지 않음(adaptiveStream).
@@ -74,7 +75,7 @@ export default function RoomPage() {
     >
       <RoomAudioRenderer />
       <StartAudio
-        label="🔊 여기를 눌러 소리 켜기"
+        label="여기를 눌러 소리 켜기"
         className="fixed inset-x-0 top-14 z-20 mx-auto w-fit rounded-lg bg-indigo-600 px-4 py-2"
       />
       <RoomView isAdmin={conn.isAdmin} />
@@ -95,14 +96,14 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
         </b>
         <span className="text-zinc-400"># 채팅방</span>
         <button onClick={() => toggle("people")} className="text-zinc-400 md:pointer-events-none">
-          👥 {participants.length}명
+          참여자 {participants.length}명
         </button>
         <div className="ml-auto flex items-center gap-2">
           {isAdmin && (
             <span className="rounded bg-amber-500 px-2 py-0.5 text-xs font-bold text-black">방장</span>
           )}
           <button onClick={() => toggle("chat")} className="rounded bg-zinc-800 px-2 py-1 lg:hidden">
-            💬
+            채팅
           </button>
         </div>
       </header>
@@ -165,7 +166,7 @@ function Stage({ participants }: { participants: Participant[] }) {
         <div className="relative min-h-0 flex-1 rounded-lg bg-black">
           <VideoTrack trackRef={screen} className="size-full object-contain" />
           <span className="absolute top-2 left-2 rounded bg-black/60 px-2 py-0.5 text-xs">
-            🖥️ {screen.participant.name}님의 화면
+            {screen.participant.name}님의 화면
           </span>
         </div>
       )}
@@ -228,26 +229,13 @@ function Controls() {
     me.setAttributes({ avatar: id });
   }
 
-  const btn = (on: boolean) =>
-    `rounded-full px-4 py-2 text-sm ${on ? "bg-zinc-700 hover:bg-zinc-600" : "bg-red-700 hover:bg-red-600"}`;
-
   return (
     <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-t border-zinc-800 p-2">
-      <button
-        className={btn(isMicrophoneEnabled)}
-        onClick={() => run(() => me.setMicrophoneEnabled(!isMicrophoneEnabled), "마이크")}
-      >
-        {isMicrophoneEnabled ? "🎙️ 마이크" : "🔇 마이크 꺼짐"}
-      </button>
-      <button
-        className={btn(isCameraEnabled)}
-        onClick={() => run(() => me.setCameraEnabled(!isCameraEnabled), "카메라")}
-      >
-        {isCameraEnabled ? "📷 캠 끄기" : "📷 캠 켜기"}
-      </button>
+      <Switch label="마이크" on={isMicrophoneEnabled} onChange={(on) => run(() => me.setMicrophoneEnabled(on), "마이크")} />
+      <Switch label="카메라" on={isCameraEnabled} onChange={(on) => run(() => me.setCameraEnabled(on), "카메라")} />
       {canShare && (
         <button
-          className={btn(true) + (isScreenShareEnabled ? " !bg-indigo-600" : "")}
+          className={`rounded-full px-4 py-2 text-sm ${isScreenShareEnabled ? "bg-indigo-600" : "bg-zinc-700 hover:bg-zinc-600"}`}
           onClick={() =>
             run(
               () =>
@@ -260,7 +248,7 @@ function Controls() {
             )
           }
         >
-          🖥️ {isScreenShareEnabled ? "공유 중지" : "화면공유"}
+          {isScreenShareEnabled ? "공유 중지" : "화면공유"}
         </button>
       )}
       <select
@@ -271,7 +259,7 @@ function Controls() {
       >
         {AVATARS.map((a) => (
           <option key={a.id} value={a.id}>
-            🎭 {a.label}
+            {a.label}
           </option>
         ))}
       </select>

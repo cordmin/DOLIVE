@@ -11,6 +11,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
+import { Switch } from "@/components/Switch";
 import { AVATARS, savedAvatar } from "@/lib/dolive";
 
 const DENIED = "주소창 왼쪽 아이콘을 눌러 권한을 '허용'으로 바꿔 주세요.";
@@ -97,9 +98,6 @@ export default function Home() {
     router.push("/room");
   }
 
-  const btn = (on: boolean) =>
-    `flex-1 rounded-full px-4 py-2 text-sm ${on ? "bg-zinc-700 hover:bg-zinc-600" : "bg-red-700 hover:bg-red-600"}`;
-
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-4 sm:p-8">
       <h1 className="text-3xl font-bold">
@@ -107,7 +105,7 @@ export default function Home() {
       </h1>
 
       <section className="flex flex-col gap-2">
-        <span className="text-sm text-zinc-400">채팅 캐릭터</span>
+        <span className="text-sm text-zinc-400">캐릭터 선택</span>
         <div className="grid grid-cols-4 gap-2">
           {AVATARS.map((a) => (
             <button
@@ -123,19 +121,18 @@ export default function Home() {
       </section>
 
       <label className="flex flex-col gap-2">
-        <span className="text-sm text-zinc-400">닉네임</span>
+        <span className="text-sm text-zinc-400">닉네임(필수)</span>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && enter()}
           maxLength={20}
-          placeholder="채팅방에서 사용할 이름"
+          placeholder="닉네임 입력"
           className="rounded-lg bg-zinc-800 px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500"
         />
       </label>
 
       <section className="flex flex-col gap-2">
-        <span className="text-sm text-zinc-400">마이크·카메라 확인</span>
         <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-lg bg-zinc-800">
           {cam ? (
             <video ref={video} muted playsInline className="size-full -scale-x-100 object-cover" />
@@ -151,16 +148,10 @@ export default function Home() {
             </div>
           )}
         </div>
-        <p className="text-xs text-zinc-500">
-          {micOn ? "말해 보세요. 초록 막대가 움직이면 마이크가 잘 되는 거예요." : "마이크가 꺼진 채로 들어가요."}
-        </p>
+        {!micOn && <p className="text-xs text-zinc-500">마이크가 꺼진 채로 들어가요.</p>}
         <div className="flex gap-2">
-          <button onClick={() => toggle("mic")} className={btn(micOn)}>
-            {micOn ? "🎙️ 마이크 켜짐" : "🔇 마이크 꺼짐"}
-          </button>
-          <button onClick={() => toggle("cam")} className={btn(camOn)}>
-            {camOn ? "📷 카메라 켜짐" : "📷 카메라 꺼짐"}
-          </button>
+          <Switch label="마이크" on={micOn} onChange={() => toggle("mic")} />
+          <Switch label="카메라" on={camOn} onChange={() => toggle("cam")} />
         </div>
         {error && <p className="text-sm text-red-400">{error}</p>}
       </section>
@@ -171,8 +162,6 @@ export default function Home() {
         className="rounded-lg bg-indigo-600 px-4 py-4 text-lg font-semibold hover:bg-indigo-500 disabled:opacity-40"
       >
         채팅방 입장
-      </button>
-      {!name.trim() && <p className="-mt-4 text-sm text-zinc-500">닉네임을 먼저 적어 주세요.</p>}
-    </main>
+      </button>    </main>
   );
 }

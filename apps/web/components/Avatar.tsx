@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { AVATARS } from "@/lib/dolive";
 
-// PNGtuber 아바타: 말하면 talk.png + 바운스, 음소거면 어둡게 + 뱃지.
+// PNGtuber 아바타: 말하면 talk.png(입 벌림), 음소거면 어둡게 + 뱃지. 흔들림 효과는 넣지 않는다.
 // 그림 파일이 없으면 임시 동그라미 얼굴을 그린다.
 export function Avatar({
   id,
@@ -21,7 +21,7 @@ export function Avatar({
 
   return (
     <div className={`relative aspect-square ${className}`}>
-      <div className={`size-full ${talking ? "talking" : ""} ${muted ? "brightness-50" : ""}`}>
+      <div className={`size-full ${muted ? "brightness-50" : ""}`}>
         {brokenId === id ? (
           <svg viewBox="0 0 100 100" className="size-full">
             <circle cx="50" cy="52" r="42" fill={`hsl(${hue} 65% 60%)`} />
@@ -57,8 +57,16 @@ export function Avatar({
         )}
       </div>
       {muted && (
-        <span className="absolute right-0 bottom-0 rounded-full bg-red-600 px-1 text-xs" title="음소거">
-          🔇
+        <span
+          className="absolute right-0 bottom-0 rounded-full bg-red-600 p-1 text-white"
+          title="음소거"
+          aria-label="음소거"
+        >
+          {/* 마이크에 빗금 */}
+          <svg viewBox="0 0 24 24" className="size-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <rect x="9" y="3" width="6" height="11" rx="3" />
+            <path d="M5 11a7 7 0 0 0 14 0M12 18v3M4 4l16 16" />
+          </svg>
         </span>
       )}
     </div>
