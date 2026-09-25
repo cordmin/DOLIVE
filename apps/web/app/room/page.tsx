@@ -52,10 +52,36 @@ function useFitVisibleHeight() {
   }, []);
 }
 
+// 휴대폰을 가로로 눕혔는지 <html data-phone-land> 로 알린다 (globals.css 의 phone-land).
+// 화면 모양으로 판단하면 세로에서 자판이 올라와 화면이 납작해질 때도 가로로 잘못 알아서, 기기 방향을 본다.
+function usePhoneLandscape() {
+  useEffect(() => {
+    const root = document.documentElement;
+    const update = () => {
+      const land = screen.orientation
+        ? screen.orientation.type.startsWith("landscape")
+        : matchMedia("(orientation: landscape)").matches; // 옛 아이폰: 자판이 화면 크기를 안 바꿔서 괜찮다
+      const phone = Math.min(screen.width, screen.height) <= 500;
+      root.toggleAttribute("data-phone-land", land && phone);
+      // 다시 세로로 세우면 전체화면을 푼다
+      if (!land && document.fullscreenElement) document.exitFullscreen();
+    };
+    update();
+    screen.orientation?.addEventListener("change", update);
+    window.addEventListener("resize", update);
+    return () => {
+      screen.orientation?.removeEventListener("change", update);
+      window.removeEventListener("resize", update);
+      root.removeAttribute("data-phone-land");
+    };
+  }, []);
+}
+
 export default function RoomPage() {
   const router = useRouter();
   const [conn, setConn] = useState<Conn>();
   useFitVisibleHeight();
+  usePhoneLandscape();
 
   useEffect(() => {
     const name = sessionStorage.getItem("name");
@@ -90,7 +116,7 @@ export default function RoomPage() {
     >
       <RoomAudioRenderer />
       {/* 휴대폰에서는 안내 버튼 없이, 화면 아무 데나 처음 누를 때 소리를 켠다 (RoomView) */}
-      <div className="hidden sm:block">
+      <div className="hidden sm:block phone-land:hidden!">
         <StartAudio
           label="여기를 눌러 소리 켜기"
           className="fixed inset-x-0 top-14 z-20 mx-auto w-fit rounded-lg bg-indigo-600 px-4 py-2"
@@ -110,6 +136,8 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
   const chat = useChat();
   const screen = useTracks([Track.Source.ScreenShare])[0];
   const room = useRoomContext();
+  // 휴대폰을 가로로 눕히면 공유 화면만 꽉 차게 보여 주고 나머지는 모두 숨긴다
+  const hideOnLand = screen ? "phone-land:hidden!" : "";
 
   // 브라우저가 소리를 막아 둔 경우, 화면을 한 번이라도 누르면 풀린다
   useEffect(() => {
@@ -122,12 +150,27 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <>
-      <header className="flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b border-zinc-800 px-3 text-sm whitespace-nowrap">
+      <header
+        className={`${hideOnLand} flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b border-zinc-800 px-3 text-sm whitespace-nowrap`}
+      >
         <b className="text-base">
           DO<span className="text-red-500">LIVE</span>
         </b>
-        <button onClick={() => setShowPeople(!showPeople)} className="text-zinc-400 md:pointer-events-none">
+        {/* 휴대폰: 눌러서 참여자 목록을 여는 배지. 넓은 화면은 목록이 늘 보여서 그냥 글자 */}
+        <button
+          onClick={() => setShowPeople(!showPeople)}
+          aria-expanded={showPeople}
+          className={`flex items-center gap-1 rounded-full px-3 py-1 text-zinc-200 md:pointer-events-none md:bg-transparent md:px-0 md:text-zinc-400 ${showPeople ? "bg-indigo-600" : "bg-zinc-800 active:bg-zinc-700"}`}
+        >
           참여자 {participants.length}명
+          <svg
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            aria-hidden
+            className={`size-4 transition-transform md:hidden ${showPeople ? "rotate-180" : ""}`}
+          >
+            <path d="M5.2 7.2a.75.75 0 0 1 1.06 0L10 10.94l3.74-3.74a.75.75 0 1 1 1.06 1.06l-4.27 4.27a.75.75 0 0 1-1.06 0L5.2 8.26a.75.75 0 0 1 0-1.06Z" />
+          </svg>
         </button>
         <div className="ml-auto flex items-center gap-2">
           {isAdmin && (
@@ -139,7 +182,7 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <aside
-          className={`${showPeople ? "absolute inset-y-0 left-0 z-10 flex" : "hidden"} w-56 flex-col gap-1 overflow-y-auto border-r border-zinc-800 bg-zinc-900 p-2 md:static md:flex`}
+          className={`${showPeople ? "absolute inset-y-0 left-0 z-10 flex" : "hidden"} w-56 flex-col gap-1 overflow-y-auto border-r border-zinc-800 bg-zinc-900 p-2 md:static md:flex ${hideOnLand}`}
         >
           {participants.map((p) => (
             <PersonRow key={p.identity} p={p} />
@@ -151,12 +194,12 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
           {/* 휴대폰에서 화면공유 중에 자판이 올라오면 채팅 내용 칸이 먼저 줄고, 그래도 좁으면 공유 화면도 줄어든다 */}
           <ChatLog
             messages={chat.chatMessages}
-            className={`${screen ? "min-h-24 flex-1" : "h-2/5 shrink-0"} border-t border-zinc-800 lg:h-auto lg:w-72 lg:flex-none lg:border-t-0 lg:border-l`}
+            className={`${screen ? "min-h-24 flex-1" : "h-2/5 shrink-0"} border-t border-zinc-800 lg:h-auto lg:w-72 lg:flex-none lg:border-t-0 lg:border-l ${hideOnLand}`}
           />
         </div>
       </div>
 
-      <ChatInput send={chat.send} />
+      <ChatInput send={chat.send} className={hideOnLand} />
     </>
   );
 }
@@ -186,15 +229,10 @@ function PersonRow({ p }: { p: Participant }) {
 // 휴대폰에서 화면공유 중이면 공유 화면(16:9)만 맨 위에 두고 캐릭터 줄은 숨긴다. 자리가 모자라면 공유 화면이 줄어든다.
 function Stage({ participants, screen }: { participants: Participant[]; screen?: TrackReference }) {
   return (
-    <div className={`flex min-h-0 flex-col gap-2 p-2 ${screen ? "lg:flex-1" : "flex-1"}`}>
-      {screen && (
-        <div className="relative aspect-video min-h-0 w-full rounded-lg bg-black lg:aspect-auto lg:flex-1">
-          <VideoTrack trackRef={screen} className="size-full object-contain" />
-          <span className="absolute top-2 left-2 rounded bg-black/60 px-2 py-0.5 text-xs">
-            {screen.participant.name}님의 화면
-          </span>
-        </div>
-      )}
+    <div
+      className={`flex min-h-0 flex-col gap-2 p-2 ${screen ? "lg:flex-1 phone-land:flex-1 phone-land:p-0" : "flex-1"}`}
+    >
+      {screen && <ScreenView screen={screen} />}
       <div
         className={
           screen
@@ -206,6 +244,46 @@ function Stage({ participants, screen }: { participants: Participant[]; screen?:
           <Tile key={p.identity} p={p} small={!!screen} />
         ))}
       </div>
+    </div>
+  );
+}
+
+// 공유 화면. 휴대폰을 가로로 눕히고 화면을 누르면 주소창·아래 버튼까지 숨긴 전체화면(영화관 모드)이 되고, 한 번 더 누르면 풀린다.
+type IosVideo = HTMLVideoElement & { webkitEnterFullscreen?: () => void };
+
+function ScreenView({ screen }: { screen: TrackReference }) {
+  const [full, setFull] = useState(false);
+
+  useEffect(() => {
+    const onChange = () => setFull(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  function toggleFull(e: React.MouseEvent<HTMLDivElement>) {
+    if (full) return void document.exitFullscreen();
+    if (!document.documentElement.hasAttribute("data-phone-land")) return;
+    const root = document.documentElement;
+    if (root.requestFullscreen) root.requestFullscreen().catch(() => {});
+    // 아이폰은 페이지 전체화면이 안 돼서, 영상만 아이폰 기본 전체화면으로 띄운다
+    else (e.currentTarget.querySelector("video") as IosVideo | null)?.webkitEnterFullscreen?.();
+  }
+
+  return (
+    <div
+      onClick={toggleFull}
+      className="relative aspect-video min-h-0 w-full rounded-lg bg-black lg:aspect-auto lg:flex-1 phone-land:aspect-auto phone-land:flex-1 phone-land:rounded-none"
+    >
+      <VideoTrack trackRef={screen} className="size-full object-contain" />
+      <span className="absolute top-2 left-2 rounded bg-black/60 px-2 py-0.5 text-xs phone-land:hidden">
+        {screen.participant.name}님의 화면
+      </span>
+      {/* 4초 뒤 스르륵 사라짐. 가로로 다시 눕히거나 전체화면이 풀리면 다시 나타난다 */}
+      {!full && (
+        <span className="absolute inset-x-0 bottom-6 mx-auto hidden w-fit rounded-2xl bg-black/70 px-8 py-4 text-3xl font-bold whitespace-nowrap text-white phone-land:block animate-[fade-out_0.8s_ease_4s_forwards]">
+          화면을 누르면 전체화면
+        </span>
+      )}
     </div>
   );
 }
@@ -292,7 +370,7 @@ function ChatLog({ messages, className }: { messages: Chat["chatMessages"]; clas
 }
 
 // 맨 아래 항상 보이는 입력칸. 보낸 뒤에도 입력칸에 그대로 머물러 휴대폰 자판이 닫히지 않는다.
-function ChatInput({ send }: { send: Chat["send"] }) {
+function ChatInput({ send, className }: { send: Chat["send"]; className: string }) {
   const [text, setText] = useState("");
 
   return (
@@ -304,12 +382,13 @@ function ChatInput({ send }: { send: Chat["send"] }) {
         setText("");
       }}
       // 아래 여백: 브라우저 맨 아래에 붙지 않게 (아이폰 홈 바 자리도 비움)
-      className="flex shrink-0 gap-2 border-t border-zinc-800 px-3 pt-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+      className={`${className} flex shrink-0 gap-2 border-t border-zinc-800 px-3 pt-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))]`}
     >
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder="메시지 입력"        className="h-12 min-w-0 flex-1 rounded-full bg-zinc-800 px-5 text-base outline-none focus:ring-2 focus:ring-indigo-500"
+        placeholder="메시지 입력"
+        className="h-12 min-w-0 flex-1 rounded-full bg-zinc-800 px-5 text-base outline-none focus:ring-2 focus:ring-indigo-500"
       />
       <button
         type="submit"
