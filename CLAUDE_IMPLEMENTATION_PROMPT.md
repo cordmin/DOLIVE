@@ -23,7 +23,7 @@
 | 토큰 | `apps/web/app/api/token/route.ts` | Host가 localhost이고 X-Forwarded-For가 루프백뿐이면 방장. 바깥 사용자에게는 `LIVEKIT_PUBLIC_URL` |
 | 방장 마이크 끄기 | `apps/web/app/api/mute/route.ts` | 방장 판별은 `lib/admin.ts`(토큰과 같이 씀). LiveKit `RoomServiceClient.mutePublishedTrack` |
 | 화면공유 승인 | `apps/web/app/api/share/route.ts`, `lib/share.ts` | 방장 아닌 사람 입장권은 `MIC_ONLY`. 방장이 승인하면 `updateParticipant`로 `WITH_SCREEN`, 공유 끝나면 도로 `MIC_ONLY`. 요청/거부는 데이터 메시지 `dolive-share` |
-| 프로필 사진 | `apps/web/app/profile/[id]/route.ts`, `app/api/profile/route.ts` | 기본은 `assets/profile/<id>.webp`, 올린 사진은 `server/uploads/<id>.jpg` |
+| 프로필 사진 | `apps/web/app/profile/[id]/route.ts` | 기본 사진 `assets/profile/<id>.webp`. 내 사진은 서버를 거치지 않고 방 안에서 LiveKit `sendFile`로 주고받음 (`room/page.tsx`의 `usePhotoExchange`) |
 | HTTPS | `server/bin/caddy.exe`, `server/config/Caddyfile` | `/rtc*`, `/twirp/*` → 7880, 나머지 → 3000. 인증서는 TLS-ALPN(443)만 |
 | 주소 | `server/config/duckdns.env` | `dolive.duckdns.org`. 스크립트 실행 때 IP 갱신 |
 | 실행 | `scripts/start_dolive.ps1` | `-Local`(내 PC만), `-Build`(코드 바꾼 뒤), `-Stop`, UTF-8(BOM)으로 저장해야 한글이 안 깨짐. 프로젝트 폴더의 `DOLIVE.lnk`(아이콘 `scripts/icons/dolive.ico`)는 검은 창 없이(`conhost --headless`) 켜기/끄기 창 `scripts/dolive_panel.ps1`(WinForms)을 띄우고, 그 창이 이 스크립트를 뒤에서 부름 |
@@ -42,5 +42,5 @@
 * `npm.cmd --prefix apps/web install`
 
 ## 3. 프로필 사진
-* 기본 11장: `apps/web/lib/dolive.ts`의 `AVATARS` ("1" ~ "11"), 240x300. 내 사진 올리기: 입장 화면 "+" 칸 → `POST /api/profile` → `server/uploads/u-<id>.jpg` (`isUpload`). 사진은 `assets/profile/<id>.webp`. 말하면 초록 테두리 (`components/Avatar.tsx`).
+* 기본 11장: `apps/web/lib/dolive.ts`의 `AVATARS` ("1" ~ "11"), 240x300. 내 사진: 입장 화면 "+" 칸 → sessionStorage "photo"(data URL), 입장권 avatar는 "custom". 서버에 저장하지 않음. 사진은 `assets/profile/<id>.webp`. 말하면 초록 테두리 (`components/Avatar.tsx`).
 * 저장된 값이 목록에 없으면 `savedAvatar()`가 첫 사진으로 바꿔 줌.

@@ -4,46 +4,44 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
 import { PhotoCrop } from "@/components/PhotoCrop";
-import { AVATARS, isUpload, savedAvatar } from "@/lib/dolive";
+import { AVATARS, CUSTOM, savedAvatar } from "@/lib/dolive";
 
-// 입장 화면: 프로필 사진(기본 11장 + 내 사진 올리기) + 닉네임 → 채팅방 입장
+// 입장 화면: 프로필 사진(기본 11장 + 내 사진) + 닉네임 → 채팅방 입장
+// 내 사진은 서버에 올리지 않는다. 이 브라우저(sessionStorage "photo")에만 두었다가 방에서 사람들에게 바로 건넨다.
 // (마이크는 켜진 채로 들어가고, 방 안에서 끌 수 있다)
 export default function Home() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [avatar, setAvatar] = useState(AVATARS[0]);
-  const [custom, setCustom] = useState<string>(); // 내가 올린 사진 id (새로고침하면 없어진다)
+  const [custom, setCustom] = useState<string>(); // 내가 고른 사진 (data: 주소, 새로고침하면 없어진다)
   const [picked, setPicked] = useState<File>(); // 자리 맞추기 중인 사진
-  const [error, setError] = useState("");
   const picker = useRef<HTMLInputElement>(null);
 
   // sessionStorage는 브라우저에만 있어서 화면이 뜬 뒤(effect)에 읽어야 서버 화면과 어긋나지 않는다
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setName(sessionStorage.getItem("name") ?? "");
-    // 올렸던 내 사진은 새로고침하면 버리고 첫 사진으로
+    // 내 사진은 새로고침하면 버리고 첫 사진으로
+    sessionStorage.removeItem("photo");
     const saved = savedAvatar();
-    setAvatar(isUpload(saved) ? AVATARS[0] : saved);
+    setAvatar(saved === CUSTOM ? AVATARS[0] : saved);
   }, []);
 
-  async function upload(jpeg: Blob) {
+  function choosePhoto(jpeg: Blob) {
     setPicked(undefined);
-    setError("");
-    try {
-      const r = await fetch("/api/profile", { method: "POST", body: jpeg });
-      if (!r.ok) throw new Error();
-      const { id } = await r.json();
-      setCustom(id);
-      setAvatar(id);
-    } catch {
-      setError("사진을 올리지 못했어요. 다른 사진으로 해 보세요.");
-    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCustom(reader.result as string);
+      setAvatar(CUSTOM);
+    };
+    reader.readAsDataURL(jpeg);
   }
 
   function enter() {
     if (!name.trim()) return;
     sessionStorage.setItem("name", name.trim());
     sessionStorage.setItem("avatar", avatar);
+    if (avatar === CUSTOM && custom) sessionStorage.setItem("photo", custom);
     router.push("/room");
   }
 
@@ -69,9 +67,9 @@ export default function Home() {
           ))}
           {/* 마지막 칸: 내 사진 올리기. 올린 뒤에는 내 사진이 보이고, 고른 상태에서 다시 누르면 바꾸기 */}
           <button
-            onClick={() => (custom && avatar !== custom ? setAvatar(custom) : picker.current?.click())}
+            onClick={() => (custom && avatar !== CUSTOM ? setAvatar(CUSTOM) : picker.current?.click())}
             aria-label="내 사진 올리기"
-            className={`rounded-full p-1 ${custom && avatar === custom ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
+            className={`rounded-full p-1 ${avatar === CUSTOM ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
           >
             {custom ? (
               <Avatar id={custom} className="w-full" />
@@ -103,10 +101,9 @@ export default function Home() {
             }}
           />
         </div>
-        {error && <p className="text-sm text-red-400">{error}</p>}
       </section>
 
-      {picked && <PhotoCrop file={picked} onDone={upload} onCancel={() => setPicked(undefined)} />}
+      {picked && <PhotoCrop file={picked} onDone={choosePhoto} onCancel={() => setPicked(undefined)} />}
 
       <label className="flex flex-col gap-2">
         <span className="text-sm text-zinc-400">닉네임 입력</span>

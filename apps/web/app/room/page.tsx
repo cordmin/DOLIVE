@@ -27,10 +27,10 @@ import {
   type RemoteTrackPublication,
 } from "livekit-client";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Avatar } from "@/components/Avatar";
 import { Switch } from "@/components/Switch";
-import { AVATARS, savedAvatar } from "@/lib/dolive";
+import { AVATARS, CUSTOM, savedAvatar } from "@/lib/dolive";
 
 // 영상은 화면공유(1080p)뿐. 안 보이는 영상은 받지 않음(adaptiveStream).
 const ROOM_OPTIONS: RoomOptions = {
@@ -45,6 +45,79 @@ type Conn = { token: string; url: string; isAdmin: boolean };
 const SHARE_TOPIC = "dolive-share";
 const SCREEN_SHARE_SOURCE = 3; // LiveKit 권한 목록에서 화면공유를 뜻하는 번호 (TrackSource.SCREEN_SHARE)
 const text = (s: string) => new TextEncoder().encode(s);
+
+// 각자 고른 사진(프로필 "custom")은 서버에 저장하지 않는다. 방 안에서 통화 연결로 바로 주고받고, 이 탭 메모리에만 둔다.
+// 사람 identity -> 사진 주소(data:/blob:)
+const PHOTO_TOPIC = "dolive-photo";
+const photos = new Map<string, string>();
+const photoListeners = new Set<() => void>();
+let photoVersion = 0;
+
+function setPhoto(identity: string, url?: string) {
+  const old = photos.get(identity);
+  if (old?.startsWith("blob:")) URL.revokeObjectURL(old);
+  if (url) photos.set(identity, url);
+  else photos.delete(identity);
+  photoVersion++;
+  photoListeners.forEach((l) => l());
+}
+
+function usePhotos() {
+  useSyncExternalStore(
+    (l) => {
+      photoListeners.add(l);
+      return () => {
+        photoListeners.delete(l);
+      };
+    },
+    () => photoVersion,
+    () => 0,
+  );
+  return photos;
+}
+
+// 사진 번호, 또는 그 사람이 고른 사진 주소 (아직 못 받았으면 "" = 빈 회색)
+const avatarOf = (p: Participant | undefined) => {
+  const a = p?.attributes?.avatar ?? AVATARS[0];
+  return a === CUSTOM ? (photos.get(p!.identity) ?? "") : a;
+};
+
+// 내 사진이 있으면 방에 들어갈 때 먼저 와 있던 사람 모두에게 보내고, 나중에 누가 들어오면 그 사람에게 보낸다.
+function usePhotoExchange() {
+  const room = useRoomContext();
+  useEffect(() => {
+    const mine = sessionStorage.getItem("avatar") === CUSTOM ? sessionStorage.getItem("photo") : null;
+    const sendMine = async (to?: string[]) => {
+      if (!mine) return;
+      const blob = await (await fetch(mine)).blob();
+      await room.localParticipant
+        .sendFile(new File([blob], "photo.jpg", { type: "image/jpeg" }), { topic: PHOTO_TOPIC, destinationIdentities: to })
+        .catch(() => {});
+    };
+
+    room.registerByteStreamHandler(PHOTO_TOPIC, async (reader, { identity }) => {
+      const chunks = await reader.readAll();
+      if (chunks.reduce((n, c) => n + c.length, 0) > 300 * 1024) return; // 사진치고 너무 크면 버린다
+      setPhoto(identity, URL.createObjectURL(new Blob(chunks as BlobPart[], { type: "image/jpeg" })));
+    });
+    const onJoin = (p: RemoteParticipant) => sendMine([p.identity]);
+    const onLeave = (p: RemoteParticipant) => setPhoto(p.identity);
+    const start = () => {
+      if (mine) setPhoto(room.localParticipant.identity, mine);
+      sendMine();
+    };
+    room.on(RoomEvent.ParticipantConnected, onJoin).on(RoomEvent.ParticipantDisconnected, onLeave);
+    if (room.state === "connected") start();
+    else room.once(RoomEvent.Connected, start);
+    return () => {
+      room.unregisterByteStreamHandler(PHOTO_TOPIC);
+      room
+        .off(RoomEvent.ParticipantConnected, onJoin)
+        .off(RoomEvent.ParticipantDisconnected, onLeave)
+        .off(RoomEvent.Connected, start);
+    };
+  }, [room]);
+}
 
 // 새 사람이 화면공유를 시작하면 내 공유는 잠시 멈춘다. 멈춘 동안은 아예 보내지 않아서 데이터가 들지 않는다.
 // 그 사람이 공유를 끝내고 보내는 사람이 아무도 없으면 내 공유를 다시 보낸다.
@@ -183,6 +256,7 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
     .at(-1);
   const room = useRoomContext();
   usePauseOldShare();
+  usePhotoExchange();
 
   // 화면공유 승인 받기: 방장이 아닌 사람이 요청하면 방장 화면에 [승인] [거부]가 뜬다
   const [requests, setRequests] = useState<{ identity: string; name: string }[]>([]); // 방장이 받은 요청
@@ -315,7 +389,9 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
 }
 
 function useAvatarOf(p: Participant) {
-  return useParticipantAttributes({ participant: p }).attributes?.avatar ?? AVATARS[0];
+  useParticipantAttributes({ participant: p });
+  usePhotos();
+  return avatarOf(p);
 }
 
 // 방장에게는 다른 사람 옆에 "마이크 끄기" 버튼이 보인다 (/api/mute 가 방장인지 다시 확인한다)
@@ -509,6 +585,7 @@ const chatTime = (t: number) => new Date(t).toLocaleTimeString("ko-KR", { hour: 
 // 같은 사람이 같은 분에 이어 보낸 말은 한 묶음이라 사진·이름은 첫 말에만, 시간은 마지막 말에만 붙인다.
 function ChatLog({ messages, className }: { messages: Chat["chatMessages"]; className: string }) {
   const bottom = useRef<HTMLDivElement>(null);
+  usePhotos(); // 사진을 받으면 다시 그리기
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
@@ -527,7 +604,7 @@ function ChatLog({ messages, className }: { messages: Chat["chatMessages"]; clas
           <div key={m.id} className={`flex gap-2 ${mine ? "justify-end" : ""} ${first ? "mt-3" : "mt-1"}`}>
             {!mine &&
               (first ? (
-                <Avatar id={m.from?.attributes?.avatar ?? AVATARS[0]} px={52} className="size-10 shrink-0 md:size-13" />
+                <Avatar id={avatarOf(m.from)} px={52} className="size-10 shrink-0 md:size-13" />
               ) : (
                 <div className="w-10 shrink-0 md:w-13" />
               ))}
