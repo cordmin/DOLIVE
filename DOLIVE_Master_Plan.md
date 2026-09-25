@@ -108,6 +108,8 @@ DOLIVE/
 │   ├── logs/
 │   └── uploads/             # 사용자가 올린 프로필 사진 (git 제외)
 ├── scripts/start_dolive.ps1 # 전부 켜기 (-Local, -Build, -Stop)
+├── scripts/dolive_panel.ps1 # 켜기/끄기 창 (상태 표시, 버튼 하나, 주소 복사/열기), icons/dolive.ico
+├── DOLIVE.lnk               # 두 번 누르면 켜기/끄기 창이 뜸 (검은 창 없음)
 └── assets/profile/          # 기본 프로필 사진 1.webp ~ 11.webp (240x300)
 ```
 
