@@ -34,7 +34,6 @@ export async function POST(req: Request) {
     canPublish: true,
     canSubscribe: true,
     canPublishData: true,
-    canUpdateOwnMetadata: true,
   });
 
   // 3단계(바깥 접속)에서 LIVEKIT_PUBLIC_URL=wss://<도메인> 을 넣는다. 방장은 항상 localhost.
