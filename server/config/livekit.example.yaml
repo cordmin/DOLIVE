@@ -1,0 +1,14 @@
+﻿# DOLIVE LiveKit dev config
+port: 7880
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  # announce the home public IP so outside users can send media
+  use_external_ip: true
+  # also announce the LAN IP so the host PC / home Wi-Fi connect directly
+  advertise_internal_ip: true
+keys:
+  dolive: PUT_A_RANDOM_48_CHAR_SECRET_HERE
+logging:
+  level: info

@@ -1,0 +1,9 @@
+# secrets (see *.example files)
+server/config/livekit.yaml
+server/config/duckdns.env
+
+# downloaded programs (livekit-server.exe, caddy.exe) and logs
+server/bin/
+server/logs/
+
+node_modules/

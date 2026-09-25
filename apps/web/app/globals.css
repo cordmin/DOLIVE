@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+body {
+  font-family: "Pretendard", "Malgun Gothic", system-ui, sans-serif;
+}
+
+/* 말할 때 통통 튀는 바운스 */
+@keyframes talk-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8%); }
+}
+.talking {
+  animation: talk-bounce 0.35s ease-in-out infinite;
+}

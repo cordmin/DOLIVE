@@ -1,0 +1,16 @@
+# DOLIVE_DOMAIN is set by scripts/start_dolive.ps1 (from duckdns.env)
+{$DOLIVE_DOMAIN} {
+	# ISP router blocks external port 80, so get the certificate over 443 only
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+
+	# LiveKit signaling (WebSocket) and API
+	@livekit path /rtc /rtc/* /twirp/*
+	reverse_proxy @livekit 127.0.0.1:7880
+
+	# Web (Next.js)
+	reverse_proxy 127.0.0.1:3000
+}
