@@ -22,10 +22,10 @@ import {
   VideoPresets,
   type TrackPublication,
 } from "livekit-client";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
-import { AVATARS, ROOMS, savedAvatar } from "@/lib/dolive";
+import { AVATARS, savedAvatar } from "@/lib/dolive";
 
 // 20명 대비: 웹캠은 540p, 화면공유만 1080p. 안 보이는 영상은 받지 않음(adaptiveStream).
 const ROOM_OPTIONS: RoomOptions = {
@@ -35,27 +35,25 @@ const ROOM_OPTIONS: RoomOptions = {
   publishDefaults: { screenShareEncoding: ScreenSharePresets.h1080fps30.encoding },
 };
 
-type Conn = { token: string; url: string; isAdmin: boolean };
+type Conn = { token: string; url: string; isAdmin: boolean; mic: boolean; cam: boolean };
 
 export default function RoomPage() {
-  const { roomId } = useParams<{ roomId: string }>();
   const router = useRouter();
   const [conn, setConn] = useState<Conn>();
 
   useEffect(() => {
     const name = sessionStorage.getItem("name");
     if (!name) {
-      router.replace(`/?room=${roomId}`);
+      router.replace("/");
       return;
     }
-    fetch("/api/token", {
-      method: "POST",
-      body: JSON.stringify({ room: roomId, name, avatar: savedAvatar() }),
-    })
+    // 입장 화면에서 정한 마이크/카메라 상태 그대로 들어간다
+    const devices = { mic: sessionStorage.getItem("mic") !== "0", cam: sessionStorage.getItem("cam") === "1" };
+    fetch("/api/token", { method: "POST", body: JSON.stringify({ name, avatar: savedAvatar() }) })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then(setConn)
+      .then((c) => setConn({ ...c, ...devices }))
       .catch(() => router.replace("/"));
-  }, [roomId, router]);
+  }, [router]);
 
   if (!conn) return <p className="m-auto text-zinc-400">들어가는 중...</p>;
 
@@ -64,7 +62,8 @@ export default function RoomPage() {
       serverUrl={conn.url}
       token={conn.token}
       connect
-      audio
+      audio={conn.mic}
+      video={conn.cam}
       options={ROOM_OPTIONS}
       onDisconnected={() => router.push("/")}
       onError={(e) => alert(`연결 오류: ${e.message}`)}
@@ -78,16 +77,15 @@ export default function RoomPage() {
         label="🔊 여기를 눌러 소리 켜기"
         className="fixed inset-x-0 top-14 z-20 mx-auto w-fit rounded-lg bg-indigo-600 px-4 py-2"
       />
-      <RoomView roomId={roomId} isAdmin={conn.isAdmin} />
+      <RoomView isAdmin={conn.isAdmin} />
     </LiveKitRoom>
   );
 }
 
-function RoomView({ roomId, isAdmin }: { roomId: string; isAdmin: boolean }) {
+function RoomView({ isAdmin }: { isAdmin: boolean }) {
   const participants = useParticipants();
   const [panel, setPanel] = useState<"people" | "chat" | null>(null); // 휴대폰에서 열린 옆칸
   const toggle = (p: "people" | "chat") => setPanel(panel === p ? null : p);
-  const label = ROOMS.find((r) => r.id === roomId)?.label ?? roomId;
 
   return (
     <>
@@ -95,7 +93,7 @@ function RoomView({ roomId, isAdmin }: { roomId: string; isAdmin: boolean }) {
         <b className="hidden text-base sm:inline">
           DO<span className="text-red-500">LIVE</span>
         </b>
-        <span className="text-zinc-400"># {label}</span>
+        <span className="text-zinc-400"># 채팅방</span>
         <button onClick={() => toggle("people")} className="text-zinc-400 md:pointer-events-none">
           👥 {participants.length}명
         </button>

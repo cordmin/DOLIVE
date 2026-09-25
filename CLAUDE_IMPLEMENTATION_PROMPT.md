@@ -26,6 +26,7 @@
 | 주소 | `server/config/duckdns.env` | `dolive.duckdns.org`. 스크립트 실행 때 IP 갱신 |
 | 실행 | `scripts/start_dolive.ps1` | `-Local`(내 PC만), `-Build`(코드 바꾼 뒤), `-Stop` |
 
+* 채팅방은 하나 (`ROOM = "dolive"`, 주소 `/room`). 입장 화면(`app/page.tsx`)에서 마이크/카메라를 미리 켜 보고, 그 상태(`sessionStorage` mic/cam)로 입장.
 * 채팅: `useChat` (LiveKit 기본 토픽 `lk.chat`). 저장하지 않음.
 * 개발 모드: 미리보기(`.claude/launch.json`)는 `autoPort`로 3001번 이후의 빈 번호를 써서, 3000번 완성품 웹과 같이 켜 둘 수 있다.
 

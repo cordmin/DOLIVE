@@ -1,5 +1,5 @@
 import { AccessToken } from "livekit-server-sdk";
-import { isAvatar, isRoom } from "@/lib/dolive";
+import { ROOM, isAvatar } from "@/lib/dolive";
 
 const LOOPBACK = ["localhost", "127.0.0.1", "[::1]", "::1", "::ffff:127.0.0.1"];
 
@@ -15,9 +15,9 @@ function isAdmin(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { room, name, avatar } = await req.json().catch(() => ({}));
+  const { name, avatar } = await req.json().catch(() => ({}));
   const nickname = typeof name === "string" ? name.trim() : "";
-  if (!isRoom(room) || !isAvatar(avatar) || nickname.length < 1 || nickname.length > 20) {
+  if (!isAvatar(avatar) || nickname.length < 1 || nickname.length > 20) {
     return Response.json({ error: "잘못된 입장 정보" }, { status: 400 });
   }
 
@@ -30,7 +30,7 @@ export async function POST(req: Request) {
   });
   at.addGrant({
     roomJoin: true,
-    room,
+    room: ROOM,
     canPublish: true,
     canSubscribe: true,
     canPublishData: true,

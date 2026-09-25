@@ -12,7 +12,7 @@ New-Item -ItemType Directory -Force $logs | Out-Null
 function Stop-All {
     Get-Process livekit-server, caddy -ErrorAction SilentlyContinue | Stop-Process -Force
     Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
-        Where-Object CommandLine -like "*next*start*" |
+        Where-Object CommandLine -like "*next start*" |  # not the dev server's start-server.js
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 }
 
