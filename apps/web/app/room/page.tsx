@@ -194,7 +194,7 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
           {/* 휴대폰에서 화면공유 중에 자판이 올라오면 채팅 내용 칸이 먼저 줄고, 그래도 좁으면 공유 화면도 줄어든다 */}
           <ChatLog
             messages={chat.chatMessages}
-            className={`${screen ? "min-h-24 flex-1" : "min-h-0 flex-1 md:h-2/5 md:flex-none"} border-t border-zinc-800 ${hideOnLand}`}
+            className={`${screen ? "min-h-24 flex-1" : "min-h-0 flex-1"} border-t border-zinc-800 ${hideOnLand}`}
           />
         </div>
       </div>
@@ -246,13 +246,14 @@ function PersonRow({ p, isAdmin }: { p: Participant; isAdmin: boolean }) {
 function Stage({ participants, screen }: { participants: Participant[]; screen?: TrackReference }) {
   return (
     <div
-      className={`flex min-h-0 flex-col gap-2 p-2 ${screen ? "phone-land:flex-1 phone-land:p-0" : "shrink-0 md:flex-1"}`}
+      className={`flex min-h-0 flex-col gap-2 p-2 ${screen ? "phone-land:flex-1 phone-land:p-0" : "shrink-0"}`}
     >
       {screen ? (
         <ScreenView screen={screen} />
       ) : (
-        // 휴대폰: 폭 80px 카드 2줄, 사람이 많으면 옆으로 밀어서 본다. 넓은 화면: 최소 160px 카드를 여러 줄로
-        <div className="grid auto-cols-[80px] grid-flow-col [grid-template-rows:repeat(2,auto)] gap-2 overflow-x-auto md:flex-1 md:auto-cols-auto md:auto-rows-min md:grid-flow-row md:[grid-template-rows:none] md:content-center md:overflow-x-visible md:overflow-y-auto md:[grid-template-columns:repeat(auto-fill,minmax(160px,1fr))]">
+        // 카드 2줄, 사람이 많으면 옆으로 밀어서 본다. 카드 폭은 휴대폰 80px, 넓은 화면 120px
+        // p-0.5: 말할 때 생기는 초록 테두리(바깥쪽 2px)가 스크롤 칸 가장자리에서 잘리지 않게
+        <div className="grid auto-cols-[80px] grid-flow-col [grid-template-rows:repeat(2,auto)] gap-2 overflow-x-auto p-0.5 md:auto-cols-[120px]">
           {participants.map((p) => (
             <Tile key={p.identity} p={p} />
           ))}
