@@ -29,7 +29,7 @@ const ROOM_OPTIONS: RoomOptions = {
   publishDefaults: { screenShareEncoding: ScreenSharePresets.h1080fps30.encoding },
 };
 
-type Conn = { token: string; url: string; isAdmin: boolean; mic: boolean };
+type Conn = { token: string; url: string; isAdmin: boolean };
 
 // 휴대폰 자판이 올라와도 화면 전체가 밀려 올라가지 않게, 방 높이를 '실제로 보이는 높이'에 맞춘다.
 // (안드로이드는 layout.tsx 의 interactiveWidget 설정으로, 아이폰은 이 코드로 처리)
@@ -61,7 +61,9 @@ function usePhoneLandscape() {
       const land = screen.orientation
         ? screen.orientation.type.startsWith("landscape")
         : matchMedia("(orientation: landscape)").matches; // 옛 아이폰: 자판이 화면 크기를 안 바꿔서 괜찮다
-      const phone = Math.min(screen.width, screen.height) <= 500;
+      // 손가락으로 쓰는 작은 화면만 (크기를 0으로 알려 주는 브라우저도 있어서 0은 제외)
+      const short = Math.min(screen.width, screen.height);
+      const phone = short > 0 && short <= 500 && matchMedia("(pointer: coarse)").matches;
       root.toggleAttribute("data-phone-land", land && phone);
       // 다시 세로로 세우면 전체화면을 푼다
       if (!land && document.fullscreenElement) document.exitFullscreen();
@@ -89,11 +91,9 @@ export default function RoomPage() {
       router.replace("/");
       return;
     }
-    // 입장 화면에서 정한 마이크 상태 그대로 들어간다
-    const mic = sessionStorage.getItem("mic") !== "0";
     fetch("/api/token", { method: "POST", body: JSON.stringify({ name, avatar: savedAvatar() }) })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((c) => setConn({ ...c, mic }))
+      .then(setConn)
       .catch(() => router.replace("/"));
   }, [router]);
 
@@ -104,7 +104,7 @@ export default function RoomPage() {
       serverUrl={conn.url}
       token={conn.token}
       connect
-      audio={conn.mic}
+      audio // 마이크는 켜진 채로 들어간다
       options={ROOM_OPTIONS}
       onDisconnected={() => router.push("/")}
       onError={(e) => alert(`연결 오류: ${e.message}`)}
@@ -128,7 +128,7 @@ export default function RoomPage() {
 }
 
 // 위: 로고, 참여자 수, (방장), 화면공유, 마이크 스위치
-// 가운데: [참여자 목록] [캐릭터/화면공유] [채팅 내용]  (휴대폰: 위에 화면공유 또는 캐릭터, 아래에 채팅 내용)
+// 가운데: [참여자 목록] [위: 화면공유 또는 프로필 사진 / 아래: 채팅 내용]  (휴대폰은 참여자 목록을 눌러서 연다)
 // 아래: 카카오톡처럼 항상 보이는 메시지 입력칸
 function RoomView({ isAdmin }: { isAdmin: boolean }) {
   const participants = useParticipants();
@@ -185,35 +185,43 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
           className={`${showPeople ? "absolute inset-y-0 left-0 z-10 flex" : "hidden"} w-56 flex-col gap-1 overflow-y-auto border-r border-zinc-800 bg-zinc-900 p-2 md:static md:flex ${hideOnLand}`}
         >
           {participants.map((p) => (
-            <PersonRow key={p.identity} p={p} />
+            <PersonRow key={p.identity} p={p} isAdmin={isAdmin} />
           ))}
         </aside>
 
-        <div className="flex min-w-0 flex-1 flex-col lg:flex-row">
+        <div className="flex min-w-0 flex-1 flex-col">
           <Stage participants={participants} screen={screen} />
           {/* 휴대폰에서 화면공유 중에 자판이 올라오면 채팅 내용 칸이 먼저 줄고, 그래도 좁으면 공유 화면도 줄어든다 */}
           <ChatLog
             messages={chat.chatMessages}
-            className={`${screen ? "min-h-24 flex-1" : "h-2/5 shrink-0"} border-t border-zinc-800 lg:h-auto lg:w-72 lg:flex-none lg:border-t-0 lg:border-l ${hideOnLand}`}
+            className={`${screen ? "min-h-24 flex-1" : "min-h-0 flex-1 md:h-2/5 md:flex-none"} border-t border-zinc-800 ${hideOnLand}`}
           />
         </div>
       </div>
 
-      <ChatInput send={chat.send} className={hideOnLand} />
+      {/* 넓은 화면: 왼쪽 참여자 목록 밑으로는 들어가지 않게 (왼쪽 테두리가 목록의 오른쪽 테두리와 이어진다) */}
+      <ChatInput send={chat.send} className={`md:ml-[calc(14rem-1px)] md:border-l ${hideOnLand}`} />
     </>
   );
 }
 
 function useAvatarOf(p: Participant) {
-  return useParticipantAttributes({ participant: p }).attributes?.avatar ?? AVATARS[0].id;
+  return useParticipantAttributes({ participant: p }).attributes?.avatar ?? AVATARS[0];
 }
 
-function PersonRow({ p }: { p: Participant }) {
+// 방장에게는 다른 사람 옆에 "마이크 끄기" 버튼이 보인다 (/api/mute 가 방장인지 다시 확인한다)
+function PersonRow({ p, isAdmin }: { p: Participant; isAdmin: boolean }) {
   const speaking = useIsSpeaking(p);
   const muted = useIsMuted({ participant: p, source: Track.Source.Microphone });
+
+  async function forceMute() {
+    const r = await fetch("/api/mute", { method: "POST", body: JSON.stringify({ identity: p.identity }) });
+    if (!r.ok) alert("마이크를 끄지 못했어요.");
+  }
+
   return (
     <div className="flex items-center gap-2 rounded p-1 hover:bg-zinc-800">
-      <Avatar id={useAvatarOf(p)} talking={speaking && !muted} muted={muted} className="w-9 shrink-0" />
+      <Avatar id={useAvatarOf(p)} talking={speaking && !muted} muted={muted} px={47} className="w-9 shrink-0 md:w-[47px]" />
       <div className="min-w-0">
         <div className="truncate text-sm">
           {p.name}
@@ -221,29 +229,35 @@ function PersonRow({ p }: { p: Participant }) {
         </div>
         <div className="text-xs text-zinc-500">{muted ? "음소거" : speaking ? "말하는 중" : "대기 중"}</div>
       </div>
+      {isAdmin && !p.isLocal && !muted && (
+        <button
+          onClick={forceMute}
+          className="ml-auto shrink-0 rounded-full bg-red-600/20 px-2.5 py-1 text-xs text-red-300 hover:bg-red-600/40"
+        >
+          마이크 끄기
+        </button>
+      )}
     </div>
   );
 }
 
-// 가운데: 화면공유가 있으면 크게, 아래에 참여자 캐릭터 칸. 없으면 캐릭터 칸만.
-// 휴대폰에서 화면공유 중이면 공유 화면(16:9)만 맨 위에 두고 캐릭터 줄은 숨긴다. 자리가 모자라면 공유 화면이 줄어든다.
+// 가운데 위쪽: 화면공유가 있으면 공유 화면만 (사진은 왼쪽 참여자 목록에 있으니 안 보여 줌), 없으면 프로필 사진 칸.
+// 자리가 모자라면 공유 화면이 줄어든다. 채팅 내용은 PC든 휴대폰이든 그 아래.
 function Stage({ participants, screen }: { participants: Participant[]; screen?: TrackReference }) {
   return (
     <div
-      className={`flex min-h-0 flex-col gap-2 p-2 ${screen ? "lg:flex-1 phone-land:flex-1 phone-land:p-0" : "flex-1"}`}
+      className={`flex min-h-0 flex-col gap-2 p-2 ${screen ? "phone-land:flex-1 phone-land:p-0" : "shrink-0 md:flex-1"}`}
     >
-      {screen && <ScreenView screen={screen} />}
-      <div
-        className={
-          screen
-            ? "hidden shrink-0 gap-2 overflow-x-auto lg:flex"
-            : "grid flex-1 auto-rows-min content-center gap-2 overflow-y-auto [grid-template-columns:repeat(auto-fill,minmax(160px,1fr))]"
-        }
-      >
-        {participants.map((p) => (
-          <Tile key={p.identity} p={p} small={!!screen} />
-        ))}
-      </div>
+      {screen ? (
+        <ScreenView screen={screen} />
+      ) : (
+        // 휴대폰: 폭 80px 카드 2줄, 사람이 많으면 옆으로 밀어서 본다. 넓은 화면: 최소 160px 카드를 여러 줄로
+        <div className="grid auto-cols-[80px] grid-flow-col [grid-template-rows:repeat(2,auto)] gap-2 overflow-x-auto md:flex-1 md:auto-cols-auto md:auto-rows-min md:grid-flow-row md:[grid-template-rows:none] md:content-center md:overflow-x-visible md:overflow-y-auto md:[grid-template-columns:repeat(auto-fill,minmax(160px,1fr))]">
+          {participants.map((p) => (
+            <Tile key={p.identity} p={p} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -253,6 +267,7 @@ type IosVideo = HTMLVideoElement & { webkitEnterFullscreen?: () => void };
 
 function ScreenView({ screen }: { screen: TrackReference }) {
   const [full, setFull] = useState(false);
+  const [ratio, setRatio] = useState(16 / 9); // 공유된 화면의 실제 가로:세로
 
   useEffect(() => {
     const onChange = () => setFull(!!document.fullscreenElement);
@@ -272,9 +287,18 @@ function ScreenView({ screen }: { screen: TrackReference }) {
   return (
     <div
       onClick={toggleFull}
-      className="relative aspect-video min-h-0 w-full rounded-lg bg-black lg:aspect-auto lg:flex-1 phone-land:aspect-auto phone-land:flex-1 phone-land:rounded-none"
+      // PC: 공유된 화면 비율 그대로(위아래 검은 띠 없이). 높이는 화면의 60%까지만 써서 아래 채팅 자리를 남긴다
+      style={{ "--ratio": ratio } as React.CSSProperties}
+      className="relative aspect-video min-h-0 w-full rounded-lg bg-black lg:mx-auto lg:aspect-(--ratio) lg:max-w-[calc(60vh*var(--ratio))] phone-land:aspect-auto phone-land:flex-1 phone-land:rounded-none"
     >
-      <VideoTrack trackRef={screen} className="size-full object-contain" />
+      <VideoTrack
+        trackRef={screen}
+        onResize={(e) => {
+          const v = e.currentTarget;
+          if (v.videoWidth && v.videoHeight) setRatio(v.videoWidth / v.videoHeight);
+        }}
+        className="size-full object-contain"
+      />
       <span className="absolute top-2 left-2 rounded bg-black/60 px-2 py-0.5 text-xs phone-land:hidden">
         {screen.participant.name}님의 화면
       </span>
@@ -288,17 +312,16 @@ function ScreenView({ screen }: { screen: TrackReference }) {
   );
 }
 
-function Tile({ p, small }: { p: Participant; small: boolean }) {
+function Tile({ p }: { p: Participant }) {
   const speaking = useIsSpeaking(p);
   const muted = useIsMuted({ participant: p, source: Track.Source.Microphone });
   const avatar = useAvatarOf(p);
   return (
     <div
-      className={`relative flex aspect-video items-center justify-center overflow-hidden rounded-lg bg-zinc-800 ${
-        small ? "w-40 shrink-0" : ""
-      } ${speaking && !muted ? "ring-2 ring-green-500" : ""}`}
+      className={`relative overflow-hidden rounded-lg bg-zinc-800 ${speaking && !muted ? "ring-2 ring-green-500" : ""}`}
     >
-      <Avatar id={avatar} talking={speaking && !muted} muted={muted} className="h-3/4" />
+      {/* 이 카드만 사진을 자르지 않고 원래 모양 그대로 */}
+      <Avatar id={avatar} muted={muted} round={false} className="w-full" />
       <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 text-xs">{p.name}</span>
     </div>
   );
@@ -331,6 +354,8 @@ function MediaControls() {
                   audio: true,
                   resolution: ScreenSharePresets.h1080fps30.resolution,
                   contentHint: "detail",
+                  video: { displaySurface: "monitor" }, // 고르는 창에서 '전체 화면' 칸이 먼저 열리게
+                  selfBrowserSurface: "exclude", // 이 탭은 목록에서 뺀다 (화면 속 화면이 끝없이 비치는 것 방지)
                 }),
               "화면공유",
             )
@@ -346,6 +371,11 @@ function MediaControls() {
 
 type Chat = ReturnType<typeof useChat>;
 
+// "오전 12:03"
+const chatTime = (t: number) => new Date(t).toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" });
+
+// 카카오톡처럼: 남의 말은 왼쪽(사진·이름 + 회색 말풍선), 내 말은 오른쪽(보라색 말풍선).
+// 같은 사람이 같은 분에 이어 보낸 말은 한 묶음이라 사진·이름은 첫 말에만, 시간은 마지막 말에만 붙인다.
 function ChatLog({ messages, className }: { messages: Chat["chatMessages"]; className: string }) {
   const bottom = useRef<HTMLDivElement>(null);
 
@@ -354,16 +384,38 @@ function ChatLog({ messages, className }: { messages: Chat["chatMessages"]; clas
   }, [messages.length]);
 
   return (
-    <div className={`space-y-2 overflow-y-auto p-3 text-sm ${className}`}>
-      {messages.map((m) => (
-        <div key={m.id}>
-          <span className="text-xs text-zinc-500">
-            [{new Date(m.timestamp).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}]
-          </span>{" "}
-          <b>{m.from?.name}</b>
-          <p className="break-words whitespace-pre-wrap">{m.message}</p>
-        </div>
-      ))}
+    <div className={`overflow-y-auto p-3 text-sm ${className}`}>
+      {messages.map((m, i) => {
+        const who = m.from?.identity;
+        const same = (o?: (typeof messages)[number]) =>
+          !!o && o.from?.identity === who && chatTime(o.timestamp) === chatTime(m.timestamp);
+        const first = !same(messages[i - 1]);
+        const last = !same(messages[i + 1]);
+        const mine = m.from?.isLocal;
+        return (
+          <div key={m.id} className={`flex gap-2 ${mine ? "justify-end" : ""} ${first ? "mt-3" : "mt-1"}`}>
+            {!mine &&
+              (first ? (
+                <Avatar id={m.from?.attributes?.avatar ?? AVATARS[0]} px={52} className="size-10 shrink-0 md:size-13" />
+              ) : (
+                <div className="w-10 shrink-0 md:w-13" />
+              ))}
+            <div className={`flex max-w-[75%] min-w-0 flex-col ${mine ? "items-end" : "items-start"}`}>
+              {first && !mine && <span className="mb-1 text-xs text-zinc-400">{m.from?.name ?? "나간 사람"}</span>}
+              <div className={`flex items-end gap-1.5 ${mine ? "flex-row-reverse" : ""}`}>
+                <p
+                  className={`min-w-0 rounded-2xl px-3 py-2 break-words whitespace-pre-wrap ${
+                    mine ? "bg-indigo-600" : "bg-zinc-800"
+                  } ${first ? (mine ? "rounded-tr-sm" : "rounded-tl-sm") : ""}`}
+                >
+                  {m.message}
+                </p>
+                {last && <span className="shrink-0 text-[11px] text-zinc-500">{chatTime(m.timestamp)}</span>}
+              </div>
+            </div>
+          </div>
+        );
+      })}
       <div ref={bottom} />
     </div>
   );

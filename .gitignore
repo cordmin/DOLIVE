@@ -7,3 +7,6 @@ server/bin/
 server/logs/
 
 node_modules/
+
+# profile photos people upload on the entry page
+server/uploads/
