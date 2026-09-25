@@ -22,6 +22,7 @@
 | 웹 | `apps/web` (Next.js 16.3, Tailwind 4, `@livekit/components-react`) | `127.0.0.1:3000`에만 열림 |
 | 토큰 | `apps/web/app/api/token/route.ts` | Host가 localhost이고 X-Forwarded-For가 루프백뿐이면 방장. 바깥 사용자에게는 `LIVEKIT_PUBLIC_URL` |
 | 방장 마이크 끄기 | `apps/web/app/api/mute/route.ts` | 방장 판별은 `lib/admin.ts`(토큰과 같이 씀). LiveKit `RoomServiceClient.mutePublishedTrack` |
+| 화면공유 승인 | `apps/web/app/api/share/route.ts`, `lib/share.ts` | 방장 아닌 사람 입장권은 `MIC_ONLY`. 방장이 승인하면 `updateParticipant`로 `WITH_SCREEN`, 공유 끝나면 도로 `MIC_ONLY`. 요청/거부는 데이터 메시지 `dolive-share` |
 | 프로필 사진 | `apps/web/app/profile/[id]/route.ts`, `app/api/profile/route.ts` | 기본은 `assets/profile/<id>.webp`, 올린 사진은 `server/uploads/<id>.jpg` |
 | HTTPS | `server/bin/caddy.exe`, `server/config/Caddyfile` | `/rtc*`, `/twirp/*` → 7880, 나머지 → 3000. 인증서는 TLS-ALPN(443)만 |
 | 주소 | `server/config/duckdns.env` | `dolive.duckdns.org`. 스크립트 실행 때 IP 갱신 |

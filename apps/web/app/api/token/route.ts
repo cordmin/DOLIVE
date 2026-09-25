@@ -1,6 +1,7 @@
 import { AccessToken } from "livekit-server-sdk";
 import { isAdmin } from "@/lib/admin";
 import { ROOM, isAvatar } from "@/lib/dolive";
+import { MIC_ONLY } from "@/lib/share";
 
 export async function POST(req: Request) {
   const { name, avatar } = await req.json().catch(() => ({}));
@@ -22,6 +23,8 @@ export async function POST(req: Request) {
     canPublish: true,
     canSubscribe: true,
     canPublishData: true,
+    // 방장은 다 보낼 수 있고, 나머지는 마이크만 (화면공유는 방장이 허락하면 /api/share 가 풀어 준다)
+    ...(admin ? {} : { canPublishSources: MIC_ONLY }),
   });
 
   // 3단계(바깥 접속)에서 LIVEKIT_PUBLIC_URL=wss://<도메인> 을 넣는다. 방장은 항상 localhost.

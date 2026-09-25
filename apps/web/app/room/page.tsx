@@ -6,16 +6,26 @@ import {
   StartAudio,
   VideoTrack,
   useChat,
+  useDataChannel,
   useIsMuted,
   useIsSpeaking,
   useLocalParticipant,
+  useLocalParticipantPermissions,
   useParticipantAttributes,
   useParticipants,
   useRoomContext,
   useTracks,
 } from "@livekit/components-react";
 import type { TrackReference } from "@livekit/components-react";
-import { Participant, RoomOptions, ScreenSharePresets, Track } from "livekit-client";
+import {
+  Participant,
+  RoomEvent,
+  RoomOptions,
+  ScreenSharePresets,
+  Track,
+  type RemoteParticipant,
+  type RemoteTrackPublication,
+} from "livekit-client";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
@@ -30,6 +40,39 @@ const ROOM_OPTIONS: RoomOptions = {
 };
 
 type Conn = { token: string; url: string; isAdmin: boolean };
+
+// 화면공유 요청("request")과 거부("denied")를 주고받는 채널
+const SHARE_TOPIC = "dolive-share";
+const SCREEN_SHARE_SOURCE = 3; // LiveKit 권한 목록에서 화면공유를 뜻하는 번호 (TrackSource.SCREEN_SHARE)
+const text = (s: string) => new TextEncoder().encode(s);
+
+// 새 사람이 화면공유를 시작하면 내 공유는 잠시 멈춘다. 멈춘 동안은 아예 보내지 않아서 데이터가 들지 않는다.
+// 그 사람이 공유를 끝내고 보내는 사람이 아무도 없으면 내 공유를 다시 보낸다.
+// ponytail: 셋이 겹쳐 공유하다 마지막 사람이 끝내면 멈춰 있던 둘이 같이 다시 켜진다. 드문 일이라 그대로 둠.
+function usePauseOldShare() {
+  const room = useRoomContext();
+  useEffect(() => {
+    const mine = () =>
+      [Track.Source.ScreenShare, Track.Source.ScreenShareAudio]
+        .map((s) => room.localParticipant.getTrackPublication(s))
+        .filter((p) => !!p);
+    const onPublished = (pub: RemoteTrackPublication) => {
+      if (pub.source === Track.Source.ScreenShare) mine().forEach((p) => p.mute());
+    };
+    const onUnpublished = (pub: RemoteTrackPublication) => {
+      if (pub.source !== Track.Source.ScreenShare) return;
+      const othersSending = [...room.remoteParticipants.values()].some((p) => {
+        const s = p.getTrackPublication(Track.Source.ScreenShare);
+        return s && s !== pub && !s.isMuted;
+      });
+      if (!othersSending) mine().forEach((p) => p.unmute());
+    };
+    room.on(RoomEvent.TrackPublished, onPublished).on(RoomEvent.TrackUnpublished, onUnpublished);
+    return () => {
+      room.off(RoomEvent.TrackPublished, onPublished).off(RoomEvent.TrackUnpublished, onUnpublished);
+    };
+  }, [room]);
+}
 
 // 휴대폰 자판이 올라와도 화면 전체가 밀려 올라가지 않게, 방 높이를 '실제로 보이는 높이'에 맞춘다.
 // (안드로이드는 layout.tsx 의 interactiveWidget 설정으로, 아이폰은 이 코드로 처리)
@@ -134,8 +177,58 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
   const participants = useParticipants();
   const [showPeople, setShowPeople] = useState(false); // 휴대폰에서 참여자 목록 열기
   const chat = useChat();
-  const screen = useTracks([Track.Source.ScreenShare])[0];
+  // 공유가 여럿이면 멈추지 않은(보내는 중인) 것 하나만 보여 준다
+  const screen = useTracks([Track.Source.ScreenShare])
+    .filter((t) => !t.publication.isMuted)
+    .at(-1);
   const room = useRoomContext();
+  usePauseOldShare();
+
+  // 화면공유 승인 받기: 방장이 아닌 사람이 요청하면 방장 화면에 [승인] [거부]가 뜬다
+  const [requests, setRequests] = useState<{ identity: string; name: string }[]>([]); // 방장이 받은 요청
+  const [asked, setAsked] = useState(false); // 내가 요청하고 기다리는 중
+  const { send } = useDataChannel(SHARE_TOPIC, (msg) => {
+    const what = new TextDecoder().decode(msg.payload);
+    const from = msg.from;
+    if (what === "request" && isAdmin && from) {
+      setRequests((r) =>
+        r.some((x) => x.identity === from.identity) ? r : [...r, { identity: from.identity, name: from.name ?? "" }],
+      );
+    }
+    if (what === "denied") {
+      setAsked(false);
+      alert("방장이 화면공유를 거부했어요.");
+    }
+  });
+
+  function requestShare() {
+    const admins = participants.filter((p) => p.attributes?.admin === "1").map((p) => p.identity);
+    if (!admins.length) return alert("방장이 방에 없어서 화면공유를 요청할 수 없어요.");
+    send(text("request"), { reliable: true, destinationIdentities: admins });
+    setAsked(true);
+    setTimeout(() => setAsked(false), 60_000); // 방장이 답이 없으면 1분 뒤 다시 누를 수 있게
+  }
+
+  async function answer(req: { identity: string }, allow: boolean) {
+    setRequests((r) => r.filter((x) => x.identity !== req.identity));
+    if (!allow) return send(text("denied"), { reliable: true, destinationIdentities: [req.identity] });
+    const r = await fetch("/api/share", { method: "POST", body: JSON.stringify({ identity: req.identity, allow: true }) });
+    if (!r.ok) alert("승인하지 못했어요. 그 사람이 방을 나갔을 수 있어요.");
+  }
+
+  // 방장: 승인받은 사람이 공유를 끝내면 권한을 도로 거둔다 (다음에 또 하려면 다시 승인받기)
+  useEffect(() => {
+    if (!isAdmin) return;
+    const onUnpublished = (pub: RemoteTrackPublication, p: RemoteParticipant) => {
+      if (pub.source !== Track.Source.ScreenShare || p.attributes.admin === "1") return;
+      fetch("/api/share", { method: "POST", body: JSON.stringify({ identity: p.identity, allow: false }) });
+    };
+    room.on(RoomEvent.TrackUnpublished, onUnpublished);
+    return () => {
+      room.off(RoomEvent.TrackUnpublished, onUnpublished);
+    };
+  }, [room, isAdmin]);
+  const waiting = requests.find((r) => participants.some((p) => p.identity === r.identity));
   // 휴대폰을 가로로 눕히면 공유 화면만 꽉 차게 보여 주고 나머지는 모두 숨긴다
   const hideOnLand = screen ? "phone-land:hidden!" : "";
 
@@ -150,6 +243,22 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <>
+      {waiting && (
+        <div className="fixed inset-x-0 top-16 z-30 mx-auto flex w-fit max-w-[calc(100%-2rem)] items-center gap-3 rounded-xl bg-zinc-800 px-4 py-3 shadow-lg ring-1 ring-zinc-700">
+          <span className="text-sm">
+            <b>{waiting.name}</b>님이 화면공유를 하려고 해요
+          </span>
+          <button
+            onClick={() => answer(waiting, true)}
+            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold hover:bg-indigo-500"
+          >
+            승인
+          </button>
+          <button onClick={() => answer(waiting, false)} className="rounded-lg bg-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-600">
+            거부
+          </button>
+        </div>
+      )}
       <header
         className={`${hideOnLand} flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b border-zinc-800 px-3 text-sm whitespace-nowrap`}
       >
@@ -176,7 +285,7 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
           {isAdmin && (
             <span className="rounded bg-amber-500 px-2 py-0.5 text-xs font-bold text-black">방장</span>
           )}
-          <MediaControls />
+          <MediaControls asked={asked} requestShare={requestShare} />
         </div>
       </header>
 
@@ -329,9 +438,15 @@ function Tile({ p }: { p: Participant }) {
 }
 
 // 위쪽 오른쪽: 화면공유(PC만) + 마이크 스위치
-function MediaControls() {
+// 화면공유 버튼: 방장은 바로 공유. 다른 사람은 [화면공유 -> 요청 중... -> (방장 승인) -> 지금 공유하기] 순서.
+// (승인이 나도 공유 고르는 창은 본인이 버튼을 눌러야 열린다 - 브라우저 규칙)
+function MediaControls({ asked, requestShare }: { asked: boolean; requestShare: () => void }) {
   const { localParticipant: me, isMicrophoneEnabled, isScreenShareEnabled } = useLocalParticipant();
   const canShare = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
+  const sources = useLocalParticipantPermissions()?.canPublishSources ?? [];
+  const allowed = sources.length === 0 || sources.includes(SCREEN_SHARE_SOURCE); // 빈 목록 = 다 보낼 수 있음(방장)
+  const approved = allowed && sources.length > 0; // 방장이 아닌데 승인받음
+  const paused = me.getTrackPublication(Track.Source.ScreenShare)?.isMuted; // 다른 사람이 공유 중이라 멈춤
 
   async function run(action: () => Promise<unknown>, fail: string) {
     try {
@@ -347,9 +462,14 @@ function MediaControls() {
       {canShare && (
         <button
           // 휴대폰은 화면공유를 못 하고 자리도 좁아서 숨긴다
-          className={`hidden rounded-full px-3 py-1.5 sm:block ${isScreenShareEnabled ? "bg-indigo-600" : "bg-zinc-800 hover:bg-zinc-700"}`}
+          className={`hidden rounded-full px-3 py-1.5 disabled:opacity-60 sm:block ${
+            isScreenShareEnabled ? "bg-indigo-600" : approved ? "bg-green-600 hover:bg-green-500" : "bg-zinc-800 hover:bg-zinc-700"
+          }`}
+          disabled={!isScreenShareEnabled && !allowed && asked}
           onClick={() =>
-            run(
+            !isScreenShareEnabled && !allowed
+              ? requestShare()
+              : run(
               () =>
                 me.setScreenShareEnabled(!isScreenShareEnabled, {
                   audio: true,
@@ -362,7 +482,17 @@ function MediaControls() {
             )
           }
         >
-          {isScreenShareEnabled ? "공유 중지" : "화면공유"}
+          {isScreenShareEnabled
+            ? paused
+              ? "공유 중지 (잠시 멈춤)"
+              : "공유 중지"
+            : allowed
+              ? approved
+                ? "지금 공유하기"
+                : "화면공유"
+              : asked
+                ? "요청 중..."
+                : "화면공유"}
         </button>
       )}
       <Switch label="마이크" on={isMicrophoneEnabled} onChange={(on) => run(() => me.setMicrophoneEnabled(on), "마이크")} />
