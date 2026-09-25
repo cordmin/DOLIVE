@@ -220,7 +220,7 @@ export default function RoomPage() {
       serverUrl={conn.url}
       token={conn.token}
       connect
-      audio // 마이크는 켜진 채로 들어간다
+      audio={false} // 마이크는 꺼진 채로 들어간다 (위쪽 스위치로 켠다)
       options={ROOM_OPTIONS}
       onDisconnected={() => router.push("/")}
       onError={(e) => alert(`연결 오류: ${e.message}`)}
@@ -433,7 +433,13 @@ function Stage({ participants, screen }: { participants: Participant[]; screen?:
     <div
       className={`flex min-h-0 flex-col gap-2 p-2 ${screen ? "phone-land:flex-1 phone-land:p-0" : "shrink-0"}`}
     >
-      {screen ? (
+      {screen?.participant.isLocal ? (
+        // 내가 공유 중이면 내 공유 화면은 보여 주지 않는다. 모니터를 공유할 때 이 창이 다시 찍혀서
+        // 화면 속에 화면이 끝없이 생기는 것을 막고, 그 자리만큼 채팅을 넓게 본다.
+        <div className="rounded-lg bg-indigo-600/15 px-4 py-3 text-sm text-indigo-100 ring-1 ring-indigo-500/40">
+          내 화면을 공유하고 있어요. 다른 사람들에게는 내 화면이 보여요.
+        </div>
+      ) : screen ? (
         <ScreenView screen={screen} />
       ) : (
         // 카드 2줄, 사람이 많으면 옆으로 밀어서 본다. 카드 폭은 휴대폰 80px, 넓은 화면 120px

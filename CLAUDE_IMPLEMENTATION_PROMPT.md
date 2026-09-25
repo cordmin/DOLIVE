@@ -28,7 +28,7 @@
 | 주소 | `server/config/duckdns.env` | `dolive.duckdns.org`. 스크립트 실행 때 IP 갱신 |
 | 실행 | `scripts/start_dolive.ps1` | `-Local`(내 PC만), `-Build`(코드 바꾼 뒤), `-Stop`, UTF-8(BOM)으로 저장해야 한글이 안 깨짐. 프로젝트 폴더의 `DOLIVE.lnk`(아이콘 `scripts/icons/dolive.ico`)는 검은 창 없이(`conhost --headless`) 켜기/끄기 창 `scripts/dolive_panel.ps1`(WinForms)을 띄우고, 그 창이 이 스크립트를 뒤에서 부름 |
 
-* 채팅방은 하나 (`ROOM = "dolive"`, 주소 `/room`). 입장 화면(`app/page.tsx`)은 사진 + 닉네임만. 마이크는 켜진 채로 입장. 카메라 기능은 없음 (사용자 결정으로 삭제).
+* 채팅방은 하나 (`ROOM = "dolive"`, 주소 `/room`). 입장 화면(`app/page.tsx`)은 사진 + 닉네임만. 마이크는 꺼진 채로 입장. 카메라 기능은 없음 (사용자 결정으로 삭제).
 * 채팅: `useChat` (LiveKit 기본 토픽 `lk.chat`). 저장하지 않음. 카카오톡 모양 말풍선 (남: 왼쪽 사진·이름·회색, 나: 오른쪽 보라색, 같은 사람이 같은 분에 보낸 말은 묶음).
 * 개발 모드: 미리보기(`.claude/launch.json`)는 `autoPort`로 3001번 이후의 빈 번호를 써서, 3000번 완성품 웹과 같이 켜 둘 수 있다.
 
