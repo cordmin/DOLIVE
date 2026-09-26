@@ -19,7 +19,7 @@ New-Item -ItemType Directory -Force $logs | Out-Null
 $domain = (Get-Content "$root\server\config\duckdns.env" -Encoding UTF8 -ErrorAction SilentlyContinue |
     Where-Object { $_ -match '^\s*DUCKDNS_DOMAIN=(.+)$' } | ForEach-Object { $Matches[1].Trim().ToLower() }) | Select-Object -First 1
 $friendsUrl = "https://$domain.duckdns.org"
-$hostUrl = "http://localhost:3000"
+$hostUrl = "http://localhost"
 
 function Color($hex) { [Drawing.ColorTranslator]::FromHtml($hex) }
 function Font($size, [switch]$Bold) {
@@ -53,16 +53,18 @@ function Button($text, $x, $y, $w, $h, $size) {
 $form = New-Object Windows.Forms.Form
 $form.Text = "DOLIVE"
 $form.Icon = New-Object Drawing.Icon (Join-Path $PSScriptRoot "icons\dolive.ico")
-$form.ClientSize = "360,318"
+$form.ClientSize = "360,320"
 $form.FormBorderStyle = "FixedSingle"; $form.MaximizeBox = $false; $form.StartPosition = "CenterScreen"
 $form.BackColor = Color "#18181b"
 # 창 제목 줄도 어둡게 (윈도우 11)
 $form.Add_HandleCreated({ $on = 1; [void][Win.Dwm]::DwmSetWindowAttribute($form.Handle, 20, [ref]$on, 4) })
 
 # 로고: "DO"는 흰색, "LIVE"는 빨간색으로 한 칸에 붙여 그린다
-$logo = New-Object Windows.Forms.Label
-$logo.Location = "24,20"; $logo.Size = "240,48"; $logo.BackColor = [Drawing.Color]::Transparent
 $logoFont = Font 26 -Bold
+# 칸 폭은 글자 폭만큼만 (넓으면 오른쪽 상태 글자를 덮어 가린다)
+$logoW = [Windows.Forms.TextRenderer]::MeasureText("DOLIVE", $logoFont, [Drawing.Size]::Empty, [Windows.Forms.TextFormatFlags]::NoPadding).Width + 4
+$logo = New-Object Windows.Forms.Label
+$logo.Location = "24,24"; $logo.Size = "$logoW,48"; $logo.BackColor = [Drawing.Color]::Transparent
 $logo.Add_Paint({
     param($s, $e)
     $flags = [Windows.Forms.TextFormatFlags]::NoPadding
@@ -72,29 +74,48 @@ $logo.Add_Paint({
 })
 $form.Controls.Add($logo)
 
-$status = Label "" 26 76 12 "#a1a1aa"
-$power = Button "" 24 116 312 58 15
+# 상태 글자는 로고 오른쪽 같은 줄에
+$sx = 24 + $logoW + 12
+$status = Label "" $sx 37 12 "#a1a1aa"
+$tip = New-Object Windows.Forms.ToolTip
+# 켜고 끄는 동안 상태 글자 앞에서 빙글빙글 도는 동그라미
+$spin = New-Object Windows.Forms.Label
+$spin.Location = "$sx,39"; $spin.Size = "20,20"; $spin.BackColor = [Drawing.Color]::Transparent; $spin.Visible = $false; $spin.Tag = 0
+$spin.Add_Paint({
+    param($s, $e)
+    $e.Graphics.SmoothingMode = "AntiAlias"
+    $pen = New-Object Drawing.Pen((Color "#3f3f46"), 3)
+    $e.Graphics.DrawEllipse($pen, 2, 2, 15, 15)
+    $pen.Color = Color "#facc15"; $pen.StartCap = "Round"; $pen.EndCap = "Round"
+    $e.Graphics.DrawArc($pen, 2, 2, 15, 15, $s.Tag, 90)
+    $pen.Dispose()
+})
+$form.Controls.Add($spin)
+$spinTimer = New-Object Windows.Forms.Timer
+$spinTimer.Interval = 30
+$spinTimer.Add_Tick({ $spin.Tag = ($spin.Tag + 12) % 360; $spin.Invalidate() })
+$power = Button "" 24 92 312 58 15
 
 $line = New-Object Windows.Forms.Label
-$line.Location = "24,194"; $line.Size = "312,1"; $line.BackColor = Color "#3f3f46"
+$line.Location = "24,174"; $line.Size = "312,1"; $line.BackColor = Color "#3f3f46"
 $form.Controls.Add($line)
 
-[void](Label "DOLIVE 링크" 24 210 9.5 "#71717a")
+[void](Label "DOLIVE 링크" 24 192 9.5 "#71717a")
 $friends = New-Object Windows.Forms.LinkLabel
-$friends.Text = $friendsUrl; $friends.Location = "24,230"; $friends.AutoSize = $true; $friends.Font = Font 11
+$friends.Text = $friendsUrl; $friends.Location = "24,214"; $friends.AutoSize = $true; $friends.Font = Font 11
 $friends.LinkColor = Color "#67e8f9"; $friends.ActiveLinkColor = Color "#a5f3fc"; $friends.LinkBehavior = "HoverUnderline"
 $friends.Add_LinkClicked({ Start-Process $friendsUrl })
 $form.Controls.Add($friends)
-$copy = Button "주소 복사" 256 226 80 28 9
+$copy = Button "주소 복사" 256 210 80 28 9
 $copy.BackColor = Color "#3f3f46"
 $copy.Add_Click({
     [Windows.Forms.Clipboard]::SetText($friendsUrl)
     $copy.Text = "복사됨"
 })
 
-[void](Label "방장(관리자) 링크" 24 264 9.5 "#71717a")
+[void](Label "방장(관리자) 링크" 24 252 9.5 "#71717a")
 $admin = New-Object Windows.Forms.LinkLabel
-$admin.Text = $hostUrl; $admin.Location = "24,284"; $admin.AutoSize = $true; $admin.Font = Font 11
+$admin.Text = $hostUrl; $admin.Location = "24,274"; $admin.AutoSize = $true; $admin.Font = Font 11
 $admin.LinkColor = Color "#67e8f9"; $admin.ActiveLinkColor = Color "#a5f3fc"; $admin.LinkBehavior = "HoverUnderline"
 $admin.Add_LinkClicked({ Start-Process $hostUrl })
 $form.Controls.Add($admin)
@@ -105,21 +126,25 @@ function IsOn { [bool](Get-Process livekit-server -ErrorAction SilentlyContinue)
 
 function Show-State($note) {
     if ($job.proc) { return }
+    $spinTimer.Stop(); $spin.Visible = $false; $status.Left = $sx
     if (IsOn) {
-        $status.Text = "●  켜져 있어요"; $status.ForeColor = Color "#4ade80"
+        $status.Text = "●  LIVE ON"; $status.ForeColor = Color "#4ade80"
         $power.Text = "끄기"; $power.BackColor = Color "#3f3f46"
     } else {
-        $status.Text = "●  꺼져 있어요"; $status.ForeColor = Color "#a1a1aa"
+        $status.Text = "●  LIVE OFF"; $status.ForeColor = Color "#a1a1aa"
         $power.Text = "켜기"; $power.BackColor = Color "#4f46e5"
     }
-    if ($note) { $status.Text = $note; $status.ForeColor = Color "#f87171" }
+    # 로고 옆 자리가 좁아서 짧게 쓰고, 자세한 안내는 마우스를 올리면 뜬다
+    if ($note) { $status.Text = "●  잘 안 됐어요"; $status.ForeColor = Color "#f87171" }
+    $tip.SetToolTip($status, $note)
     $power.Enabled = $true
 }
 
 $power.Add_Click({
     $job.wantOn = -not (IsOn)
-    $status.Text = $(if ($job.wantOn) { "●  켜는 중... (10초쯤)" } else { "●  끄는 중..." })
+    $status.Text = $(if ($job.wantOn) { "켜는 중..." } else { "끄는 중..." })
     $status.ForeColor = Color "#facc15"
+    $status.Left = $sx + 26; $spin.Visible = $true; $spinTimer.Start()
     $power.Enabled = $false
     $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$starter`"" + $(if ($job.wantOn) { "" } else { " -Stop" })
     $job.proc = Start-Process powershell -ArgumentList $argList -WindowStyle Hidden -PassThru `
@@ -132,8 +157,8 @@ $tray.Icon = $form.Icon; $tray.Text = "DOLIVE"; $tray.Visible = $true
 function Show-Panel { $form.Show(); $form.WindowState = "Normal"; $form.Activate() }
 $menu = New-Object Windows.Forms.ContextMenuStrip
 [void]$menu.Items.Add("열기", $null, { Show-Panel })
-# 끝내기 = 서버까지 모두 끄고(바깥에서 못 들어오게) 이 창도 끝낸다
-[void]$menu.Items.Add("끝내기 (서버 끄기)", $null, {
+# 서버 차단 및 종료 = 서버까지 모두 끄고(바깥에서 못 들어오게) 이 창도 끝낸다
+[void]$menu.Items.Add("서버 차단 및 종료", $null, {
     $job.quit = $true; $form.Hide(); $tray.Text = "DOLIVE 끄는 중..."
     if ($job.proc -and -not $job.proc.HasExited) { $job.proc.Kill() }  # 켜는 중이었으면 멈추고
     Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$starter`" -Stop" -WindowStyle Hidden -Wait
@@ -154,7 +179,7 @@ $timer.Add_Tick({
     if ($wake.WaitOne(0)) { Show-Panel }
     if ($job.proc -and $job.proc.HasExited) {
         $job.proc = $null
-        Show-State $(if ((IsOn) -ne $job.wantOn) { "●  잘 안 됐어요. server\logs 폴더를 확인해 주세요" })
+        Show-State $(if ((IsOn) -ne $job.wantOn) { "server\logs 폴더를 확인해 주세요" })
     } elseif (-not $job.proc -and $status.ForeColor.ToArgb() -ne (Color "#f87171").ToArgb()) {
         Show-State  # 다른 곳에서 켜고 꺼도 따라가게
     }

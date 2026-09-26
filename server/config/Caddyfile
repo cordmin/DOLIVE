@@ -14,3 +14,8 @@
 	# Web (Next.js)
 	reverse_proxy 127.0.0.1:3000
 }
+
+# Host link on this PC, without :3000 (Edge's automatic HTTPS leaves plain localhost alone)
+http://localhost {
+	reverse_proxy 127.0.0.1:3000
+}

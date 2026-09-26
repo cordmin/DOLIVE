@@ -13,3 +13,35 @@
 body {
   font-family: "Pretendard", "Malgun Gothic", system-ui, sans-serif;
 }
+
+/* 화면공유 화질 드롭다운: 펼친 목록도 둥글게, 지금 고른 화질은 초록 바탕.
+   (최신 크롬/엣지만 이렇게 꾸며지고, 다른 브라우저는 기본 모양 그대로) */
+.quality-select,
+.quality-select::picker(select) {
+  appearance: base-select;
+}
+.quality-select {
+  border: none;
+}
+.quality-select::picker(select) {
+  margin-top: 4px;
+  padding: 4px;
+  border: 1px solid var(--color-zinc-700);
+  border-radius: 12px;
+  background: var(--color-zinc-800);
+  color: white;
+}
+.quality-select option {
+  padding: 4px 12px;
+  border-radius: 8px;
+}
+.quality-select option + option {
+  margin-top: 4px;
+}
+.quality-select option:hover {
+  background: var(--color-zinc-700);
+}
+.quality-select option:checked {
+  background: var(--color-green-600);
+  font-weight: 600;
+}

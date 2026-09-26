@@ -3,7 +3,6 @@
 import {
   LiveKitRoom,
   RoomAudioRenderer,
-  StartAudio,
   VideoTrack,
   useChat,
   useDataChannel,
@@ -27,17 +26,25 @@ import {
   type RemoteTrackPublication,
 } from "livekit-client";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Avatar } from "@/components/Avatar";
 import { Switch } from "@/components/Switch";
 import { AVATARS, CUSTOM, savedAvatar } from "@/lib/dolive";
 
-// 영상은 화면공유(1080p)뿐. 안 보이는 영상은 받지 않음(adaptiveStream).
+// 영상은 화면공유뿐. 안 보이는 영상은 받지 않음(adaptiveStream).
 const ROOM_OPTIONS: RoomOptions = {
   adaptiveStream: true,
   dynacast: true,
-  publishDefaults: { screenShareEncoding: ScreenSharePresets.h1080fps30.encoding },
 };
+
+// 공유하는 사람이 고르는 화질. 공유는 고른 화질과 한 단계 낮은 화질을 같이 보내고,
+// 보는 사람 인터넷이 느려서 끊기면 서버가 그 사람에게만 낮은 쪽으로 자동으로 바꿔 보낸다.
+const QUALITY = {
+  "1080p": { top: ScreenSharePresets.h1080fps30, low: ScreenSharePresets.h720fps30 },
+  "720p": { top: ScreenSharePresets.h720fps30, low: ScreenSharePresets.h360fps15 },
+};
+type Quality = keyof typeof QUALITY;
 
 type Conn = { token: string; url: string; isAdmin: boolean };
 
@@ -170,19 +177,25 @@ function useFitVisibleHeight() {
 
 // 휴대폰을 가로로 눕혔는지 <html data-phone-land> 로 알린다 (globals.css 의 phone-land).
 // 화면 모양으로 판단하면 세로에서 자판이 올라와 화면이 납작해질 때도 가로로 잘못 알아서, 기기 방향을 본다.
+// 손가락으로 쓰는 작은 화면 (크기를 0으로 알려 주는 브라우저도 있어서 0은 제외)
+function isPhone() {
+  const short = Math.min(screen.width, screen.height);
+  return short > 0 && short <= 500 && matchMedia("(pointer: coarse)").matches;
+}
+
 function usePhoneLandscape() {
   useEffect(() => {
     const root = document.documentElement;
+    let wasLand = false;
     const update = () => {
       const land = screen.orientation
         ? screen.orientation.type.startsWith("landscape")
         : matchMedia("(orientation: landscape)").matches; // 옛 아이폰: 자판이 화면 크기를 안 바꿔서 괜찮다
-      // 손가락으로 쓰는 작은 화면만 (크기를 0으로 알려 주는 브라우저도 있어서 0은 제외)
-      const short = Math.min(screen.width, screen.height);
-      const phone = short > 0 && short <= 500 && matchMedia("(pointer: coarse)").matches;
-      root.toggleAttribute("data-phone-land", land && phone);
-      // 다시 세로로 세우면 전체화면을 푼다
-      if (!land && document.fullscreenElement) document.exitFullscreen();
+      root.toggleAttribute("data-phone-land", land && isPhone());
+      // 가로였다가 다시 세로로 세우면 전체화면을 푼다
+      // (세로에서 전체화면 버튼을 누른 직후, 가로로 돌기 전에 풀리지 않게 '가로였다가'일 때만)
+      if (wasLand && !land && document.fullscreenElement) document.exitFullscreen();
+      wasLand = land;
     };
     update();
     screen.orientation?.addEventListener("change", update);
@@ -231,23 +244,20 @@ export default function RoomPage() {
       style={{ height: "var(--vh, 100dvh)" }}
     >
       <RoomAudioRenderer />
-      {/* 휴대폰에서는 안내 버튼 없이, 화면 아무 데나 처음 누를 때 소리를 켠다 (RoomView) */}
-      <div className="hidden sm:block phone-land:hidden!">
-        <StartAudio
-          label="여기를 눌러 소리 켜기"
-          className="fixed inset-x-0 top-14 z-20 mx-auto w-fit rounded-lg bg-indigo-600 px-4 py-2"
-        />
-      </div>
+      {/* 소리 켜기 안내 버튼은 두지 않는다. 브라우저가 소리를 막아 두면 화면 아무 데나 처음 누를 때 켠다 (RoomView) */}
       <RoomView isAdmin={conn.isAdmin} />
     </LiveKitRoom>
   );
 }
 
 // 위: 로고, 참여자 수, (방장), 화면공유, 마이크 스위치
-// 가운데: [참여자 목록] [위: 화면공유 또는 프로필 사진 / 아래: 채팅 내용]  (휴대폰은 참여자 목록을 눌러서 연다)
-// 아래: 카카오톡처럼 항상 보이는 메시지 입력칸
+// 휴대폰: [화면공유 또는 프로필 사진 / 채팅 내용 / 메시지 입력칸]  (참여자 목록은 눌러서 연다)
+// PC:     [화면공유 또는 프로필 사진 | 채팅 내용  ]
+//         [참여자 한 줄              | 메시지 입력칸]
 function RoomView({ isAdmin }: { isAdmin: boolean }) {
-  const participants = useParticipants();
+  // 나는 늘 맨 앞(왼쪽), 그다음 마이크를 켠 사람, 나머지는 들어온 순서 그대로. 마이크를 켜고 끄면 바로 자리가 바뀐다
+  const rank = (p: Participant) => (p.isLocal ? 2 : p.isMicrophoneEnabled ? 1 : 0);
+  const participants = [...useParticipants()].sort((a, b) => rank(b) - rank(a));
   const [showPeople, setShowPeople] = useState(false); // 휴대폰에서 참여자 목록 열기
   const chat = useChat();
   // 공유가 여럿이면 멈추지 않은(보내는 중인) 것 하나만 보여 준다
@@ -303,6 +313,25 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
     };
   }, [room, isAdmin]);
   const waiting = requests.find((r) => participants.some((p) => p.identity === r.identity));
+  // 채팅분리: 화면공유 하는 사람은 다른 프로그램을 보여 주느라 이 창을 못 보니까,
+  // 늘 맨 위에 떠 있는 작은 창(크롬·엣지 PC만 됨)에 채팅을 띄운다.
+  // 창 제목 줄의 주소와 창 투명도는 브라우저가 정하는 거라 바꿀 수 없다
+  const docPip = typeof window !== "undefined" ? (window as { documentPictureInPicture?: DocPip }).documentPictureInPicture : undefined;
+  const [pip, setPip] = useState<Window | null>(null);
+  async function togglePip(on: boolean) {
+    if (!on || !docPip) return pip?.close();
+    const w = await docPip.requestWindow({ width: 360, height: 560 }).catch(() => null);
+    if (!w) return alert("채팅 창을 띄울 수 없어요.");
+    copyStyles(w);
+    w.addEventListener("pagehide", () => setPip(null)); // 작은 창의 X를 눌러 닫았을 때
+    setPip(w);
+  }
+  useEffect(() => () => pip?.close(), [pip]); // 방을 나가면 작은 창도 닫는다
+  // 스위치는 내가 화면공유 중일 때만 보이고, 공유를 끝내면 작은 창도 닫는다
+  const { isScreenShareEnabled: sharing } = useLocalParticipant();
+  useEffect(() => {
+    if (!sharing) pip?.close();
+  }, [sharing, pip]);
   // 휴대폰을 가로로 눕히면 공유 화면만 꽉 차게 보여 주고 나머지는 모두 숨긴다
   const hideOnLand = screen ? "phone-land:hidden!" : "";
 
@@ -360,32 +389,73 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
             <span className="rounded bg-amber-500 px-2 py-0.5 text-xs font-bold text-black">방장</span>
           )}
           <MediaControls asked={asked} requestShare={requestShare} />
+          {docPip && sharing && (
+            <div className="hidden sm:block">
+              <Switch label="채팅분리" on={!!pip} onChange={togglePip} />
+            </div>
+          )}
         </div>
       </header>
 
-      <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        <aside
-          className={`${showPeople ? "absolute inset-y-0 left-0 z-10 flex" : "hidden"} w-56 flex-col gap-1 overflow-y-auto border-r border-zinc-800 bg-zinc-900 p-2 md:static md:flex ${hideOnLand}`}
-        >
-          {participants.map((p) => (
-            <PersonRow key={p.identity} p={p} isAdmin={isAdmin} />
-          ))}
-        </aside>
+      {/* PC는 2x2 칸(grid). 휴대폰은 위에서 아래로 쌓고, 안쪽 칸(md:contents)이 참여자 목록을 띄울 자리가 된다.
+          휴대폰 가로 + 화면공유는 공유 화면만 꽉 차게 (나머지는 hideOnLand 로 숨김) */}
+      <div
+        className={`flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[minmax(0,1fr)_22rem] md:grid-rows-[minmax(0,1fr)_auto] ${screen ? "phone-land:flex!" : ""}`}
+      >
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:contents">
+          <aside
+            className={`${showPeople ? "absolute inset-y-0 left-0 z-10 flex" : "hidden"} w-fit max-w-[60vw] flex-col gap-1 overflow-y-auto border-r border-zinc-800 bg-zinc-900 p-2 md:static md:col-start-1 md:row-start-2 md:flex md:w-auto md:max-w-none md:flex-row md:gap-1 md:overflow-x-auto md:overflow-y-hidden md:border-t md:border-r-0 md:px-3 ${hideOnLand}`}
+          >
+            {participants.map((p) => (
+              <PersonRow key={p.identity} p={p} isAdmin={isAdmin} />
+            ))}
+          </aside>
 
-        <div className="flex min-w-0 flex-1 flex-col">
           <Stage participants={participants} screen={screen} />
           {/* 휴대폰에서 화면공유 중에 자판이 올라오면 채팅 내용 칸이 먼저 줄고, 그래도 좁으면 공유 화면도 줄어든다 */}
           <ChatLog
             messages={chat.chatMessages}
-            className={`${screen ? "min-h-24 flex-1" : "min-h-0 flex-1"} border-t border-zinc-800 ${hideOnLand}`}
+            className={`${screen ? "min-h-24 flex-1" : "min-h-0 flex-1"} border-t border-zinc-800 md:col-start-2 md:row-start-1 md:min-h-0 md:border-t-0 md:border-l ${hideOnLand}`}
           />
         </div>
+
+        <ChatInput
+          send={chat.send}
+          className={`md:col-start-2 md:row-start-2 md:items-center md:border-l md:pb-3 ${hideOnLand}`}
+        />
       </div>
 
-      {/* 넓은 화면: 왼쪽 참여자 목록 밑으로는 들어가지 않게 (왼쪽 테두리가 목록의 오른쪽 테두리와 이어진다) */}
-      <ChatInput send={chat.send} className={`md:ml-[calc(14rem-1px)] md:border-l ${hideOnLand}`} />
+      {pip &&
+        createPortal(
+          <div className="flex h-dvh flex-col">
+            <ChatLog messages={chat.chatMessages} className="min-h-0 flex-1" />
+            <ChatInput send={chat.send} className="" />
+          </div>,
+          pip.document.body,
+        )}
     </>
   );
+}
+
+type DocPip = { requestWindow(size: { width: number; height: number }): Promise<Window> };
+
+// 작은 창은 빈 페이지라서, 이 페이지의 꾸밈(색·글꼴·배치)을 그대로 옮겨 준다
+function copyStyles(w: Window) {
+  for (const s of document.styleSheets) {
+    try {
+      const el = w.document.createElement("style");
+      el.textContent = [...s.cssRules].map((r) => r.cssText).join("\n");
+      w.document.head.append(el);
+    } catch {
+      // 다른 주소에서 온 꾸밈은 내용을 못 읽어서 주소째 붙인다
+      const el = w.document.createElement("link");
+      el.rel = "stylesheet";
+      el.href = s.href ?? "";
+      w.document.head.append(el);
+    }
+  }
+  w.document.documentElement.className = document.documentElement.className;
+  w.document.body.className = document.body.className;
 }
 
 function useAvatarOf(p: Participant) {
@@ -394,7 +464,7 @@ function useAvatarOf(p: Participant) {
   return avatarOf(p);
 }
 
-// 방장에게는 다른 사람 옆에 "마이크 끄기" 버튼이 보인다 (/api/mute 가 방장인지 다시 확인한다)
+// 방장은 다른 사람 사진 구석의 초록 점(마이크 켜짐)을 누르면 그 사람 마이크를 끈다 (/api/mute 가 방장인지 다시 확인한다)
 function PersonRow({ p, isAdmin }: { p: Participant; isAdmin: boolean }) {
   const speaking = useIsSpeaking(p);
   const muted = useIsMuted({ participant: p, source: Track.Source.Microphone });
@@ -405,33 +475,47 @@ function PersonRow({ p, isAdmin }: { p: Participant; isAdmin: boolean }) {
   }
 
   return (
-    <div className="flex items-center gap-2 rounded p-1 hover:bg-zinc-800">
-      <Avatar id={useAvatarOf(p)} talking={speaking && !muted} muted={muted} px={47} className="w-9 shrink-0 md:w-[47px]" />
-      <div className="min-w-0">
-        <div className="truncate text-sm">
-          {p.name}
-          {p.isLocal && <span className="text-zinc-500"> (나)</span>}
-        </div>
-        <div className="text-xs text-zinc-500">{muted ? "음소거" : speaking ? "말하는 중" : "대기 중"}</div>
+    // 사진 + 이름 (PC 아래쪽 한 줄은 사진 밑에 이름). 마이크는 사진 구석 점, 말하는 중은 초록 테두리.
+    // 방장은 사진 위에 왕관, 나는 사진 아래에 걸친 ME (이름 옆에 붙이면 이름이 잘려서). pt-3: 왕관 자리
+    <div className="flex items-center gap-2 rounded p-1 pt-3 hover:bg-zinc-800 md:w-[4.5rem] md:shrink-0 md:flex-col md:gap-2">
+      <div className="relative shrink-0">
+        <Avatar id={useAvatarOf(p)} talking={speaking && !muted} mic={!muted} px={47} className="w-10 md:w-[47px]" />
+        {p.attributes?.admin === "1" && (
+          <svg
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-label="방장"
+            className="absolute -top-3 left-1/2 size-4 -translate-x-1/2 text-amber-400"
+          >
+            <path d="M12 6l4 6 5-4-2 10H5L3 8l5 4z" />
+          </svg>
+        )}
+        {p.isLocal && (
+          <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded-full bg-indigo-600 px-1 text-[10px] leading-[14px] font-bold ring-2 ring-zinc-900">
+            ME
+          </span>
+        )}
+        {/* 점이 작아서 누르기 쉽게 점 둘레까지 누르는 자리로 */}
+        {isAdmin && !p.isLocal && !muted && (
+          <button
+            onClick={forceMute}
+            title="마이크 끄기"
+            aria-label={`${p.name} 마이크 끄기`}
+            className="absolute -right-1.5 -bottom-1.5 size-6 rounded-full hover:bg-red-500/40"
+          />
+        )}
       </div>
-      {isAdmin && !p.isLocal && !muted && (
-        <button
-          onClick={forceMute}
-          className="ml-auto shrink-0 rounded-full bg-red-600/20 px-2.5 py-1 text-xs text-red-300 hover:bg-red-600/40"
-        >
-          마이크 끄기
-        </button>
-      )}
+      <div className="min-w-0 truncate text-sm md:w-full md:text-center">{p.name}</div>
     </div>
   );
 }
 
-// 가운데 위쪽: 화면공유가 있으면 공유 화면만 (사진은 왼쪽 참여자 목록에 있으니 안 보여 줌), 없으면 프로필 사진 칸.
-// 자리가 모자라면 공유 화면이 줄어든다. 채팅 내용은 PC든 휴대폰이든 그 아래.
+// 가운데 위쪽: 화면공유가 있으면 공유 화면만, 없으면 프로필 사진 칸(휴대폰만. PC는 아래 참여자 줄에 사진이 있음).
+// 자리가 모자라면 공유 화면이 줄어든다. 휴대폰은 채팅 내용이 그 아래, PC는 오른쪽.
 function Stage({ participants, screen }: { participants: Participant[]; screen?: TrackReference }) {
   return (
     <div
-      className={`flex min-h-0 flex-col gap-2 p-2 ${screen ? "phone-land:flex-1 phone-land:p-0" : "shrink-0"}`}
+      className={`flex min-h-0 flex-col gap-2 p-2 md:col-start-1 md:row-start-1 ${screen ? "phone-land:flex-1 phone-land:p-0" : "shrink-0"}`}
     >
       {screen?.participant.isLocal ? (
         // 내가 공유 중이면 내 공유 화면은 보여 주지 않는다. 모니터를 공유할 때 이 창이 다시 찍혀서
@@ -442,9 +526,9 @@ function Stage({ participants, screen }: { participants: Participant[]; screen?:
       ) : screen ? (
         <ScreenView screen={screen} />
       ) : (
-        // 카드 2줄, 사람이 많으면 옆으로 밀어서 본다. 카드 폭은 휴대폰 80px, 넓은 화면 120px
+        // 휴대폰만 (PC는 아래쪽 참여자 줄에 사진이 이미 있어서 숨김). 한 줄, 손가락으로 밀어서 본다 (스크롤바 없음)
         // p-0.5: 말할 때 생기는 초록 테두리(바깥쪽 2px)가 스크롤 칸 가장자리에서 잘리지 않게
-        <div className="grid auto-cols-[80px] grid-flow-col [grid-template-rows:repeat(2,auto)] gap-2 overflow-x-auto p-0.5 md:auto-cols-[120px]">
+        <div className="grid auto-cols-[80px] grid-flow-col gap-2 overflow-x-auto p-0.5 [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden">
           {participants.map((p) => (
             <Tile key={p.identity} p={p} />
           ))}
@@ -456,6 +540,7 @@ function Stage({ participants, screen }: { participants: Participant[]; screen?:
 
 // 공유 화면. 휴대폰을 가로로 눕히고 화면을 누르면 주소창·아래 버튼까지 숨긴 전체화면(영화관 모드)이 되고, 한 번 더 누르면 풀린다.
 type IosVideo = HTMLVideoElement & { webkitEnterFullscreen?: () => void };
+type OrientationLock = { lock?: (o: "landscape") => Promise<void> };
 
 function ScreenView({ screen }: { screen: TrackReference }) {
   const [full, setFull] = useState(false);
@@ -467,21 +552,28 @@ function ScreenView({ screen }: { screen: TrackReference }) {
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
 
-  function toggleFull(e: React.MouseEvent<HTMLDivElement>) {
-    if (full) return void document.exitFullscreen();
-    if (!document.documentElement.hasAttribute("data-phone-land")) return;
-    const root = document.documentElement;
-    if (root.requestFullscreen) root.requestFullscreen().catch(() => {});
-    // 아이폰은 페이지 전체화면이 안 돼서, 영상만 아이폰 기본 전체화면으로 띄운다
-    else (e.currentTarget.querySelector("video") as IosVideo | null)?.webkitEnterFullscreen?.();
+  const box = useRef<HTMLDivElement>(null);
+
+  // el: 전체화면으로 띄울 것 (휴대폰은 페이지 전체 = 영화관 모드, PC 전체화면 버튼은 공유 화면만)
+  // turn: 가로로 돌리기 (휴대폰 세로에서 버튼을 누를 때. 안드로이드만 되고, 전체화면이 풀리면 브라우저가 알아서 원래대로)
+  async function toggleFull(el: HTMLElement, turn = false) {
+    if (full) return document.exitFullscreen();
+    // 아이폰은 페이지 전체화면이 안 돼서, 영상만 아이폰 기본 전체화면으로 띄운다 (돌리기는 폰을 직접 눕혀야 함)
+    if (!el.requestFullscreen) return (box.current?.querySelector("video") as IosVideo | null)?.webkitEnterFullscreen?.();
+    await el.requestFullscreen().catch(() => {});
+    if (turn) await (window.screen.orientation as unknown as OrientationLock).lock?.("landscape").catch(() => {});
   }
 
   return (
     <div
-      onClick={toggleFull}
-      // PC: 공유된 화면 비율 그대로(위아래 검은 띠 없이). 높이는 화면의 60%까지만 써서 아래 채팅 자리를 남긴다
+      ref={box}
+      onClick={() => {
+        const root = document.documentElement;
+        if (full ? document.fullscreenElement === root : root.hasAttribute("data-phone-land")) toggleFull(root);
+      }}
+      // PC: 공유된 화면 비율 그대로(위아래 검은 띠 없이). 높이는 위쪽 막대·아래 참여자 줄을 뺀 만큼까지
       style={{ "--ratio": ratio } as React.CSSProperties}
-      className="relative aspect-video min-h-0 w-full rounded-lg bg-black lg:mx-auto lg:aspect-(--ratio) lg:max-w-[calc(60vh*var(--ratio))] phone-land:aspect-auto phone-land:flex-1 phone-land:rounded-none"
+      className="relative aspect-video min-h-0 w-full rounded-lg bg-black lg:mx-auto lg:aspect-(--ratio) lg:max-w-[calc((100dvh-13rem)*var(--ratio))] phone-land:aspect-auto phone-land:flex-1 phone-land:rounded-none"
     >
       <VideoTrack
         trackRef={screen}
@@ -494,6 +586,23 @@ function ScreenView({ screen }: { screen: TrackReference }) {
       <span className="absolute top-2 left-2 rounded bg-black/60 px-2 py-0.5 text-xs phone-land:hidden">
         {screen.participant.name}님의 화면
       </span>
+      {/* 전체화면 버튼 (휴대폰 가로는 화면을 누르면 되니까 숨김). PC는 이 버튼이나 Esc로 끝낸다.
+          휴대폰 세로에서 누르면 영화관 모드로 띄우고 가로로 돌린다. 끝낼 때는 화면을 한 번 더 누른다 */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (isPhone()) toggleFull(document.documentElement, true);
+          else toggleFull(box.current!);
+        }}
+        title={full ? "전체화면 끝내기" : "전체화면"}
+        aria-label={full ? "전체화면 끝내기" : "전체화면"}
+        className="absolute top-2 right-2 rounded bg-black/60 p-1.5 text-white hover:bg-black/80 phone-land:hidden"
+      >
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden className="size-5">
+          <path d={full ? "M8 3v5H3M17 8h-5V3M12 17v-5h5M3 12h5v5" : "M3 8V3h5M12 3h5v5M17 12v5h-5M8 17H3v-5"} />
+        </svg>
+      </button>
       {/* 4초 뒤 스르륵 사라짐. 가로로 다시 눕히거나 전체화면이 풀리면 다시 나타난다 */}
       {!full && (
         <span className="absolute inset-x-0 bottom-6 mx-auto hidden w-fit rounded-2xl bg-black/70 px-8 py-4 text-3xl font-bold whitespace-nowrap text-white phone-land:block animate-[fade-out_0.8s_ease_4s_forwards]">
@@ -513,8 +622,24 @@ function Tile({ p }: { p: Participant }) {
       className={`relative overflow-hidden rounded-lg bg-zinc-800 ${speaking && !muted ? "ring-2 ring-green-500" : ""}`}
     >
       {/* 이 카드만 사진을 자르지 않고 원래 모양 그대로 */}
-      <Avatar id={avatar} muted={muted} round={false} className="w-full" />
+      <Avatar id={avatar} mic={!muted} round={false} className="w-full" />
       <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 text-xs">{p.name}</span>
+      {/* 카드 밖은 잘려서 안쪽 위에: 방장 왕관은 가운데, 나(ME)는 왼쪽 */}
+      {p.attributes?.admin === "1" && (
+        <svg
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          aria-label="방장"
+          className="absolute top-0.5 left-1/2 size-5 -translate-x-1/2 text-amber-400 drop-shadow"
+        >
+          <path d="M12 6l4 6 5-4-2 10H5L3 8l5 4z" />
+        </svg>
+      )}
+      {p.isLocal && (
+        <span className="absolute top-1 left-1 rounded-full bg-indigo-600 px-1 text-[10px] leading-[14px] font-bold">
+          ME
+        </span>
+      )}
     </div>
   );
 }
@@ -529,6 +654,7 @@ function MediaControls({ asked, requestShare }: { asked: boolean; requestShare: 
   const allowed = sources.length === 0 || sources.includes(SCREEN_SHARE_SOURCE); // 빈 목록 = 다 보낼 수 있음(방장)
   const approved = allowed && sources.length > 0; // 방장이 아닌데 승인받음
   const paused = me.getTrackPublication(Track.Source.ScreenShare)?.isMuted; // 다른 사람이 공유 중이라 멈춤
+  const [quality, setQuality] = useState<Quality>("1080p");
 
   async function run(action: () => Promise<unknown>, fail: string) {
     try {
@@ -541,6 +667,20 @@ function MediaControls({ asked, requestShare }: { asked: boolean; requestShare: 
 
   return (
     <>
+      {canShare && (allowed || isScreenShareEnabled) && (
+        // 공유 중에 바꾸려면 공유를 끝냈다 다시 해야 해서(승인받은 사람은 승인도 다시), 공유 중엔 잠근다
+        <select
+          className="quality-select hidden items-center gap-1 rounded-full bg-zinc-800 px-3 py-1.5 disabled:opacity-60 sm:flex"
+          title={isScreenShareEnabled ? "공유를 멈춘 뒤 바꿀 수 있어요" : "화면공유 화질"}
+          value={quality}
+          disabled={isScreenShareEnabled}
+          onChange={(e) => setQuality(e.target.value as Quality)}
+        >
+          {Object.keys(QUALITY).map((q) => (
+            <option key={q}>{q}</option>
+          ))}
+        </select>
+      )}
       {canShare && (
         <button
           // 휴대폰은 화면공유를 못 하고 자리도 좁아서 숨긴다
@@ -553,13 +693,17 @@ function MediaControls({ asked, requestShare }: { asked: boolean; requestShare: 
               ? requestShare()
               : run(
               () =>
-                me.setScreenShareEnabled(!isScreenShareEnabled, {
-                  audio: true,
-                  resolution: ScreenSharePresets.h1080fps30.resolution,
-                  contentHint: "detail",
-                  video: { displaySurface: "monitor" }, // 고르는 창에서 '전체 화면' 칸이 먼저 열리게
-                  selfBrowserSurface: "exclude", // 이 탭은 목록에서 뺀다 (화면 속 화면이 끝없이 비치는 것 방지)
-                }),
+                me.setScreenShareEnabled(
+                  !isScreenShareEnabled,
+                  {
+                    audio: true,
+                    resolution: QUALITY[quality].top.resolution,
+                    contentHint: "detail",
+                    video: { displaySurface: "monitor" }, // 고르는 창에서 '전체 화면' 칸이 먼저 열리게
+                    selfBrowserSurface: "exclude", // 이 탭은 목록에서 뺀다 (화면 속 화면이 끝없이 비치는 것 방지)
+                  },
+                  { screenShareEncoding: QUALITY[quality].top.encoding, screenShareSimulcastLayers: [QUALITY[quality].low] },
+                ),
               "화면공유",
             )
           }
@@ -636,33 +780,61 @@ function ChatLog({ messages, className }: { messages: Chat["chatMessages"]; clas
 }
 
 // 맨 아래 항상 보이는 입력칸. 보낸 뒤에도 입력칸에 그대로 머물러 휴대폰 자판이 닫히지 않는다.
+// 줄바꿈: PC는 Shift+Enter (Enter는 보내기), 휴대폰은 자판의 줄바꿈 키 (보내기는 비행기 버튼)
 function ChatInput({ send, className }: { send: Chat["send"]; className: string }) {
   const [text, setText] = useState("");
+  const box = useRef<HTMLTextAreaElement>(null);
+
+  // 글이 길어지면 입력칸이 4줄까지 늘어난다 (그 뒤로는 칸 안에서 밀어서 본다)
+  useEffect(() => {
+    const t = box.current;
+    if (!t) return;
+    t.style.height = "auto";
+    t.style.height = `${t.scrollHeight}px`;
+  }, [text]);
+
+  function submit() {
+    if (!text.trim()) return;
+    send(text.trim());
+    setText("");
+  }
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        if (!text.trim()) return;
-        send(text.trim());
-        setText("");
+        submit();
       }}
       // 아래 여백: 브라우저 맨 아래에 붙지 않게 (아이폰 홈 바 자리도 비움)
-      className={`${className} flex shrink-0 gap-2 border-t border-zinc-800 px-3 pt-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))]`}
+      className={`${className} flex shrink-0 items-end gap-2 border-t border-zinc-800 px-3 pt-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))]`}
     >
-      <input
+      <textarea
+        ref={box}
+        rows={1}
         value={text}
         onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          // 한글을 조합하는 중에 누른 Enter는 건너뛴다 (안 그러면 마지막 글자가 한 번 더 보내진다)
+          if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+          if (matchMedia("(pointer: coarse)").matches) return; // 휴대폰: 줄바꿈
+          e.preventDefault();
+          submit();
+        }}
         placeholder="메시지 입력"
-        className="h-12 min-w-0 flex-1 rounded-full bg-zinc-800 px-5 text-base outline-none focus:ring-2 focus:ring-indigo-500"
+        className="max-h-32 min-w-0 flex-1 resize-none rounded-3xl bg-zinc-800 px-5 py-3 text-base leading-6 outline-none focus:ring-2 focus:ring-indigo-500"
       />
       <button
         type="submit"
         disabled={!text.trim()}
         onPointerDown={(e) => e.preventDefault()} // 눌러도 입력칸에서 손이 안 떨어지게
-        className="h-12 rounded-full bg-indigo-600 px-5 text-base font-semibold hover:bg-indigo-500 disabled:opacity-40"
+        aria-label="보내기"
+        title="보내기"
+        className="flex size-12 shrink-0 items-center justify-center rounded-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40"
       >
-        보내기
+        {/* 위로 날아오르는 종이비행기 */}
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className="size-[22px] translate-x-px -translate-y-px -rotate-[35deg]">
+          <path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z" />
+        </svg>
       </button>
     </form>
   );

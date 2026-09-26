@@ -66,7 +66,11 @@ if (-not $Local) {
     Say "[ OK ] 집 인터넷 주소를 $env:DOLIVE_DOMAIN 에 알렸어요" Green
 }
 
-if ($Build -or -not (Test-Path "$web\.next\BUILD_ID")) {
+# 웹 화면 코드가 마지막으로 만든 뒤에 바뀌었으면 알아서 새로 만든다
+$built = Get-Item "$web\.next\BUILD_ID" -ErrorAction SilentlyContinue
+$changed = $built -and (Get-ChildItem "$web\app", "$web\components", "$web\lib", "$web\package.json" -Recurse -File |
+    Where-Object LastWriteTime -gt $built.LastWriteTime | Select-Object -First 1)
+if ($Build -or -not $built -or $changed) {
     Say "[ .. ] 웹 화면 새로 만드는 중 (1분쯤 걸려요)" Yellow
     Push-Location $web
     npm.cmd run build | Out-File "$logs\build.log" -Encoding utf8
@@ -95,5 +99,5 @@ foreach ($c in $checks.GetEnumerator()) {
 Line
 if ($allOk) { Say "모두 켜졌어요!" White } else { Say "일부가 켜지지 않았어요. server\logs 폴더의 기록을 확인해 주세요" Red }
 Write-Host ""
-Say "방장 (이 컴퓨터)   http://localhost:3000" Cyan
+Say "방장 (이 컴퓨터)   $(if ($Local) { 'http://localhost:3000' } else { 'http://localhost' })" Cyan
 if (-not $Local) { Say "친구들            https://$env:DOLIVE_DOMAIN" Cyan }
