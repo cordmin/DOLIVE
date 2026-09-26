@@ -10,8 +10,47 @@
   }
 }
 
+/* 말풍선 툴팁이 살짝 나타나기 (components/Tooltips.tsx) */
+@keyframes tip-in {
+  from {
+    opacity: 0;
+  }
+}
+
 body {
   font-family: "Pretendard", "Malgun Gothic", system-ui, sans-serif;
+}
+
+/* 스크롤바: 가늘게, 위아래 화살표·바탕 없이 둥근 어두운 막대만 (채팅분리 창에도 이 꾸밈이 그대로 옮겨진다).
+   크롬·엣지·사파리는 ::-webkit-scrollbar 로 꾸민다 (표준 scrollbar-width/color 를 쓰면 화살표가 남아서 안 씀).
+   스크롤바를 아예 숨긴 곳([scrollbar-width:none])은 그대로 숨는다 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-button {
+  display: none;
+}
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background: var(--color-zinc-700) padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-zinc-600);
+}
+/* 파이어폭스는 위 방식을 몰라서 표준 방식으로 (파이어폭스 스크롤바엔 원래 화살표가 없다) */
+@supports not selector(::-webkit-scrollbar) {
+  @layer base {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--color-zinc-700) transparent;
+    }
+  }
 }
 
 /* 화면공유 화질 드롭다운: 펼친 목록도 둥글게, 지금 고른 화질은 초록 바탕.

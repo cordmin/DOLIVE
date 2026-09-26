@@ -35,7 +35,7 @@ export function Avatar({
           className={`absolute ${round ? "right-0 bottom-0 size-2.5" : "right-1.5 bottom-1.5 size-3"} rounded-full ring-2 ring-zinc-900 ${
             mic ? "bg-green-500" : "bg-[#EB6B6B]"
           }`}
-          title={mic ? "마이크 켜짐" : "마이크 꺼짐"}
+          data-tip={mic ? "마이크 켜짐" : "마이크 꺼짐"}
           aria-label={mic ? "마이크 켜짐" : "마이크 꺼짐"}
         />
       )}

@@ -27,9 +27,10 @@ import {
 } from "livekit-client";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Avatar } from "@/components/Avatar";
 import { Switch } from "@/components/Switch";
+import { Tooltips } from "@/components/Tooltips";
 import { AVATARS, CUSTOM, savedAvatar } from "@/lib/dolive";
 
 // 영상은 화면공유뿐. 안 보이는 영상은 받지 않음(adaptiveStream).
@@ -47,6 +48,8 @@ const QUALITY = {
 type Quality = keyof typeof QUALITY;
 
 type Conn = { token: string; url: string; isAdmin: boolean };
+
+const CHAT_W_KEY = "dolive-chat-width"; // PC 채팅 카드 폭 기억 (이 브라우저에만)
 
 // 화면공유 요청("request")과 거부("denied")를 주고받는 채널
 const SHARE_TOPIC = "dolive-share";
@@ -124,6 +127,54 @@ function usePhotoExchange() {
         .off(RoomEvent.Connected, start);
     };
   }, [room]);
+}
+
+// 채팅에 붙여 넣은 사진. 서버에 저장하지 않고 방 안에서 통화 연결로 바로 주고받아 이 탭 메모리에만 둔다.
+// (그래서 나중에 들어온 사람은 그 전 사진을 못 본다. 글 채팅과 같다)
+const IMAGE_TOPIC = "dolive-chat-image";
+const IMAGE_MAX = 10 * 1024 * 1024;
+// 보여 줘도 안전한 사진 종류만 (SVG 같은 건 새 탭에서 열 때 이 사이트 안에서 코드가 돌 수 있어서 뺀다)
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
+// image: 사진 주소(이 탭 메모리), imageType: 저장할 때 파일 끝 이름(.png 등)을 정하려고
+type Msg = { id: string; timestamp: number; from?: Participant; message: string; image?: string; imageType?: string };
+
+function useChatImages() {
+  const room = useRoomContext();
+  const [images, setImages] = useState<Msg[]>([]);
+  const add = (m: Msg) => setImages((l) => [...l, m]);
+
+  useEffect(() => {
+    room.registerByteStreamHandler(IMAGE_TOPIC, async (reader, { identity }) => {
+      const { id, timestamp, mimeType, size } = reader.info;
+      if (!IMAGE_TYPES.includes(mimeType) || (size ?? 0) > IMAGE_MAX) return;
+      const chunks = await reader.readAll();
+      if (chunks.reduce((n, c) => n + c.length, 0) > IMAGE_MAX) return;
+      const image = URL.createObjectURL(new Blob(chunks as BlobPart[], { type: mimeType }));
+      add({ id, timestamp, from: room.getParticipantByIdentity(identity), message: "", image, imageType: mimeType });
+    });
+    return () => room.unregisterByteStreamHandler(IMAGE_TOPIC);
+  }, [room]);
+
+  async function sendImage(file: File) {
+    if (!IMAGE_TYPES.includes(file.type)) return alert("PNG, JPG, GIF, WEBP 사진만 보낼 수 있어요.");
+    if (file.size > IMAGE_MAX) return alert("10MB보다 큰 사진은 보낼 수 없어요.");
+    try {
+      const { id } = await room.localParticipant.sendFile(file, { topic: IMAGE_TOPIC, mimeType: file.type });
+      add({
+        id,
+        timestamp: Date.now(),
+        from: room.localParticipant,
+        message: "",
+        image: URL.createObjectURL(file),
+        imageType: file.type,
+      });
+    } catch {
+      alert("사진을 보내지 못했어요.");
+    }
+  }
+
+  return { images, sendImage };
 }
 
 // 새 사람이 화면공유를 시작하면 내 공유는 잠시 멈춘다. 멈춘 동안은 아예 보내지 않아서 데이터가 들지 않는다.
@@ -260,6 +311,9 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
   const participants = [...useParticipants()].sort((a, b) => rank(b) - rank(a));
   const [showPeople, setShowPeople] = useState(false); // 휴대폰에서 참여자 목록 열기
   const chat = useChat();
+  // 글 채팅과 붙여 넣은 사진을 보낸 시간 순서로 섞어서 보여 준다
+  const { images, sendImage } = useChatImages();
+  const messages: Msg[] = [...chat.chatMessages, ...images].sort((a, b) => a.timestamp - b.timestamp);
   // 공유가 여럿이면 멈추지 않은(보내는 중인) 것 하나만 보여 준다
   const screen = useTracks([Track.Source.ScreenShare])
     .filter((t) => !t.publication.isMuted)
@@ -313,6 +367,42 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
     };
   }, [room, isAdmin]);
   const waiting = requests.find((r) => participants.some((p) => p.identity === r.identity));
+  // PC 채팅 카드 폭(px). 왼쪽 가장자리를 끌어서 바꾸고, 이 브라우저에만 기억한다. null = 기본 폭
+  const grid = useRef<HTMLDivElement>(null);
+  const [chatW, setChatW] = useState<number | null>(() => {
+    try {
+      return Number(localStorage.getItem(CHAT_W_KEY)) || null;
+    } catch {
+      return null;
+    }
+  });
+  function saveChatW(w: number | null) {
+    setChatW(w);
+    try {
+      if (w) localStorage.setItem(CHAT_W_KEY, String(w));
+      else localStorage.removeItem(CHAT_W_KEY);
+    } catch {}
+  }
+  function dragChat(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault(); // 끄는 동안 글자가 선택되지 않게
+    const handle = e.currentTarget;
+    const box = grid.current!.getBoundingClientRect();
+    handle.setPointerCapture(e.pointerId);
+    let w = chatW;
+    // 채팅 칸은 300px ~ 800px (창이 좁으면 절반까지). 큰 모니터에서 공유 화면 자리를 뺏지 않게
+    const move = (ev: PointerEvent) => {
+      w = Math.round(Math.min(Math.max(box.right - ev.clientX, 300), 800, box.width * 0.5));
+      setChatW(w);
+    };
+    const up = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      saveChatW(w);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+  }
+
   // 채팅분리: 화면공유 하는 사람은 다른 프로그램을 보여 주느라 이 창을 못 보니까,
   // 늘 맨 위에 떠 있는 작은 창(크롬·엣지 PC만 됨)에 채팅을 띄운다.
   // 창 제목 줄의 주소와 창 투명도는 브라우저가 정하는 거라 바꿀 수 없다
@@ -363,7 +453,7 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
         </div>
       )}
       <header
-        className={`${hideOnLand} flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b border-zinc-800 px-3 text-sm whitespace-nowrap`}
+        className={`${hideOnLand} flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b border-zinc-800 px-3 md:border-b-0 text-sm whitespace-nowrap`}
       >
         <b className="text-base">
           DO<span className="text-red-500">LIVE</span>
@@ -397,14 +487,23 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
         </div>
       </header>
 
-      {/* PC는 2x2 칸(grid). 휴대폰은 위에서 아래로 쌓고, 안쪽 칸(md:contents)이 참여자 목록을 띄울 자리가 된다.
+      {/* PC는 2x2 칸(grid). 오른쪽 채팅 칸은 기본 500px, 창이 좁으면 절반까지만 (끌어서 바꾼 폭이 있으면 그 폭). 휴대폰은 위에서 아래로 쌓고, 안쪽 칸(md:contents)이 참여자 목록을 띄울 자리가 된다.
           휴대폰 가로 + 화면공유는 공유 화면만 꽉 차게 (나머지는 hideOnLand 로 숨김) */}
       <div
-        className={`flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[minmax(0,1fr)_22rem] md:grid-rows-[minmax(0,1fr)_auto] ${screen ? "phone-land:flex!" : ""}`}
+        ref={grid}
+        style={chatW ? { gridTemplateColumns: `minmax(0,1fr) min(${chatW}px,800px,50%)` } : undefined}
+        className={`flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[minmax(0,1fr)_min(500px,50%)] md:grid-rows-[minmax(0,1fr)_auto] ${screen ? "phone-land:flex!" : ""}`}
       >
+        {/* PC: 채팅 카드 왼쪽 가장자리. 끌면 폭이 바뀌고, 두 번 누르면 기본 폭으로. 평소엔 안 보이고 마우스를 올리면 보라색 */}
+        <div
+          onPointerDown={dragChat}
+          onDoubleClick={() => saveChatW(null)}
+          data-tip="드래그 너비 조절"
+          className={`z-10 hidden w-3 -translate-x-1.5 cursor-col-resize justify-self-start rounded-full hover:bg-indigo-500/40 md:col-start-2 md:row-span-2 md:row-start-1 md:block ${hideOnLand}`}
+        />
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:contents">
           <aside
-            className={`${showPeople ? "absolute inset-y-0 left-0 z-10 flex" : "hidden"} w-fit max-w-[60vw] flex-col gap-1 overflow-y-auto border-r border-zinc-800 bg-zinc-900 p-2 md:static md:col-start-1 md:row-start-2 md:flex md:w-auto md:max-w-none md:flex-row md:gap-1 md:overflow-x-auto md:overflow-y-hidden md:border-t md:border-r-0 md:px-3 ${hideOnLand}`}
+            className={`${showPeople ? "absolute inset-y-0 left-0 z-10 flex" : "hidden"} w-fit max-w-[60vw] flex-col gap-1 overflow-y-auto border-r border-zinc-800 bg-zinc-900 p-2 md:static md:col-start-1 md:row-start-2 md:flex md:w-auto md:max-w-none md:flex-row md:gap-1 md:overflow-x-auto md:overflow-y-hidden md:border-r-0 md:px-3 ${hideOnLand}`}
           >
             {participants.map((p) => (
               <PersonRow key={p.identity} p={p} isAdmin={isAdmin} />
@@ -414,25 +513,29 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
           <Stage participants={participants} screen={screen} />
           {/* 휴대폰에서 화면공유 중에 자판이 올라오면 채팅 내용 칸이 먼저 줄고, 그래도 좁으면 공유 화면도 줄어든다 */}
           <ChatLog
-            messages={chat.chatMessages}
-            className={`${screen ? "min-h-24 flex-1" : "min-h-0 flex-1"} border-t border-zinc-800 md:col-start-2 md:row-start-1 md:min-h-0 md:border-t-0 md:border-l ${hideOnLand}`}
+            messages={messages}
+            // PC: 채팅 내용 + 아래 입력칸이 둥근 카드 하나로 이어진다 (구분선 없이 카드로 나눔)
+            className={`${screen ? "min-h-24 flex-1" : "min-h-0 flex-1"} border-t border-zinc-800 md:col-start-2 md:row-start-1 md:mt-2 md:mr-2 md:min-h-0 md:rounded-t-xl md:border md:border-b-0 md:bg-zinc-800/40 ${hideOnLand}`}
           />
         </div>
 
         <ChatInput
           send={chat.send}
-          className={`md:col-start-2 md:row-start-2 md:items-center md:border-l md:pb-3 ${hideOnLand}`}
+          sendImage={sendImage}
+          className={`md:col-start-2 md:row-start-2 md:mr-2 md:mb-2 md:rounded-b-xl md:border md:border-t-0 md:bg-zinc-800/40 md:pb-3 ${hideOnLand}`}
         />
       </div>
 
       {pip &&
         createPortal(
           <div className="flex h-dvh flex-col">
-            <ChatLog messages={chat.chatMessages} className="min-h-0 flex-1" />
-            <ChatInput send={chat.send} className="" />
+            <ChatLog messages={messages} className="min-h-0 flex-1" />
+            <ChatInput send={chat.send} sendImage={sendImage} className="" />
+            <Tooltips doc={pip.document} />
           </div>,
           pip.document.body,
         )}
+      <Tooltips />
     </>
   );
 }
@@ -476,20 +579,10 @@ function PersonRow({ p, isAdmin }: { p: Participant; isAdmin: boolean }) {
 
   return (
     // 사진 + 이름 (PC 아래쪽 한 줄은 사진 밑에 이름). 마이크는 사진 구석 점, 말하는 중은 초록 테두리.
-    // 방장은 사진 위에 왕관, 나는 사진 아래에 걸친 ME (이름 옆에 붙이면 이름이 잘려서). pt-3: 왕관 자리
-    <div className="flex items-center gap-2 rounded p-1 pt-3 hover:bg-zinc-800 md:w-[4.5rem] md:shrink-0 md:flex-col md:gap-2">
+    // 나는 사진 아래에 걸친 ME (이름 옆에 붙이면 이름이 잘려서)
+    <div className="flex items-center gap-2 rounded p-1 hover:bg-zinc-800 md:w-[4.5rem] md:shrink-0 md:flex-col md:gap-2">
       <div className="relative shrink-0">
         <Avatar id={useAvatarOf(p)} talking={speaking && !muted} mic={!muted} px={47} className="w-10 md:w-[47px]" />
-        {p.attributes?.admin === "1" && (
-          <svg
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            aria-label="방장"
-            className="absolute -top-3 left-1/2 size-4 -translate-x-1/2 text-amber-400"
-          >
-            <path d="M12 6l4 6 5-4-2 10H5L3 8l5 4z" />
-          </svg>
-        )}
         {p.isLocal && (
           <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded-full bg-indigo-600 px-1 text-[10px] leading-[14px] font-bold ring-2 ring-zinc-900">
             ME
@@ -499,7 +592,7 @@ function PersonRow({ p, isAdmin }: { p: Participant; isAdmin: boolean }) {
         {isAdmin && !p.isLocal && !muted && (
           <button
             onClick={forceMute}
-            title="마이크 끄기"
+            data-tip="마이크 끄기"
             aria-label={`${p.name} 마이크 끄기`}
             className="absolute -right-1.5 -bottom-1.5 size-6 rounded-full hover:bg-red-500/40"
           />
@@ -510,7 +603,7 @@ function PersonRow({ p, isAdmin }: { p: Participant; isAdmin: boolean }) {
   );
 }
 
-// 가운데 위쪽: 화면공유가 있으면 공유 화면만, 없으면 프로필 사진 칸(휴대폰만. PC는 아래 참여자 줄에 사진이 있음).
+// 가운데 위쪽: 화면공유가 있으면 공유 화면만, 없으면 PC는 "LIVE 방송 준비 중" 카드, 휴대폰은 프로필 사진 칸.
 // 자리가 모자라면 공유 화면이 줄어든다. 휴대폰은 채팅 내용이 그 아래, PC는 오른쪽.
 function Stage({ participants, screen }: { participants: Participant[]; screen?: TrackReference }) {
   return (
@@ -526,13 +619,22 @@ function Stage({ participants, screen }: { participants: Participant[]; screen?:
       ) : screen ? (
         <ScreenView screen={screen} />
       ) : (
-        // 휴대폰만 (PC는 아래쪽 참여자 줄에 사진이 이미 있어서 숨김). 한 줄, 손가락으로 밀어서 본다 (스크롤바 없음)
-        // p-0.5: 말할 때 생기는 초록 테두리(바깥쪽 2px)가 스크롤 칸 가장자리에서 잘리지 않게
-        <div className="grid auto-cols-[80px] grid-flow-col gap-2 overflow-x-auto p-0.5 [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden">
-          {participants.map((p) => (
-            <Tile key={p.identity} p={p} />
-          ))}
-        </div>
+        <>
+          {/* PC: 공유 화면이 들어올 자리를 같은 크기(16:9) 카드로 미리 잡아 두고 가운데에 안내 */}
+          <div className="hidden aspect-video w-full items-center justify-center gap-3 rounded-xl border border-zinc-800 bg-zinc-800/40 text-2xl font-bold text-zinc-400 md:flex lg:mx-auto lg:max-w-[calc((100dvh-13rem)*16/9)]">
+            <span className="size-3 animate-pulse rounded-full bg-red-500" />
+            <span>
+              <span className="text-red-500">LIVE</span> 방송 준비 중
+            </span>
+          </div>
+          {/* 휴대폰만 (PC는 아래쪽 참여자 줄에 사진이 이미 있어서 숨김). 한 줄, 손가락으로 밀어서 본다 (스크롤바 없음)
+              p-0.5: 말할 때 생기는 초록 테두리(바깥쪽 2px)가 스크롤 칸 가장자리에서 잘리지 않게 */}
+          <div className="grid auto-cols-[80px] grid-flow-col gap-2 overflow-x-auto p-0.5 [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden">
+            {participants.map((p) => (
+              <Tile key={p.identity} p={p} />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
@@ -554,6 +656,16 @@ function ScreenView({ screen }: { screen: TrackReference }) {
 
   const box = useRef<HTMLDivElement>(null);
 
+  // 전체화면 버튼은 마우스를 움직이거나 화면을 누를 때만 나타났다가 2.5초 가만히 있으면 사라진다
+  const [showBtn, setShowBtn] = useState(false);
+  const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  function wake() {
+    setShowBtn(true);
+    clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => setShowBtn(false), 2500);
+  }
+  useEffect(() => () => clearTimeout(hideTimer.current), []);
+
   // el: 전체화면으로 띄울 것 (휴대폰은 페이지 전체 = 영화관 모드, PC 전체화면 버튼은 공유 화면만)
   // turn: 가로로 돌리기 (휴대폰 세로에서 버튼을 누를 때. 안드로이드만 되고, 전체화면이 풀리면 브라우저가 알아서 원래대로)
   async function toggleFull(el: HTMLElement, turn = false) {
@@ -567,13 +679,16 @@ function ScreenView({ screen }: { screen: TrackReference }) {
   return (
     <div
       ref={box}
+      onPointerMove={wake}
+      onPointerDown={wake}
       onClick={() => {
         const root = document.documentElement;
         if (full ? document.fullscreenElement === root : root.hasAttribute("data-phone-land")) toggleFull(root);
       }}
       // PC: 공유된 화면 비율 그대로(위아래 검은 띠 없이). 높이는 위쪽 막대·아래 참여자 줄을 뺀 만큼까지
       style={{ "--ratio": ratio } as React.CSSProperties}
-      className="relative aspect-video min-h-0 w-full rounded-lg bg-black lg:mx-auto lg:aspect-(--ratio) lg:max-w-[calc((100dvh-13rem)*var(--ratio))] phone-land:aspect-auto phone-land:flex-1 phone-land:rounded-none"
+      // 모서리는 채팅 카드와 같은 둥글기(rounded-xl). overflow-hidden: 영상 모서리도 같이 둥글게 잘리도록
+      className="relative aspect-video min-h-0 w-full overflow-hidden rounded-xl bg-black [&:fullscreen]:rounded-none lg:mx-auto lg:aspect-(--ratio) lg:max-w-[calc((100dvh-13rem)*var(--ratio))] phone-land:aspect-auto phone-land:flex-1 phone-land:rounded-none"
     >
       <VideoTrack
         trackRef={screen}
@@ -586,8 +701,9 @@ function ScreenView({ screen }: { screen: TrackReference }) {
       <span className="absolute top-2 left-2 rounded bg-black/60 px-2 py-0.5 text-xs phone-land:hidden">
         {screen.participant.name}님의 화면
       </span>
-      {/* 전체화면 버튼 (휴대폰 가로는 화면을 누르면 되니까 숨김). PC는 이 버튼이나 Esc로 끝낸다.
-          휴대폰 세로에서 누르면 영화관 모드로 띄우고 가로로 돌린다. 끝낼 때는 화면을 한 번 더 누른다 */}
+      {/* 전체화면 버튼, 오른쪽 아래 (휴대폰 가로는 화면을 누르면 되니까 숨김). PC는 이 버튼이나 Esc로 끝낸다.
+          휴대폰 세로에서 누르면 영화관 모드로 띄우고 가로로 돌린다. 끝낼 때는 화면을 한 번 더 누른다.
+          숨어 있을 때는 눌리지 않아서, 휴대폰은 한 번 눌러 버튼을 띄운 뒤 누른다 */}
       <button
         type="button"
         onClick={(e) => {
@@ -595,12 +711,24 @@ function ScreenView({ screen }: { screen: TrackReference }) {
           if (isPhone()) toggleFull(document.documentElement, true);
           else toggleFull(box.current!);
         }}
-        title={full ? "전체화면 끝내기" : "전체화면"}
+        data-tip={full ? "전체화면 끝내기" : "전체화면"}
         aria-label={full ? "전체화면 끝내기" : "전체화면"}
-        className="absolute top-2 right-2 rounded bg-black/60 p-1.5 text-white hover:bg-black/80 phone-land:hidden"
+        className={`absolute right-2 bottom-2 rounded bg-black/60 p-1.5 text-white transition-opacity duration-300 hover:bg-black/80 phone-land:hidden ${
+          showBtn ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
       >
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden className="size-5">
-          <path d={full ? "M8 3v5H3M17 8h-5V3M12 17v-5h5M3 12h5v5" : "M3 8V3h5M12 3h5v5M17 12v5h-5M8 17H3v-5"} />
+        {/* 대각선 화살표: 켤 때는 바깥으로, 끌 때는 안으로 */}
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+          className="size-5"
+        >
+          <path d={full ? "M18 10h-4V6M20 4l-6 6M6 14h4v4M10 14l-6 6" : "M16 20h4v-4M14 14l6 6M8 4H4v4M4 4l6 6"} />
         </svg>
       </button>
       {/* 4초 뒤 스르륵 사라짐. 가로로 다시 눕히거나 전체화면이 풀리면 다시 나타난다 */}
@@ -624,17 +752,7 @@ function Tile({ p }: { p: Participant }) {
       {/* 이 카드만 사진을 자르지 않고 원래 모양 그대로 */}
       <Avatar id={avatar} mic={!muted} round={false} className="w-full" />
       <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 text-xs">{p.name}</span>
-      {/* 카드 밖은 잘려서 안쪽 위에: 방장 왕관은 가운데, 나(ME)는 왼쪽 */}
-      {p.attributes?.admin === "1" && (
-        <svg
-          viewBox="0 0 24 24"
-          fill="currentColor"
-          aria-label="방장"
-          className="absolute top-0.5 left-1/2 size-5 -translate-x-1/2 text-amber-400 drop-shadow"
-        >
-          <path d="M12 6l4 6 5-4-2 10H5L3 8l5 4z" />
-        </svg>
-      )}
+      {/* 나(ME)는 카드 안쪽 왼쪽 위 (카드 밖은 잘려서) */}
       {p.isLocal && (
         <span className="absolute top-1 left-1 rounded-full bg-indigo-600 px-1 text-[10px] leading-[14px] font-bold">
           ME
@@ -668,18 +786,20 @@ function MediaControls({ asked, requestShare }: { asked: boolean; requestShare: 
   return (
     <>
       {canShare && (allowed || isScreenShareEnabled) && (
-        // 공유 중에 바꾸려면 공유를 끝냈다 다시 해야 해서(승인받은 사람은 승인도 다시), 공유 중엔 잠근다
-        <select
-          className="quality-select hidden items-center gap-1 rounded-full bg-zinc-800 px-3 py-1.5 disabled:opacity-60 sm:flex"
-          title={isScreenShareEnabled ? "공유를 멈춘 뒤 바꿀 수 있어요" : "화면공유 화질"}
-          value={quality}
-          disabled={isScreenShareEnabled}
-          onChange={(e) => setQuality(e.target.value as Quality)}
-        >
-          {Object.keys(QUALITY).map((q) => (
-            <option key={q}>{q}</option>
-          ))}
-        </select>
+        // 공유 중에 바꾸려면 공유를 끝냈다 다시 해야 해서(승인받은 사람은 승인도 다시), 공유 중엔 잠근다.
+        // 말풍선은 감싼 칸에 단다 (잠긴 칸은 마우스를 받지 않아서 감싼 칸이 대신 받는다)
+        <span className="hidden sm:flex" data-tip={isScreenShareEnabled ? "공유를 멈춘 뒤 바꿀 수 있어요" : "화면공유 화질"}>
+          <select
+            className="quality-select flex items-center gap-1 rounded-full bg-zinc-800 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-60"
+            value={quality}
+            disabled={isScreenShareEnabled}
+            onChange={(e) => setQuality(e.target.value as Quality)}
+          >
+            {Object.keys(QUALITY).map((q) => (
+              <option key={q}>{q}</option>
+            ))}
+          </select>
+        </span>
       )}
       {canShare && (
         <button
@@ -731,25 +851,105 @@ type Chat = ReturnType<typeof useChat>;
 // "오전 12:03"
 const chatTime = (t: number) => new Date(t).toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" });
 
+// 채팅 글 속 링크 (http:// 또는 https:// 로 시작). 끝에 붙은 마침표·괄호 같은 것은 링크에서 뺀다
+const LINK = /(https?:\/\/[^\s<]+[^\s<.,:;"')\]!?])/g;
+
+// 글 속 링크를 누르면 새 탭으로 열리게
+function Linkified({ text }: { text: string }) {
+  return text.split(LINK).map((part, i) =>
+    i % 2 ? (
+      <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="break-all underline">
+        {part}
+      </a>
+    ) : (
+      part
+    ),
+  );
+}
+
+// 링크 미리보기 카드 (제목·설명·그림). 서버(/api/preview)가 대신 읽어 오고, 이 탭에서 한 번 읽은 건 다시 안 묻는다
+type Preview = { title: string; description?: string; image?: string; site: string } | null;
+const previews = new Map<string, Promise<Preview>>();
+
+function LinkPreview({ url, onLoad }: { url: string; onLoad: () => void }) {
+  const [p, setP] = useState<Preview>(null);
+  const [noImage, setNoImage] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    if (!previews.has(url))
+      previews.set(
+        url,
+        fetch(`/api/preview?url=${encodeURIComponent(url)}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+      );
+    previews.get(url)!.then((v) => alive && setP(v));
+    return () => {
+      alive = false;
+    };
+  }, [url]);
+  useEffect(() => {
+    if (p) onLoad();
+  }, [p, onLoad]);
+  if (!p) return null;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-1 block w-72 max-w-full overflow-hidden rounded-xl bg-zinc-800 hover:bg-zinc-700"
+    >
+      {p.image && !noImage && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={p.image}
+          alt=""
+          referrerPolicy="no-referrer"
+          onLoad={onLoad}
+          onError={() => setNoImage(true)}
+          className="aspect-video w-full bg-zinc-900 object-cover"
+        />
+      )}
+      <div className="p-2.5">
+        <div className="truncate text-xs text-zinc-400">{p.site}</div>
+        <div className="line-clamp-2 font-semibold">{p.title}</div>
+        {p.description && <div className="mt-0.5 line-clamp-2 text-xs text-zinc-400">{p.description}</div>}
+      </div>
+    </a>
+  );
+}
+
 // 카카오톡처럼: 남의 말은 왼쪽(사진·이름 + 회색 말풍선), 내 말은 오른쪽(보라색 말풍선).
 // 같은 사람이 같은 분에 이어 보낸 말은 한 묶음이라 사진·이름은 첫 말에만, 시간은 마지막 말에만 붙인다.
-function ChatLog({ messages, className }: { messages: Chat["chatMessages"]; className: string }) {
+// 링크가 있으면 말풍선 아래에 첫 링크의 미리보기 카드, 사진은 말풍선 대신 사진 그대로 (누르면 화면 위에 크게)
+function ChatLog({ messages, className }: { messages: Msg[]; className: string }) {
   const bottom = useRef<HTMLDivElement>(null);
+
+  // 사진 크게 보기: 브라우저 기본 모달(dialog). ESC로 닫히는 것도 브라우저가 해 준다. 바깥 어두운 곳을 눌러도 닫힌다
+  const viewer = useRef<HTMLDialogElement>(null);
+  const [shown, setShown] = useState<Msg | null>(null);
+  function openImage(m: Msg) {
+    setShown(m);
+    viewer.current?.showModal();
+  }
   usePhotos(); // 사진을 받으면 다시 그리기
 
-  useEffect(() => {
+  // 사진·미리보기가 늦게 떠서 키가 커지면 다시 맨 아래로
+  // (중괄호로 감싼 건, 요즘 브라우저의 스크롤 명령이 돌려주는 값을 React가 뒷정리 함수로 오해하지 않게)
+  const toBottom = useCallback(() => {
     bottom.current?.scrollIntoView({ block: "end" });
-  }, [messages.length]);
+  }, []);
+  useEffect(toBottom, [messages.length, toBottom]);
 
   return (
     <div className={`overflow-y-auto p-3 text-sm ${className}`}>
       {messages.map((m, i) => {
         const who = m.from?.identity;
-        const same = (o?: (typeof messages)[number]) =>
-          !!o && o.from?.identity === who && chatTime(o.timestamp) === chatTime(m.timestamp);
+        const same = (o?: Msg) => !!o && o.from?.identity === who && chatTime(o.timestamp) === chatTime(m.timestamp);
         const first = !same(messages[i - 1]);
         const last = !same(messages[i + 1]);
         const mine = m.from?.isLocal;
+        const link = m.message.match(LINK)?.[0];
         return (
           <div key={m.id} className={`flex gap-2 ${mine ? "justify-end" : ""} ${first ? "mt-3" : "mt-1"}`}>
             {!mine &&
@@ -761,29 +961,90 @@ function ChatLog({ messages, className }: { messages: Chat["chatMessages"]; clas
             <div className={`flex max-w-[75%] min-w-0 flex-col ${mine ? "items-end" : "items-start"}`}>
               {first && !mine && <span className="mb-1 text-xs text-zinc-400">{m.from?.name ?? "나간 사람"}</span>}
               <div className={`flex items-end gap-1.5 ${mine ? "flex-row-reverse" : ""}`}>
-                <p
-                  className={`min-w-0 rounded-2xl px-3 py-2 break-words whitespace-pre-wrap ${
-                    mine ? "bg-indigo-600" : "bg-zinc-800"
-                  } ${first ? (mine ? "rounded-tr-sm" : "rounded-tl-sm") : ""}`}
-                >
-                  {m.message}
-                </p>
+                {m.image ? (
+                  // 사진 폭은 늘 240px (옆에 시간이 붙어도 사진이 줄지 않게 shrink-0). 아주 긴 사진은 위아래를 잘라 보여 준다
+                  <button type="button" onClick={() => openImage(m)} className="shrink-0 cursor-zoom-in">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={m.image} alt="보낸 사진" onLoad={toBottom} className="max-h-72 w-60 rounded-2xl bg-zinc-800 object-cover" />
+                  </button>
+                ) : (
+                  <p
+                    className={`min-w-0 rounded-2xl px-3 py-2 break-words whitespace-pre-wrap ${
+                      mine ? "bg-indigo-600" : "bg-zinc-800"
+                    } ${first ? (mine ? "rounded-tr-sm" : "rounded-tl-sm") : ""}`}
+                  >
+                    <Linkified text={m.message} />
+                  </p>
+                )}
                 {last && <span className="shrink-0 text-[11px] text-zinc-500">{chatTime(m.timestamp)}</span>}
               </div>
+              {link && <LinkPreview url={link} onLoad={toBottom} />}
             </div>
           </div>
         );
       })}
       <div ref={bottom} />
+
+      <dialog
+        ref={viewer}
+        onClose={() => setShown(null)}
+        onClick={(e) => e.target === e.currentTarget && e.currentTarget.close()}
+        className="m-auto max-h-none max-w-none overflow-visible bg-transparent p-0 outline-none backdrop:bg-black/80"
+      >
+        {shown?.image && (
+          // 화면의 80% 안에 들어가게. 오른쪽 위에 저장, 닫기
+          <div className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={shown.image} alt="보낸 사진 크게 보기" className="max-h-[80vh] max-w-[80vw] rounded-xl object-contain" />
+            <div className="absolute top-2 right-2 flex gap-2">
+              <a
+                href={shown.image}
+                download={`dolive-${shown.id.slice(-6)}.${shown.imageType?.split("/")[1]?.replace("jpeg", "jpg") ?? "png"}`}
+                aria-label="사진 저장"
+                className="flex size-9 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-5">
+                  <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />
+                </svg>
+              </a>
+              <button
+                type="button"
+                onClick={() => viewer.current?.close()}
+                aria-label="닫기"
+                className="flex size-9 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden className="size-5">
+                  <path d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+      </dialog>
     </div>
   );
 }
 
 // 맨 아래 항상 보이는 입력칸. 보낸 뒤에도 입력칸에 그대로 머물러 휴대폰 자판이 닫히지 않는다.
 // 줄바꿈: PC는 Shift+Enter (Enter는 보내기), 휴대폰은 자판의 줄바꿈 키 (보내기는 비행기 버튼)
-function ChatInput({ send, className }: { send: Chat["send"]; className: string }) {
+// 사진을 복사해서 입력칸에 붙여 넣으면(Ctrl+V) 입력칸 위에 작게 올려 두고, 보내기(비행기·Enter)를 눌러야 보낸다
+function ChatInput({
+  send,
+  sendImage,
+  className,
+}: {
+  send: Chat["send"];
+  sendImage: (f: File) => void;
+  className: string;
+}) {
   const [text, setText] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
+  // 붙여 넣고 아직 안 보낸 사진 (url: 입력칸 위에 보여 줄 작은 그림)
+  const [pending, setPending] = useState<{ file: File; url: string } | null>(null);
+  function dropPending() {
+    if (pending) URL.revokeObjectURL(pending.url);
+    setPending(null);
+  }
 
   // 글이 길어지면 입력칸이 4줄까지 늘어난다 (그 뒤로는 칸 안에서 밀어서 본다)
   useEffect(() => {
@@ -794,9 +1055,14 @@ function ChatInput({ send, className }: { send: Chat["send"]; className: string 
   }, [text]);
 
   function submit() {
-    if (!text.trim()) return;
-    send(text.trim());
-    setText("");
+    if (pending) {
+      sendImage(pending.file);
+      dropPending();
+    }
+    if (text.trim()) {
+      send(text.trim());
+      setText("");
+    }
   }
 
   return (
@@ -808,27 +1074,54 @@ function ChatInput({ send, className }: { send: Chat["send"]; className: string 
       // 아래 여백: 브라우저 맨 아래에 붙지 않게 (아이폰 홈 바 자리도 비움)
       className={`${className} flex shrink-0 items-end gap-2 border-t border-zinc-800 px-3 pt-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))]`}
     >
-      <textarea
-        ref={box}
-        rows={1}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          // 한글을 조합하는 중에 누른 Enter는 건너뛴다 (안 그러면 마지막 글자가 한 번 더 보내진다)
-          if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
-          if (matchMedia("(pointer: coarse)").matches) return; // 휴대폰: 줄바꿈
-          e.preventDefault();
-          submit();
-        }}
-        placeholder="메시지 입력"
-        className="max-h-32 min-w-0 flex-1 resize-none rounded-3xl bg-zinc-800 px-5 py-3 text-base leading-6 outline-none focus:ring-2 focus:ring-indigo-500"
-      />
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        {pending && (
+          <div className="relative w-fit">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={pending.url} alt="보낼 사진" className="max-h-28 rounded-xl" />
+            <button
+              type="button"
+              onClick={dropPending}
+              onPointerDown={(e) => e.preventDefault()}
+              aria-label="사진 빼기"
+              data-tip="사진 빼기"
+              className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-full bg-black/70 hover:bg-black"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden className="size-3.5">
+                <path d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            </button>
+          </div>
+        )}
+        <textarea
+          ref={box}
+          rows={1}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onPaste={(e) => {
+            const file = [...e.clipboardData.files].find((f) => f.type.startsWith("image/"));
+            if (!file) return; // 사진이 아니면 평소처럼 글자 붙여넣기
+            e.preventDefault();
+            if (pending) URL.revokeObjectURL(pending.url); // 다시 붙이면 새 사진으로 바꾼다
+            setPending({ file, url: URL.createObjectURL(file) });
+          }}
+          onKeyDown={(e) => {
+            // 한글을 조합하는 중에 누른 Enter는 건너뛴다 (안 그러면 마지막 글자가 한 번 더 보내진다)
+            if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+            if (matchMedia("(pointer: coarse)").matches) return; // 휴대폰: 줄바꿈
+            e.preventDefault();
+            submit();
+          }}
+          placeholder="메시지 입력"
+          className="max-h-32 w-full resize-none rounded-3xl bg-zinc-800 px-5 py-3 text-base leading-6 outline-none focus:ring-2 focus:ring-indigo-500"
+        />
+      </div>
       <button
         type="submit"
-        disabled={!text.trim()}
+        disabled={!text.trim() && !pending}
         onPointerDown={(e) => e.preventDefault()} // 눌러도 입력칸에서 손이 안 떨어지게
         aria-label="보내기"
-        title="보내기"
+        data-tip="보내기"
         className="flex size-12 shrink-0 items-center justify-center rounded-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40"
       >
         {/* 위로 날아오르는 종이비행기 */}
