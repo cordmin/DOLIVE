@@ -7,6 +7,11 @@ Add-Type -Namespace Win -Name Dwm -MemberDefinition @'
 '@
 [Windows.Forms.Application]::EnableVisualStyles()
 
+# 한 개만 띄운다. 이미 떠 있으면(트레이에 숨어 있어도) 그 창을 앞으로 부르고 끝낸다
+$created = $false
+$wake = New-Object Threading.EventWaitHandle($false, "AutoReset", "DOLIVE_panel_wake", [ref]$created)
+if (-not $created) { [void]$wake.Set(); return }
+
 $root = Split-Path $PSScriptRoot -Parent
 $starter = Join-Path $PSScriptRoot "start_dolive.ps1"
 $logs = Join-Path $root "server\logs"
@@ -39,6 +44,8 @@ function Button($text, $x, $y, $w, $h, $size) {
     $b.Text = $text; $b.Location = "$x,$y"; $b.Size = "$w,$h"; $b.Font = Font $size -Bold
     $b.FlatStyle = "Flat"; $b.FlatAppearance.BorderSize = 0; $b.ForeColor = [Drawing.Color]::White
     $b.Cursor = [Windows.Forms.Cursors]::Hand
+    # 창이 뒤로 가면 윈도우가 테두리를 1줄 그려서, 테두리 색을 늘 바탕색과 같게 맞춘다
+    $b.Add_BackColorChanged({ param($s) $s.FlatAppearance.BorderColor = $s.BackColor })
     Round $b 10
     $form.Controls.Add($b); $b
 }
@@ -72,7 +79,7 @@ $line = New-Object Windows.Forms.Label
 $line.Location = "24,194"; $line.Size = "312,1"; $line.BackColor = Color "#3f3f46"
 $form.Controls.Add($line)
 
-[void](Label "친구들" 24 210 9.5 "#71717a")
+[void](Label "DOLIVE 링크" 24 210 9.5 "#71717a")
 $friends = New-Object Windows.Forms.LinkLabel
 $friends.Text = $friendsUrl; $friends.Location = "24,230"; $friends.AutoSize = $true; $friends.Font = Font 11
 $friends.LinkColor = Color "#67e8f9"; $friends.ActiveLinkColor = Color "#a5f3fc"; $friends.LinkBehavior = "HoverUnderline"
@@ -85,7 +92,7 @@ $copy.Add_Click({
     $copy.Text = "복사됨"
 })
 
-[void](Label "방장 (이 컴퓨터)" 24 264 9.5 "#71717a")
+[void](Label "방장(관리자) 링크" 24 264 9.5 "#71717a")
 $admin = New-Object Windows.Forms.LinkLabel
 $admin.Text = $hostUrl; $admin.Location = "24,284"; $admin.AutoSize = $true; $admin.Font = Font 11
 $admin.LinkColor = Color "#67e8f9"; $admin.ActiveLinkColor = Color "#a5f3fc"; $admin.LinkBehavior = "HoverUnderline"
@@ -119,9 +126,32 @@ $power.Add_Click({
         -RedirectStandardOutput "$logs\panel.out.log" -RedirectStandardError "$logs\panel.err.log"
 })
 
+# X를 누르면 끄지 않고 작업 표시줄 오른쪽 아래(트레이)로 숨긴다. 서버는 그대로 켜져 있다
+$tray = New-Object Windows.Forms.NotifyIcon
+$tray.Icon = $form.Icon; $tray.Text = "DOLIVE"; $tray.Visible = $true
+function Show-Panel { $form.Show(); $form.WindowState = "Normal"; $form.Activate() }
+$menu = New-Object Windows.Forms.ContextMenuStrip
+[void]$menu.Items.Add("열기", $null, { Show-Panel })
+# 끝내기 = 서버까지 모두 끄고(바깥에서 못 들어오게) 이 창도 끝낸다
+[void]$menu.Items.Add("끝내기 (서버 끄기)", $null, {
+    $job.quit = $true; $form.Hide(); $tray.Text = "DOLIVE 끄는 중..."
+    if ($job.proc -and -not $job.proc.HasExited) { $job.proc.Kill() }  # 켜는 중이었으면 멈추고
+    Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$starter`" -Stop" -WindowStyle Hidden -Wait
+    $form.Close()
+})
+$tray.ContextMenuStrip = $menu
+$tray.Add_MouseClick({ param($s, $e) if ($e.Button -eq "Left") { Show-Panel } })
+$form.Add_FormClosing({
+    param($s, $e)
+    if ($job.quit -or $e.CloseReason -ne "UserClosing") { return }
+    $e.Cancel = $true; $form.Hide()
+    if (-not $job.told) { $job.told = $true; $tray.ShowBalloonTip(3000, "DOLIVE", "여기 숨어 있어요. 누르면 다시 열려요", "None") }
+})
+
 $timer = New-Object Windows.Forms.Timer
 $timer.Interval = 800
 $timer.Add_Tick({
+    if ($wake.WaitOne(0)) { Show-Panel }
     if ($job.proc -and $job.proc.HasExited) {
         $job.proc = $null
         Show-State $(if ((IsOn) -ne $job.wantOn) { "●  잘 안 됐어요. server\logs 폴더를 확인해 주세요" })
@@ -132,4 +162,6 @@ $timer.Add_Tick({
 $timer.Start()
 
 Show-State
-[void]$form.ShowDialog()
+# ShowDialog는 창을 숨기면 끝나버려서, 숨겨도 계속 도는 Application.Run을 쓴다
+[Windows.Forms.Application]::Run($form)
+$tray.Dispose()
