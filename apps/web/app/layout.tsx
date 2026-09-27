@@ -18,6 +18,14 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="ko" className="h-full antialiased">
+      <head>
+        {/* 카카오톡 안 브라우저면 휴대폰 기본 브라우저(크롬·사파리 등)로 다시 연다 */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if(/KAKAOTALK/i.test(navigator.userAgent))location.href="kakaotalk://web/openExternal?url="+encodeURIComponent(location.href)`,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col bg-zinc-900 text-zinc-100">{children}</body>
     </html>
   );

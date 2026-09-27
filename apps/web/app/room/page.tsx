@@ -17,6 +17,8 @@ import {
 } from "@livekit/components-react";
 import type { TrackReference } from "@livekit/components-react";
 import {
+  ConnectionError,
+  ConnectionErrorReason,
   Participant,
   RoomEvent,
   RoomOptions,
@@ -317,6 +319,29 @@ export default function RoomPage() {
       .catch(() => router.replace("/"));
   }, [router]);
 
+  // 방에서 나오면 첫 화면으로. 서버가 꺼져 있으면 첫 화면을 받아 올 수 없어서 멈춘 것처럼 보이니,
+  // 먼저 서버에 물어보고 답이 없으면 이 자리에서 "방송이 끝났어요"를 보여 준다
+  const [ended, setEnded] = useState(false);
+  function goHome() {
+    fetch("/", { method: "HEAD", cache: "no-store", signal: AbortSignal.timeout(3000) }).then(
+      (r) => (r.ok ? router.push("/") : setEnded(true)),
+      () => setEnded(true),
+    );
+  }
+
+  if (ended)
+    return (
+      <div className="m-auto flex flex-col items-center gap-3 p-6 text-center">
+        <b className="text-xl">
+          DO<span className="text-red-500">LIVE</span>
+        </b>
+        <p>
+          방송이 끝났어요.
+          <br />
+          다음에 다시 만나요.
+        </p>
+      </div>
+    );
   if (!conn) return <p className="m-auto text-zinc-400">들어가는 중...</p>;
 
   return (
@@ -326,8 +351,12 @@ export default function RoomPage() {
       connect
       audio={false} // 마이크는 꺼진 채로 들어간다 (위쪽 스위치로 켠다)
       options={ROOM_OPTIONS}
-      onDisconnected={() => router.push("/")}
-      onError={(e) => alert(`연결 오류: ${e.message}`)}
+      onDisconnected={goHome}
+      onError={(e) => {
+        // 다시 붙는 중에 [예]로 내가 끊은 건 오류가 아니다 (바로 "방송이 끝났어요" 화면이 뜬다)
+        if (e instanceof ConnectionError && e.reason === ConnectionErrorReason.Cancelled) return;
+        alert(`연결 오류: ${e.message}`);
+      }}
       onMediaDeviceFailure={() =>
         alert("마이크를 쓸 수 없어요. 주소창 왼쪽 아이콘을 눌러 권한을 '허용'으로 바꿔 주세요.")
       }
@@ -472,8 +501,40 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
     return () => document.removeEventListener("pointerdown", unlock);
   }, [room]);
 
+  // 뒤로가기를 누르면 바로 나가지 않고 "DOLIVE 떠나기" 창을 먼저 띄운다.
+  // 같은 주소를 한 칸 더 쌓아 두고, 뒤로가기로 그 칸이 빠지면 창을 연다
+  const leave = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    history.pushState(history.state, "");
+    const onBack = () => leave.current?.showModal();
+    window.addEventListener("popstate", onBack);
+    return () => window.removeEventListener("popstate", onBack);
+  }, []);
+  function stay() {
+    leave.current?.close();
+    history.pushState(history.state, ""); // 다음 뒤로가기도 다시 막는다
+  }
+
   return (
     <>
+      <dialog
+        ref={leave}
+        onCancel={(e) => {
+          e.preventDefault(); // Esc도 [아니오]와 똑같이
+          stay();
+        }}
+        className="m-auto w-72 rounded-xl bg-zinc-800 p-5 text-zinc-100 ring-1 ring-zinc-700 backdrop:bg-black/60"
+      >
+        <p className="mb-5 text-center font-semibold">DOLIVE 떠나기</p>
+        <div className="flex gap-2">
+          <button onClick={() => room.disconnect()} className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold hover:bg-red-500">
+            예
+          </button>
+          <button onClick={stay} className="flex-1 rounded-lg bg-zinc-700 py-2 text-sm hover:bg-zinc-600">
+            아니오
+          </button>
+        </div>
+      </dialog>
       {waiting && (
         <div className="fixed inset-x-0 top-16 z-30 mx-auto flex w-fit max-w-[calc(100%-2rem)] items-center gap-3 rounded-xl bg-zinc-800 px-4 py-3 shadow-lg ring-1 ring-zinc-700">
           <span className="text-sm">
