@@ -139,10 +139,50 @@ const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 // image: 사진 주소(이 탭 메모리), imageType: 저장할 때 파일 끝 이름(.png 등)을 정하려고
 type Msg = { id: string; timestamp: number; from?: Participant; message: string; image?: string; imageType?: string };
 
-function useChatImages() {
+// 글 채팅과 사진을 도착/작성 순서대로 하나의 목록에 쌓는다.
+// (기기간 시계 오차로 타임스탬프가 달라도 방금 쓴 글이 중간에 끼지 않고 항상 맨 아래에 오도록)
+function useMessages() {
   const room = useRoomContext();
-  const [images, setImages] = useState<Msg[]>([]);
-  const add = (m: Msg) => setImages((l) => [...l, m]);
+  const chat = useChat();
+  const [messages, setMessages] = useState<Msg[]>([]);
+  const seenIds = useRef(new Set<string>());
+
+  // 글 채팅 동기화: 새 글은 목록 끝에 추가하고, 스트리밍 중인 글은 내용을 갱신한다
+  useEffect(() => {
+    setMessages((prev) => {
+      let changed = false;
+      const updated = prev.map((m) => {
+        const latest = chat.chatMessages.find((c) => c.id === m.id);
+        if (latest && latest.message !== m.message) {
+          changed = true;
+          return { ...m, message: latest.message };
+        }
+        return m;
+      });
+
+      const newOnes: Msg[] = [];
+      for (const c of chat.chatMessages) {
+        if (!seenIds.current.has(c.id)) {
+          seenIds.current.add(c.id);
+          newOnes.push({
+            id: c.id,
+            timestamp: c.timestamp,
+            from: c.from,
+            message: c.message,
+          });
+        }
+      }
+
+      if (newOnes.length > 0) return [...updated, ...newOnes];
+      return changed ? updated : prev;
+    });
+  }, [chat.chatMessages]);
+
+  const addImage = useCallback((m: Msg) => {
+    if (seenIds.current.has(m.id)) return;
+    seenIds.current.add(m.id);
+    setMessages((prev) => [...prev, m]);
+  }, []);
 
   useEffect(() => {
     room.registerByteStreamHandler(IMAGE_TOPIC, async (reader, { identity }) => {
@@ -151,17 +191,17 @@ function useChatImages() {
       const chunks = await reader.readAll();
       if (chunks.reduce((n, c) => n + c.length, 0) > IMAGE_MAX) return;
       const image = URL.createObjectURL(new Blob(chunks as BlobPart[], { type: mimeType }));
-      add({ id, timestamp, from: room.getParticipantByIdentity(identity), message: "", image, imageType: mimeType });
+      addImage({ id, timestamp, from: room.getParticipantByIdentity(identity), message: "", image, imageType: mimeType });
     });
     return () => room.unregisterByteStreamHandler(IMAGE_TOPIC);
-  }, [room]);
+  }, [room, addImage]);
 
   async function sendImage(file: File) {
     if (!IMAGE_TYPES.includes(file.type)) return alert("PNG, JPG, GIF, WEBP 사진만 보낼 수 있어요.");
     if (file.size > IMAGE_MAX) return alert("10MB보다 큰 사진은 보낼 수 없어요.");
     try {
       const { id } = await room.localParticipant.sendFile(file, { topic: IMAGE_TOPIC, mimeType: file.type });
-      add({
+      addImage({
         id,
         timestamp: Date.now(),
         from: room.localParticipant,
@@ -174,7 +214,7 @@ function useChatImages() {
     }
   }
 
-  return { images, sendImage };
+  return { messages, send: chat.send, sendImage };
 }
 
 // 새 사람이 화면공유를 시작하면 내 공유는 잠시 멈춘다. 멈춘 동안은 아예 보내지 않아서 데이터가 들지 않는다.
@@ -310,10 +350,8 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
   const rank = (p: Participant) => (p.isLocal ? 2 : p.isMicrophoneEnabled ? 1 : 0);
   const participants = [...useParticipants()].sort((a, b) => rank(b) - rank(a));
   const [showPeople, setShowPeople] = useState(false); // 휴대폰에서 참여자 목록 열기
-  const chat = useChat();
-  // 글 채팅과 붙여 넣은 사진을 보낸 시간 순서로 섞어서 보여 준다
-  const { images, sendImage } = useChatImages();
-  const messages: Msg[] = [...chat.chatMessages, ...images].sort((a, b) => a.timestamp - b.timestamp);
+  // 글 채팅과 사진을 도착/작성 순서대로 섞은 통합 메시지 목록
+  const { messages, send: sendChat, sendImage } = useMessages();
   // 공유가 여럿이면 멈추지 않은(보내는 중인) 것 하나만 보여 준다
   const screen = useTracks([Track.Source.ScreenShare])
     .filter((t) => !t.publication.isMuted)
@@ -520,7 +558,7 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
         </div>
 
         <ChatInput
-          send={chat.send}
+          send={sendChat}
           sendImage={sendImage}
           className={`md:col-start-2 md:row-start-2 md:mr-2 md:mb-2 md:rounded-b-xl md:border md:border-t-0 md:bg-zinc-800/40 md:pb-3 ${hideOnLand}`}
         />
@@ -530,7 +568,7 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
         createPortal(
           <div className="flex h-dvh flex-col">
             <ChatLog messages={messages} className="min-h-0 flex-1" />
-            <ChatInput send={chat.send} sendImage={sendImage} className="" />
+            <ChatInput send={sendChat} sendImage={sendImage} className="" />
             <Tooltips doc={pip.document} />
           </div>,
           pip.document.body,
@@ -646,6 +684,8 @@ type OrientationLock = { lock?: (o: "landscape") => Promise<void> };
 
 function ScreenView({ screen }: { screen: TrackReference }) {
   const [full, setFull] = useState(false);
+  const [pip, setPip] = useState(false);
+  const [canPip, setCanPip] = useState(false);
   const [ratio, setRatio] = useState(16 / 9); // 공유된 화면의 실제 가로:세로
 
   useEffect(() => {
@@ -655,6 +695,33 @@ function ScreenView({ screen }: { screen: TrackReference }) {
   }, []);
 
   const box = useRef<HTMLDivElement>(null);
+
+  // 팝업 윈도우(PiP) 지원 여부 및 진입/해제 상태 감지
+  useEffect(() => {
+    const v = box.current?.querySelector("video");
+    if (!v) return;
+    setCanPip(typeof document !== "undefined" && !!document.pictureInPictureEnabled && !v.disablePictureInPicture);
+    const onEnter = () => setPip(true);
+    const onLeave = () => setPip(false);
+    v.addEventListener("enterpictureinpicture", onEnter);
+    v.addEventListener("leavepictureinpicture", onLeave);
+    return () => {
+      v.removeEventListener("enterpictureinpicture", onEnter);
+      v.removeEventListener("leavepictureinpicture", onLeave);
+    };
+  }, [screen]);
+
+  async function togglePip() {
+    const v = box.current?.querySelector("video");
+    if (!v) return;
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else {
+        await v.requestPictureInPicture();
+      }
+    } catch {}
+  }
 
   // 전체화면 버튼은 마우스를 움직이거나 화면을 누를 때만 나타났다가 2.5초 가만히 있으면 사라진다
   const [showBtn, setShowBtn] = useState(false);
@@ -701,6 +768,35 @@ function ScreenView({ screen }: { screen: TrackReference }) {
       <span className="absolute top-2 left-2 rounded bg-black/60 px-2 py-0.5 text-xs phone-land:hidden">
         {screen.participant.name}님의 화면
       </span>
+      {/* 팝업 윈도우(PiP) 버튼, 전체화면 버튼 왼쪽 */}
+      {canPip && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            togglePip();
+          }}
+          data-tip={pip ? "팝업 닫기" : "팝업 창으로 보기"}
+          aria-label={pip ? "팝업 닫기" : "팝업 창으로 보기"}
+          className={`absolute right-11 bottom-2 rounded bg-black/60 p-1.5 text-white transition-opacity duration-300 hover:bg-black/80 phone-land:hidden ${
+            showBtn ? "opacity-100" : "pointer-events-none opacity-0"
+          }`}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+            className="size-5"
+          >
+            <rect width="18" height="14" x="3" y="5" rx="2" />
+            <rect width="7" height="5" x="12" y="12" rx="1" fill="currentColor" fillOpacity={pip ? "1" : "0.35"} />
+          </svg>
+        </button>
+      )}
       {/* 전체화면 버튼, 오른쪽 아래 (휴대폰 가로는 화면을 누르면 되니까 숨김). PC는 이 버튼이나 Esc로 끝낸다.
           휴대폰 세로에서 누르면 영화관 모드로 띄우고 가로로 돌린다. 끝낼 때는 화면을 한 번 더 누른다.
           숨어 있을 때는 눌리지 않아서, 휴대폰은 한 번 눌러 버튼을 띄운 뒤 누른다 */}
@@ -772,7 +868,7 @@ function MediaControls({ asked, requestShare }: { asked: boolean; requestShare: 
   const allowed = sources.length === 0 || sources.includes(SCREEN_SHARE_SOURCE); // 빈 목록 = 다 보낼 수 있음(방장)
   const approved = allowed && sources.length > 0; // 방장이 아닌데 승인받음
   const paused = me.getTrackPublication(Track.Source.ScreenShare)?.isMuted; // 다른 사람이 공유 중이라 멈춤
-  const [quality, setQuality] = useState<Quality>("1080p");
+  const [quality, setQuality] = useState<Quality>("720p");
 
   async function run(action: () => Promise<unknown>, fail: string) {
     try {
@@ -816,7 +912,11 @@ function MediaControls({ asked, requestShare }: { asked: boolean; requestShare: 
                 me.setScreenShareEnabled(
                   !isScreenShareEnabled,
                   {
-                    audio: true,
+                    audio: {
+                      autoGainControl: false,
+                      echoCancellation: false,
+                      noiseSuppression: false,
+                    },
                     resolution: QUALITY[quality].top.resolution,
                     contentHint: "detail",
                     video: { displaySurface: "monitor" }, // 고르는 창에서 '전체 화면' 칸이 먼저 열리게
