@@ -379,6 +379,7 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
   const rank = (p: Participant) => (p.isLocal ? 2 : p.isMicrophoneEnabled ? 1 : 0);
   const participants = [...useParticipants()].sort((a, b) => rank(b) - rank(a));
   const [showPeople, setShowPeople] = useState(false); // 휴대폰에서 참여자 목록 열기
+  const [peopleAt, setPeopleAt] = useState({ left: 0, top: 0 }); // 목록 카드가 내려올 자리 (배지 가로 가운데, 배지 바로 아래)
   // 글 채팅과 사진을 도착/작성 순서대로 섞은 통합 메시지 목록
   const { messages, send: sendChat, sendImage } = useMessages();
   // 공유가 여럿이면 멈추지 않은(보내는 중인) 것 하나만 보여 준다
@@ -501,7 +502,7 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
     return () => document.removeEventListener("pointerdown", unlock);
   }, [room]);
 
-  // 뒤로가기를 누르면 바로 나가지 않고 "DOLIVE 떠나기" 창을 먼저 띄운다.
+  // 뒤로가기를 누르면 바로 나가지 않고 "DOLIVE를 나가시겠습니까?" 창을 먼저 띄운다.
   // 같은 주소를 한 칸 더 쌓아 두고, 뒤로가기로 그 칸이 빠지면 창을 연다
   const leave = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -525,7 +526,7 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
         }}
         className="m-auto w-72 rounded-xl bg-zinc-800 p-5 text-zinc-100 ring-1 ring-zinc-700 backdrop:bg-black/60"
       >
-        <p className="mb-5 text-center font-semibold">DOLIVE 떠나기</p>
+        <p className="mb-10 text-center font-semibold">DOLIVE를 나가시겠습니까?</p>
         <div className="flex gap-2">
           <button onClick={() => room.disconnect()} className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold hover:bg-red-500">
             예
@@ -559,7 +560,11 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
         </b>
         {/* 휴대폰: 눌러서 참여자 목록을 여는 배지. 넓은 화면은 목록이 늘 보여서 그냥 글자 */}
         <button
-          onClick={() => setShowPeople(!showPeople)}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setPeopleAt({ left: r.left + r.width / 2, top: r.bottom + 8 });
+            setShowPeople(!showPeople);
+          }}
           aria-expanded={showPeople}
           className={`flex items-center gap-1 rounded-full px-3 py-1 text-zinc-200 md:pointer-events-none md:bg-transparent md:px-0 md:text-zinc-400 ${showPeople ? "bg-indigo-600" : "bg-zinc-800 active:bg-zinc-700"}`}
         >
@@ -601,8 +606,12 @@ function RoomView({ isAdmin }: { isAdmin: boolean }) {
           className={`z-10 hidden w-3 -translate-x-1.5 cursor-col-resize justify-self-start rounded-full hover:bg-indigo-500/40 md:col-start-2 md:row-span-2 md:row-start-1 md:block ${hideOnLand}`}
         />
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:contents">
+          {/* 휴대폰: 목록이 열려 있을 때 바깥을 누르면 닫힌다 */}
+          {showPeople && <div onClick={() => setShowPeople(false)} className="fixed inset-0 z-20 md:hidden" />}
+          {/* 휴대폰: 배지 아래로 스르륵 내려오는 둥근 카드 (가로 가운데를 배지와 맞춤). PC: 아래쪽 참여자 한 줄 */}
           <aside
-            className={`${showPeople ? "absolute inset-y-0 left-0 z-10 flex" : "hidden"} w-fit max-w-[60vw] flex-col gap-1 overflow-y-auto border-r border-zinc-800 bg-zinc-900 p-2 md:static md:col-start-1 md:row-start-2 md:flex md:w-auto md:max-w-none md:flex-row md:gap-1 md:overflow-x-auto md:overflow-y-hidden md:border-r-0 md:px-3 ${hideOnLand}`}
+            style={{ left: peopleAt.left, top: peopleAt.top }}
+            className={`fixed z-30 flex max-h-[60dvh] w-max max-w-[80vw] origin-top -translate-x-1/2 flex-col gap-1 overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-2 shadow-xl shadow-black/50 transition-[opacity,translate,scale,visibility] duration-200 ease-out ${showPeople ? "" : "pointer-events-none invisible -translate-y-2 scale-95 opacity-0"} md:visible md:pointer-events-auto md:static md:col-start-1 md:row-start-2 md:max-h-none md:w-auto md:max-w-none md:translate-none md:scale-100 md:flex-row md:gap-1 md:overflow-x-auto md:overflow-y-hidden md:rounded-none md:border-0 md:px-3 md:opacity-100 md:shadow-none md:transition-none ${hideOnLand}`}
           >
             {participants.map((p) => (
               <PersonRow key={p.identity} p={p} isAdmin={isAdmin} />
