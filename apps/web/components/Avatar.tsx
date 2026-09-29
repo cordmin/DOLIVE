@@ -1,5 +1,5 @@
 // 프로필 사진(동그라미, round={false}면 사진 비율 4:5 네모 그대로. 사진은 모두 240x300). 말하면 초록 테두리. mic를 주면 오른쪽 아래에 마이크 켜짐(초록)/꺼짐(빨강) 점.
-// id: 기본 사진 번호, 또는 내가 고른 사진의 주소(data:/blob:), 또는 ""(아직 못 받음 = 빈 회색).
+// id: 기본 사진 번호, 또는 내가 고른 사진의 주소(입장 화면에선 data:, 방에선 /api/chat/<id>), 또는 ""(빈 회색).
 // px: 작게 보여 줄 때 화면에 나오는 최대 폭. 기본 사진이면 서버가 그 크기(화면 밀도별 1~3배)로 줄여 보내서 PC에서도 곱게 보인다.
 export function Avatar({
   id,
@@ -16,7 +16,7 @@ export function Avatar({
   px?: number;
   className?: string;
 }) {
-  const own = id.includes(":"); // 내가 고른 사진 (주소 그대로)
+  const own = id.includes("/"); // 내가 고른 사진 (주소 그대로)
   return (
     <div className={`relative ${round ? "aspect-square" : "aspect-[4/5]"} ${className}`}>
       {id && (

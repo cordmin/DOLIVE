@@ -7,7 +7,7 @@ import { PhotoCrop } from "@/components/PhotoCrop";
 import { AVATARS, CUSTOM, savedAvatar } from "@/lib/dolive";
 
 // 입장 화면: 프로필 사진(기본 11장 + 내 사진) + 닉네임 → 채팅방 입장
-// 내 사진은 서버에 올리지 않는다. 이 브라우저(sessionStorage "photo")에만 두었다가 방에서 사람들에게 바로 건넨다.
+// 내 사진은 이 브라우저(sessionStorage "photo")에 두었다가 입장할 때 서버 메모리에 올린다 (서버를 끄면 사라진다).
 // (마이크는 꺼진 채로 들어가고, 방 안 위쪽 스위치로 켠다)
 export default function Home() {
   const router = useRouter();

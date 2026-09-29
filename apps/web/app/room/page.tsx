@@ -4,7 +4,7 @@ import {
   LiveKitRoom,
   RoomAudioRenderer,
   VideoTrack,
-  useChat,
+  useConnectionQualityIndicator,
   useDataChannel,
   useIsMuted,
   useIsSpeaking,
@@ -19,6 +19,7 @@ import type { TrackReference } from "@livekit/components-react";
 import {
   ConnectionError,
   ConnectionErrorReason,
+  ConnectionQuality,
   Participant,
   RoomEvent,
   RoomOptions,
@@ -33,11 +34,13 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { Avatar } from "@/components/Avatar";
 import { Switch } from "@/components/Switch";
 import { Tooltips } from "@/components/Tooltips";
-import { AVATARS, CUSTOM, savedAvatar } from "@/lib/dolive";
+import { AVATARS, CHAT_MAX, CHAT_TOPIC, IMAGE_MAX, IMAGE_TYPES, savedAvatar, type ChatMsg } from "@/lib/dolive";
 
 // 영상은 화면공유뿐. 안 보이는 영상은 받지 않음(adaptiveStream).
+// 단, 다른 앱에 갔다 와도 바로 보이게 뒤에 숨어 있는 동안에도 계속 받는다
+// (끊었다 다시 받으면 새 그림 한 장이 올 때까지 검은 화면이 된다. 대신 숨어 있는 동안에도 데이터가 든다)
 const ROOM_OPTIONS: RoomOptions = {
-  adaptiveStream: true,
+  adaptiveStream: { pauseVideoInBackground: false },
   dynacast: true,
 };
 
@@ -58,165 +61,71 @@ const SHARE_TOPIC = "dolive-share";
 const SCREEN_SHARE_SOURCE = 3; // LiveKit 권한 목록에서 화면공유를 뜻하는 번호 (TrackSource.SCREEN_SHARE)
 const text = (s: string) => new TextEncoder().encode(s);
 
-// 각자 고른 사진(프로필 "custom")은 서버에 저장하지 않는다. 방 안에서 통화 연결로 바로 주고받고, 이 탭 메모리에만 둔다.
-// 사람 identity -> 사진 주소(data:/blob:)
-const PHOTO_TOPIC = "dolive-photo";
-const photos = new Map<string, string>();
-const photoListeners = new Set<() => void>();
-let photoVersion = 0;
+// 사진 번호, 또는 그 사람이 고른 사진 주소 (/api/chat/<id>, 입장할 때 서버 메모리에 올라가서 서버를 끌 때까지 남는다)
+const avatarOf = (a?: string) => a || AVATARS[0];
 
-function setPhoto(identity: string, url?: string) {
-  const old = photos.get(identity);
-  if (old?.startsWith("blob:")) URL.revokeObjectURL(old);
-  if (url) photos.set(identity, url);
-  else photos.delete(identity);
-  photoVersion++;
-  photoListeners.forEach((l) => l());
+type Msg = ChatMsg;
+
+// 이 탭에서 내가 썼던 identity 들. 나갔다가 다시 들어오면 identity 가 새로 바뀌어서, 예전 내 글도 내 글로 보이게 모아 둔다
+const MY_IDS = "dolive-my-ids";
+function myIds(): string[] {
+  try {
+    return JSON.parse(sessionStorage.getItem(MY_IDS) ?? "[]");
+  } catch {
+    return [];
+  }
 }
 
-function usePhotos() {
-  useSyncExternalStore(
-    (l) => {
-      photoListeners.add(l);
-      return () => {
-        photoListeners.delete(l);
-      };
-    },
-    () => photoVersion,
-    () => 0,
-  );
-  return photos;
-}
-
-// 사진 번호, 또는 그 사람이 고른 사진 주소 (아직 못 받았으면 "" = 빈 회색)
-const avatarOf = (p: Participant | undefined) => {
-  const a = p?.attributes?.avatar ?? AVATARS[0];
-  return a === CUSTOM ? (photos.get(p!.identity) ?? "") : a;
-};
-
-// 내 사진이 있으면 방에 들어갈 때 먼저 와 있던 사람 모두에게 보내고, 나중에 누가 들어오면 그 사람에게 보낸다.
-function usePhotoExchange() {
+// 채팅은 서버(/api/chat)를 거친다. 서버가 켜진 뒤의 글·사진을 모두 기록해 두고, 새 글은 방 안 모두에게 보낸다.
+// 들어올 때(다시 붙을 때도) 기록을 통째로 받아서, 나중에 들어온 사람도 처음부터 다 본다.
+// 목록은 서버가 받은 순서(n)대로 (기기마다 시계가 달라도 순서가 섞이지 않게)
+function useMessages(token: string) {
   const room = useRoomContext();
-  useEffect(() => {
-    const mine = sessionStorage.getItem("avatar") === CUSTOM ? sessionStorage.getItem("photo") : null;
-    const sendMine = async (to?: string[]) => {
-      if (!mine) return;
-      const blob = await (await fetch(mine)).blob();
-      await room.localParticipant
-        .sendFile(new File([blob], "photo.jpg", { type: "image/jpeg" }), { topic: PHOTO_TOPIC, destinationIdentities: to })
-        .catch(() => {});
-    };
-
-    room.registerByteStreamHandler(PHOTO_TOPIC, async (reader, { identity }) => {
-      const chunks = await reader.readAll();
-      if (chunks.reduce((n, c) => n + c.length, 0) > 300 * 1024) return; // 사진치고 너무 크면 버린다
-      setPhoto(identity, URL.createObjectURL(new Blob(chunks as BlobPart[], { type: "image/jpeg" })));
-    });
-    const onJoin = (p: RemoteParticipant) => sendMine([p.identity]);
-    const onLeave = (p: RemoteParticipant) => setPhoto(p.identity);
-    const start = () => {
-      if (mine) setPhoto(room.localParticipant.identity, mine);
-      sendMine();
-    };
-    room.on(RoomEvent.ParticipantConnected, onJoin).on(RoomEvent.ParticipantDisconnected, onLeave);
-    if (room.state === "connected") start();
-    else room.once(RoomEvent.Connected, start);
-    return () => {
-      room.unregisterByteStreamHandler(PHOTO_TOPIC);
-      room
-        .off(RoomEvent.ParticipantConnected, onJoin)
-        .off(RoomEvent.ParticipantDisconnected, onLeave)
-        .off(RoomEvent.Connected, start);
-    };
-  }, [room]);
-}
-
-// 채팅에 붙여 넣은 사진. 서버에 저장하지 않고 방 안에서 통화 연결로 바로 주고받아 이 탭 메모리에만 둔다.
-// (그래서 나중에 들어온 사람은 그 전 사진을 못 본다. 글 채팅과 같다)
-const IMAGE_TOPIC = "dolive-chat-image";
-const IMAGE_MAX = 10 * 1024 * 1024;
-// 보여 줘도 안전한 사진 종류만 (SVG 같은 건 새 탭에서 열 때 이 사이트 안에서 코드가 돌 수 있어서 뺀다)
-const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
-
-// image: 사진 주소(이 탭 메모리), imageType: 저장할 때 파일 끝 이름(.png 등)을 정하려고
-type Msg = { id: string; timestamp: number; from?: Participant; message: string; image?: string; imageType?: string };
-
-// 글 채팅과 사진을 도착/작성 순서대로 하나의 목록에 쌓는다.
-// (기기간 시계 오차로 타임스탬프가 달라도 방금 쓴 글이 중간에 끼지 않고 항상 맨 아래에 오도록)
-function useMessages() {
-  const room = useRoomContext();
-  const chat = useChat();
   const [messages, setMessages] = useState<Msg[]>([]);
-  const seenIds = useRef(new Set<string>());
+  const add = useCallback(
+    (list: Msg[]) =>
+      setMessages((prev) => {
+        const seen = new Set(prev.map((m) => m.id));
+        const fresh = list.filter((m) => !seen.has(m.id));
+        return fresh.length ? [...prev, ...fresh].sort((a, b) => a.n - b.n) : prev;
+      }),
+    [],
+  );
+  // 서버가 보낸 것만 받는다 (사람이 같은 이름표로 보낸 가짜 채팅은 무시)
+  useDataChannel(CHAT_TOPIC, (msg) => {
+    if (!msg.from) add([JSON.parse(new TextDecoder().decode(msg.payload))]);
+  });
 
-  // 글 채팅 동기화: 새 글은 목록 끝에 추가하고, 스트리밍 중인 글은 내용을 갱신한다
+  const auth = { Authorization: `Bearer ${token}` };
   useEffect(() => {
-    setMessages((prev) => {
-      let changed = false;
-      const updated = prev.map((m) => {
-        const latest = chat.chatMessages.find((c) => c.id === m.id);
-        if (latest && latest.message !== m.message) {
-          changed = true;
-          return { ...m, message: latest.message };
-        }
-        return m;
-      });
+    const load = () => {
+      const me = room.localParticipant.identity;
+      if (!myIds().includes(me)) sessionStorage.setItem(MY_IDS, JSON.stringify([...myIds(), me]));
+      fetch("/api/chat", { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => (r.ok ? r.json() : []))
+        .then(add, () => {});
+    };
+    // 방에 붙은 뒤에 받아야 그 사이에 올라온 글을 놓치지 않는다 (겹친 글은 add 가 걸러 낸다)
+    if (room.state === "connected") load();
+    room.on(RoomEvent.Connected, load).on(RoomEvent.Reconnected, load);
+    return () => {
+      room.off(RoomEvent.Connected, load).off(RoomEvent.Reconnected, load);
+    };
+  }, [room, token, add]);
 
-      const newOnes: Msg[] = [];
-      for (const c of chat.chatMessages) {
-        if (!seenIds.current.has(c.id)) {
-          seenIds.current.add(c.id);
-          newOnes.push({
-            id: c.id,
-            timestamp: c.timestamp,
-            from: c.from,
-            message: c.message,
-          });
-        }
-      }
-
-      if (newOnes.length > 0) return [...updated, ...newOnes];
-      return changed ? updated : prev;
-    });
-  }, [chat.chatMessages]);
-
-  const addImage = useCallback((m: Msg) => {
-    if (seenIds.current.has(m.id)) return;
-    seenIds.current.add(m.id);
-    setMessages((prev) => [...prev, m]);
-  }, []);
-
-  useEffect(() => {
-    room.registerByteStreamHandler(IMAGE_TOPIC, async (reader, { identity }) => {
-      const { id, timestamp, mimeType, size } = reader.info;
-      if (!IMAGE_TYPES.includes(mimeType) || (size ?? 0) > IMAGE_MAX) return;
-      const chunks = await reader.readAll();
-      if (chunks.reduce((n, c) => n + c.length, 0) > IMAGE_MAX) return;
-      const image = URL.createObjectURL(new Blob(chunks as BlobPart[], { type: mimeType }));
-      addImage({ id, timestamp, from: room.getParticipantByIdentity(identity), message: "", image, imageType: mimeType });
-    });
-    return () => room.unregisterByteStreamHandler(IMAGE_TOPIC);
-  }, [room, addImage]);
-
-  async function sendImage(file: File) {
+  async function post(body: BodyInit, type: string) {
+    const r = await fetch("/api/chat", { method: "POST", headers: { ...auth, "Content-Type": type }, body });
+    if (!r.ok) throw new Error();
+    add([await r.json()]);
+  }
+  const send = (message: string) => post(JSON.stringify({ message }), "application/json").catch(() => alert("메시지를 보내지 못했어요."));
+  function sendImage(file: File) {
     if (!IMAGE_TYPES.includes(file.type)) return alert("PNG, JPG, GIF, WEBP 사진만 보낼 수 있어요.");
     if (file.size > IMAGE_MAX) return alert("10MB보다 큰 사진은 보낼 수 없어요.");
-    try {
-      const { id } = await room.localParticipant.sendFile(file, { topic: IMAGE_TOPIC, mimeType: file.type });
-      addImage({
-        id,
-        timestamp: Date.now(),
-        from: room.localParticipant,
-        message: "",
-        image: URL.createObjectURL(file),
-        imageType: file.type,
-      });
-    } catch {
-      alert("사진을 보내지 못했어요.");
-    }
+    post(file, file.type).catch(() => alert("사진을 보내지 못했어요."));
   }
 
-  return { messages, send: chat.send, sendImage };
+  return { messages, send, sendImage };
 }
 
 // 새 사람이 화면공유를 시작하면 내 공유는 잠시 멈춘다. 멈춘 동안은 아예 보내지 않아서 데이터가 들지 않는다.
@@ -279,16 +188,11 @@ function isPhone() {
 function usePhoneLandscape() {
   useEffect(() => {
     const root = document.documentElement;
-    let wasLand = false;
     const update = () => {
       const land = screen.orientation
         ? screen.orientation.type.startsWith("landscape")
         : matchMedia("(orientation: landscape)").matches; // 옛 아이폰: 자판이 화면 크기를 안 바꿔서 괜찮다
       root.toggleAttribute("data-phone-land", land && isPhone());
-      // 가로였다가 다시 세로로 세우면 전체화면을 푼다
-      // (세로에서 전체화면 버튼을 누른 직후, 가로로 돌기 전에 풀리지 않게 '가로였다가'일 때만)
-      if (wasLand && !land && document.fullscreenElement) document.exitFullscreen();
-      wasLand = land;
     };
     update();
     screen.orientation?.addEventListener("change", update);
@@ -313,10 +217,15 @@ export default function RoomPage() {
       router.replace("/");
       return;
     }
-    fetch("/api/token", { method: "POST", body: JSON.stringify({ name, avatar: savedAvatar() }) })
+    // 개발 중엔 이 부분이 두 번 돌아서, 마지막에 받은 입장권만 쓴다 (채팅이 방과 같은 입장권을 써야 해서)
+    let alive = true;
+    fetch("/api/token", { method: "POST", body: JSON.stringify({ name, avatar: savedAvatar(), photo: sessionStorage.getItem("photo") }) })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then(setConn)
-      .catch(() => router.replace("/"));
+      .then((c) => alive && setConn(c))
+      .catch(() => alive && router.replace("/"));
+    return () => {
+      alive = false;
+    };
   }, [router]);
 
   // 방에서 나오면 첫 화면으로. 서버가 꺼져 있으면 첫 화면을 받아 올 수 없어서 멈춘 것처럼 보이니,
@@ -365,7 +274,7 @@ export default function RoomPage() {
     >
       <RoomAudioRenderer />
       {/* 소리 켜기 안내 버튼은 두지 않는다. 브라우저가 소리를 막아 두면 화면 아무 데나 처음 누를 때 켠다 (RoomView) */}
-      <RoomView isAdmin={conn.isAdmin} />
+      <RoomView isAdmin={conn.isAdmin} token={conn.token} />
     </LiveKitRoom>
   );
 }
@@ -374,21 +283,20 @@ export default function RoomPage() {
 // 휴대폰: [화면공유 또는 프로필 사진 / 채팅 내용 / 메시지 입력칸]  (참여자 목록은 눌러서 연다)
 // PC:     [화면공유 또는 프로필 사진 | 채팅 내용  ]
 //         [참여자 한 줄              | 메시지 입력칸]
-function RoomView({ isAdmin }: { isAdmin: boolean }) {
+function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
   // 나는 늘 맨 앞(왼쪽), 그다음 마이크를 켠 사람, 나머지는 들어온 순서 그대로. 마이크를 켜고 끄면 바로 자리가 바뀐다
   const rank = (p: Participant) => (p.isLocal ? 2 : p.isMicrophoneEnabled ? 1 : 0);
   const participants = [...useParticipants()].sort((a, b) => rank(b) - rank(a));
   const [showPeople, setShowPeople] = useState(false); // 휴대폰에서 참여자 목록 열기
   const [peopleAt, setPeopleAt] = useState({ left: 0, top: 0 }); // 목록 카드가 내려올 자리 (배지 가로 가운데, 배지 바로 아래)
   // 글 채팅과 사진을 도착/작성 순서대로 섞은 통합 메시지 목록
-  const { messages, send: sendChat, sendImage } = useMessages();
+  const { messages, send: sendChat, sendImage } = useMessages(token);
   // 공유가 여럿이면 멈추지 않은(보내는 중인) 것 하나만 보여 준다
   const screen = useTracks([Track.Source.ScreenShare])
     .filter((t) => !t.publication.isMuted)
     .at(-1);
   const room = useRoomContext();
   usePauseOldShare();
-  usePhotoExchange();
 
   // 화면공유 승인 받기: 방장이 아닌 사람이 요청하면 방장 화면에 [승인] [거부]가 뜬다
   const [requests, setRequests] = useState<{ identity: string; name: string }[]>([]); // 방장이 받은 요청
@@ -671,8 +579,7 @@ function copyStyles(w: Window) {
 
 function useAvatarOf(p: Participant) {
   useParticipantAttributes({ participant: p });
-  usePhotos();
-  return avatarOf(p);
+  return avatarOf(p.attributes?.avatar);
 }
 
 // 방장은 다른 사람 사진 구석의 초록 점(마이크 켜짐)을 누르면 그 사람 마이크를 끈다 (/api/mute 가 방장인지 다시 확인한다)
@@ -748,11 +655,37 @@ function Stage({ participants, screen }: { participants: Participant[]; screen?:
   );
 }
 
-// 공유 화면. 휴대폰을 가로로 눕히고 화면을 누르면 주소창·아래 버튼까지 숨긴 전체화면(영화관 모드)이 되고, 한 번 더 누르면 풀린다.
+// 공유 화면. 휴대폰은 유튜브처럼 위로 쓸어 올리면 전체화면, 전체화면에서 아래로 쓸어 내리면 원래대로.
+// 휴대폰을 가로로 눕히고 화면을 눌러도 전체화면이 되고, 한 번 더 누르면 풀린다.
+// 전체화면은 늘 가로. 왼쪽·오른쪽 어느 쪽으로 눕혀도 그 방향에 맞게 돌고, 눕혔다가 다시 세우면 끝난다 (안드로이드만)
 type IosVideo = HTMLVideoElement & { webkitEnterFullscreen?: () => void };
 type OrientationLock = { lock?: (o: "landscape") => Promise<void> };
 
+// 보는 사람 인터넷이 느릴 때 공유 화면 위에 띄울 안내. 내 공유 화면에는 띄우지 않는다.
+// 멈춤: 길이 너무 막혀서 서버가 화면은 멈추고 소리만 보내는 중. 느림: 아직 나오지만 곧 끊길 수 있음.
+function useSlowNotice(screen: TrackReference) {
+  const { localParticipant } = useLocalParticipant();
+  const { quality } = useConnectionQualityIndicator({ participant: localParticipant });
+  const room = useRoomContext();
+  const paused = useSyncExternalStore(
+    useCallback(
+      (cb: () => void) => {
+        room.on(RoomEvent.TrackStreamStateChanged, cb);
+        return () => void room.off(RoomEvent.TrackStreamStateChanged, cb);
+      },
+      [room],
+    ),
+    () => screen.publication.track?.streamState === Track.StreamState.Paused,
+    () => false,
+  );
+  if (screen.participant.isLocal) return null;
+  if (paused) return "인터넷이 느려서 화면이 잠시 멈췄어요. 소리는 계속 나와요";
+  if (quality === ConnectionQuality.Poor || quality === ConnectionQuality.Lost) return "인터넷이 느려서 화면이 끊길 수 있어요";
+  return null;
+}
+
 function ScreenView({ screen }: { screen: TrackReference }) {
+  const slow = useSlowNotice(screen);
   const [full, setFull] = useState(false);
   const [pip, setPip] = useState(false);
   const [canPip, setCanPip] = useState(false);
@@ -803,29 +736,63 @@ function ScreenView({ screen }: { screen: TrackReference }) {
   }
   useEffect(() => () => clearTimeout(hideTimer.current), []);
 
-  // el: 전체화면으로 띄울 것 (휴대폰은 페이지 전체 = 영화관 모드, PC 전체화면 버튼은 공유 화면만)
-  // turn: 가로로 돌리기 (휴대폰 세로에서 버튼을 누를 때. 안드로이드만 되고, 전체화면이 풀리면 브라우저가 알아서 원래대로)
-  async function toggleFull(el: HTMLElement, turn = false) {
+  // 공유 화면만 전체화면으로. 들어가면 가로로 잠가서 바로 가로로 돌린다 (가로 두 방향은 휴대폰 기울기를 따라 돈다)
+  // (전체화면이 풀리면 브라우저가 알아서 원래대로. PC는 돌리기가 없어서 그냥 넘어간다)
+  async function toggleFull() {
     if (full) return document.exitFullscreen();
-    // 아이폰은 페이지 전체화면이 안 돼서, 영상만 아이폰 기본 전체화면으로 띄운다 (돌리기는 폰을 직접 눕혀야 함)
-    if (!el.requestFullscreen) return (box.current?.querySelector("video") as IosVideo | null)?.webkitEnterFullscreen?.();
+    const el = box.current!;
+    // 아이폰은 영상 말고는 전체화면이 안 돼서 아이폰 기본 전체화면으로 띄운다 (돌리기·쓸어 내려 닫기는 아이폰이 알아서)
+    if (!el.requestFullscreen) return (el.querySelector("video") as IosVideo | null)?.webkitEnterFullscreen?.();
     await el.requestFullscreen().catch(() => {});
-    if (turn) await (window.screen.orientation as unknown as OrientationLock).lock?.("landscape").catch(() => {});
+    await (window.screen.orientation as unknown as OrientationLock).lock?.("landscape").catch(() => {});
   }
+
+  // 전체화면 동안 휴대폰을 가로로 눕혔다가 다시 세로로 세우면 끝낸다 (유튜브처럼).
+  // 화면이 가로로 잠겨 있어서 화면 방향으로는 알 수 없으니, 휴대폰이 받는 중력 방향(기울기)으로 본다.
+  // '눕혔다가'일 때만: 세로로 들고 쓸어 올린 직후, 아직 눕히기 전에 바로 풀리지 않게
+  useEffect(() => {
+    if (!full || !isPhone()) return;
+    let lay = false;
+    const onMotion = (e: DeviceMotionEvent) => {
+      const x = Math.abs(e.accelerationIncludingGravity?.x ?? 0); // 휴대폰 옆쪽으로 쏠린 힘 = 눕힘
+      const y = Math.abs(e.accelerationIncludingGravity?.y ?? 0); // 휴대폰 아래쪽으로 쏠린 힘 = 세움
+      if (x > 7 && x > 2 * y) lay = true;
+      else if (lay && y > 7 && y > 2 * x) document.exitFullscreen().catch(() => {});
+    };
+    window.addEventListener("devicemotion", onMotion);
+    return () => window.removeEventListener("devicemotion", onMotion);
+  }, [full]);
+
+  // 손가락으로 위아래로 쓸었는지 (50px 넘게, 옆보다 위아래로 더 많이). 쓸었으면 뒤따라오는 '누름'은 무시한다
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const swiped = useRef(false);
 
   return (
     <div
       ref={box}
       onPointerMove={wake}
-      onPointerDown={wake}
+      onPointerDown={(e) => {
+        wake();
+        swiped.current = false;
+        touchStart.current = e.pointerType === "touch" ? { x: e.clientX, y: e.clientY } : null;
+      }}
+      onPointerUp={(e) => {
+        const s = touchStart.current;
+        touchStart.current = null;
+        if (!s) return;
+        const dx = e.clientX - s.x;
+        const dy = e.clientY - s.y;
+        if (Math.abs(dy) < 50 || Math.abs(dy) < Math.abs(dx)) return;
+        swiped.current = true;
+        if (dy < 0 !== full) toggleFull(); // 위로 = 켜기, 아래로 = 끄기
+      }}
       onClick={() => {
-        const root = document.documentElement;
-        if (full ? document.fullscreenElement === root : root.hasAttribute("data-phone-land")) toggleFull(root);
+        if (!swiped.current && document.documentElement.hasAttribute("data-phone-land")) toggleFull();
       }}
       // PC: 공유된 화면 비율 그대로(위아래 검은 띠 없이). 높이는 위쪽 막대·아래 참여자 줄을 뺀 만큼까지
       style={{ "--ratio": ratio } as React.CSSProperties}
       // 모서리는 채팅 카드와 같은 둥글기(rounded-xl). overflow-hidden: 영상 모서리도 같이 둥글게 잘리도록
-      className="relative aspect-video min-h-0 w-full overflow-hidden rounded-xl bg-black [&:fullscreen]:rounded-none lg:mx-auto lg:aspect-(--ratio) lg:max-w-[calc((100dvh-13rem)*var(--ratio))] phone-land:aspect-auto phone-land:flex-1 phone-land:rounded-none"
+      className="relative aspect-video min-h-0 w-full touch-none overflow-hidden rounded-xl bg-black [&:fullscreen]:rounded-none lg:mx-auto lg:aspect-(--ratio) lg:max-w-[calc((100dvh-13rem)*var(--ratio))] phone-land:aspect-auto phone-land:flex-1 phone-land:rounded-none"
     >
       <VideoTrack
         trackRef={screen}
@@ -838,7 +805,7 @@ function ScreenView({ screen }: { screen: TrackReference }) {
       <span className="absolute top-2 left-2 rounded bg-black/60 px-2 py-0.5 text-xs phone-land:hidden">
         {screen.participant.name}님의 화면
       </span>
-      {/* 팝업 윈도우(PiP) 버튼, 전체화면 버튼 왼쪽 */}
+      {/* 팝업 윈도우(PiP) 버튼, 오른쪽 위 */}
       {canPip && (
         <button
           type="button"
@@ -848,7 +815,7 @@ function ScreenView({ screen }: { screen: TrackReference }) {
           }}
           data-tip={pip ? "팝업 닫기" : "팝업 창으로 보기"}
           aria-label={pip ? "팝업 닫기" : "팝업 창으로 보기"}
-          className={`absolute right-11 bottom-2 rounded bg-black/60 p-1.5 text-white transition-opacity duration-300 hover:bg-black/80 phone-land:hidden ${
+          className={`absolute top-2 right-2 rounded bg-black/60 p-1.5 text-white transition-opacity duration-300 hover:bg-black/80 phone-land:hidden ${
             showBtn ? "opacity-100" : "pointer-events-none opacity-0"
           }`}
         >
@@ -868,14 +835,12 @@ function ScreenView({ screen }: { screen: TrackReference }) {
         </button>
       )}
       {/* 전체화면 버튼, 오른쪽 아래 (휴대폰 가로는 화면을 누르면 되니까 숨김). PC는 이 버튼이나 Esc로 끝낸다.
-          휴대폰 세로에서 누르면 영화관 모드로 띄우고 가로로 돌린다. 끝낼 때는 화면을 한 번 더 누른다.
-          숨어 있을 때는 눌리지 않아서, 휴대폰은 한 번 눌러 버튼을 띄운 뒤 누른다 */}
+          숨어 있을 때는 눌리지 않아서, 휴대폰은 한 번 눌러 버튼을 띄운 뒤 누른다 (쓸어 올려도 된다) */}
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          if (isPhone()) toggleFull(document.documentElement, true);
-          else toggleFull(box.current!);
+          toggleFull();
         }}
         data-tip={full ? "전체화면 끝내기" : "전체화면"}
         aria-label={full ? "전체화면 끝내기" : "전체화면"}
@@ -897,6 +862,12 @@ function ScreenView({ screen }: { screen: TrackReference }) {
           <path d={full ? "M18 10h-4V6M20 4l-6 6M6 14h4v4M10 14l-6 6" : "M16 20h4v-4M14 14l6 6M8 4H4v4M4 4l6 6"} />
         </svg>
       </button>
+      {/* 인터넷 느림 안내. 아래 가운데 (휴대폰 가로는 이름표가 숨어서 위 가운데) */}
+      {slow && (
+        <span className="pointer-events-none absolute inset-x-0 bottom-2 mx-auto w-fit max-w-[calc(100%-6rem)] rounded bg-black/70 px-2 py-0.5 text-center text-xs text-amber-300 phone-land:top-2 phone-land:bottom-auto">
+          {slow}
+        </span>
+      )}
       {/* 4초 뒤 스르륵 사라짐. 가로로 다시 눕히거나 전체화면이 풀리면 다시 나타난다 */}
       {!full && (
         <span className="absolute inset-x-0 bottom-6 mx-auto hidden w-fit rounded-2xl bg-black/70 px-8 py-4 text-3xl font-bold whitespace-nowrap text-white phone-land:block animate-[fade-out_0.8s_ease_4s_forwards]">
@@ -1016,8 +987,6 @@ function MediaControls({ asked, requestShare }: { asked: boolean; requestShare: 
   );
 }
 
-type Chat = ReturnType<typeof useChat>;
-
 // "오전 12:03"
 const chatTime = (t: number) => new Date(t).toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" });
 
@@ -1093,7 +1062,8 @@ function LinkPreview({ url, onLoad }: { url: string; onLoad: () => void }) {
 // 같은 사람이 같은 분에 이어 보낸 말은 한 묶음이라 사진·이름은 첫 말에만, 시간은 마지막 말에만 붙인다.
 // 링크가 있으면 말풍선 아래에 첫 링크의 미리보기 카드, 사진은 말풍선 대신 사진 그대로 (누르면 화면 위에 크게)
 function ChatLog({ messages, className }: { messages: Msg[]; className: string }) {
-  const bottom = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const mineIds = myIds();
 
   // 사진 크게 보기: 브라우저 기본 모달(dialog). ESC로 닫히는 것도 브라우저가 해 준다. 바깥 어두운 곳을 눌러도 닫힌다
   const viewer = useRef<HTMLDialogElement>(null);
@@ -1102,34 +1072,45 @@ function ChatLog({ messages, className }: { messages: Msg[]; className: string }
     setShown(m);
     viewer.current?.showModal();
   }
-  usePhotos(); // 사진을 받으면 다시 그리기
 
-  // 사진·미리보기가 늦게 떠서 키가 커지면 다시 맨 아래로
-  // (중괄호로 감싼 건, 요즘 브라우저의 스크롤 명령이 돌려주는 값을 React가 뒷정리 함수로 오해하지 않게)
+  // 맨 아래를 보고 있을 때만 새 글·늦게 뜬 사진·미리보기를 따라 내려간다.
+  // 지난 글을 보려고 위로 올려 둔 동안에는 누가 글을 써도 그 자리 그대로 (내가 보낸 글이면 내려간다)
+  const atBottom = useRef(true);
   const toBottom = useCallback(() => {
-    bottom.current?.scrollIntoView({ block: "end" });
+    const el = list.current;
+    if (el && atBottom.current) el.scrollTop = el.scrollHeight;
   }, []);
-  useEffect(toBottom, [messages.length, toBottom]);
+  const lastMine = mineIds.includes(messages.at(-1)?.identity ?? "");
+  useEffect(() => {
+    if (lastMine) atBottom.current = true;
+    toBottom();
+  }, [messages.length, lastMine, toBottom]);
 
   return (
-    <div className={`overflow-y-auto p-3 text-sm ${className}`}>
+    <div
+      ref={list}
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+      }}
+      className={`overflow-y-auto p-3 text-sm ${className}`}
+    >
       {messages.map((m, i) => {
-        const who = m.from?.identity;
-        const same = (o?: Msg) => !!o && o.from?.identity === who && chatTime(o.timestamp) === chatTime(m.timestamp);
+        const same = (o?: Msg) => !!o && o.identity === m.identity && chatTime(o.timestamp) === chatTime(m.timestamp);
         const first = !same(messages[i - 1]);
         const last = !same(messages[i + 1]);
-        const mine = m.from?.isLocal;
+        const mine = mineIds.includes(m.identity);
         const link = m.message.match(LINK)?.[0];
         return (
           <div key={m.id} className={`flex gap-2 ${mine ? "justify-end" : ""} ${first ? "mt-3" : "mt-1"}`}>
             {!mine &&
               (first ? (
-                <Avatar id={avatarOf(m.from)} px={52} className="size-10 shrink-0 md:size-13" />
+                <Avatar id={avatarOf(m.avatar)} px={52} className="size-10 shrink-0 md:size-13" />
               ) : (
                 <div className="w-10 shrink-0 md:w-13" />
               ))}
             <div className={`flex max-w-[75%] min-w-0 flex-col ${mine ? "items-end" : "items-start"}`}>
-              {first && !mine && <span className="mb-1 text-xs text-zinc-400">{m.from?.name ?? "나간 사람"}</span>}
+              {first && !mine && <span className="mb-1 text-xs text-zinc-400">{m.name}</span>}
               <div className={`flex items-end gap-1.5 ${mine ? "flex-row-reverse" : ""}`}>
                 {m.image ? (
                   // 사진 폭은 늘 240px (옆에 시간이 붙어도 사진이 줄지 않게 shrink-0). 아주 긴 사진은 위아래를 잘라 보여 준다
@@ -1153,7 +1134,6 @@ function ChatLog({ messages, className }: { messages: Msg[]; className: string }
           </div>
         );
       })}
-      <div ref={bottom} />
 
       <dialog
         ref={viewer}
@@ -1203,7 +1183,7 @@ function ChatInput({
   sendImage,
   className,
 }: {
-  send: Chat["send"];
+  send: (text: string) => void;
   sendImage: (f: File) => void;
   className: string;
 }) {
@@ -1282,6 +1262,7 @@ function ChatInput({
             e.preventDefault();
             submit();
           }}
+          maxLength={CHAT_MAX}
           placeholder="메시지 입력"
           className="max-h-32 w-full resize-none rounded-3xl bg-zinc-800 px-5 py-3 text-base leading-6 outline-none focus:ring-2 focus:ring-indigo-500"
         />
