@@ -34,7 +34,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { Avatar } from "@/components/Avatar";
 import { Switch } from "@/components/Switch";
 import { Tooltips } from "@/components/Tooltips";
-import { AVATARS, CHAT_MAX, CHAT_TOPIC, IMAGE_MAX, IMAGE_TYPES, savedAvatar, type ChatMsg } from "@/lib/dolive";
+import { AVATARS, CHAT_MAX, CHAT_TOPIC, IMAGE_MAX, IMAGE_TYPES, isPhone, savedAvatar, type ChatMsg } from "@/lib/dolive";
 
 // 영상은 화면공유뿐. 안 보이는 영상은 받지 않음(adaptiveStream).
 // 단, 다른 앱에 갔다 와도 바로 보이게 뒤에 숨어 있는 동안에도 계속 받는다
@@ -60,6 +60,19 @@ const CHAT_W_KEY = "dolive-chat-width"; // PC 채팅 카드 폭 기억 (이 브�
 const SHARE_TOPIC = "dolive-share";
 const SCREEN_SHARE_SOURCE = 3; // LiveKit 권한 목록에서 화면공유를 뜻하는 번호 (TrackSource.SCREEN_SHARE)
 const text = (s: string) => new TextEncoder().encode(s);
+
+// 하트·ㅋ·헐 날리기. 기록은 남기지 않고, 그 순간 방에 있는 사람 화면에만 띄운다
+const REACT_TOPIC = "dolive-react";
+const REACTS = ["heart", "k", "hul"] as const;
+type Reaction = (typeof REACTS)[number];
+type Float = { id: number; kind: Reaction; x: number; delay: number };
+let floatId = 0;
+// 헐은 노란 글자에 검은 테두리, ㅋ는 검은 글자에 흰 테두리 (버튼과 떨어지는 글자 모두).
+// 테두리를 글자 뒤에 그려서(paint-order) 글자가 가늘어지지 않게. 굵기는 글자 크기에 맞춰 늘어난다(em)
+const STICKER_TEXT = {
+  hul: "text-amber-300 [-webkit-text-stroke:0.16em_black] [paint-order:stroke_fill]",
+  k: "text-black [-webkit-text-stroke:0.16em_white] [paint-order:stroke_fill]",
+};
 
 // 사진 번호, 또는 그 사람이 고른 사진 주소 (/api/chat/<id>, 입장할 때 서버 메모리에 올라가서 서버를 끌 때까지 남는다)
 const avatarOf = (a?: string) => a || AVATARS[0];
@@ -179,11 +192,6 @@ function useFitVisibleHeight() {
 
 // 휴대폰을 가로로 눕혔는지 <html data-phone-land> 로 알린다 (globals.css 의 phone-land).
 // 화면 모양으로 판단하면 세로에서 자판이 올라와 화면이 납작해질 때도 가로로 잘못 알아서, 기기 방향을 본다.
-// 손가락으로 쓰는 작은 화면 (크기를 0으로 알려 주는 브라우저도 있어서 0은 제외)
-function isPhone() {
-  const short = Math.min(screen.width, screen.height);
-  return short > 0 && short <= 500 && matchMedia("(pointer: coarse)").matches;
-}
 
 function usePhoneLandscape() {
   useEffect(() => {
@@ -233,7 +241,11 @@ export default function RoomPage() {
   const [ended, setEnded] = useState(false);
   function goHome() {
     fetch("/", { method: "HEAD", cache: "no-store", signal: AbortSignal.timeout(3000) }).then(
-      (r) => (r.ok ? router.push("/") : setEnded(true)),
+      (r) => {
+        if (!r.ok) return setEnded(true);
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); // 입장할 때 켠 전체화면도 끝낸다
+        router.push("/");
+      },
       () => setEnded(true),
     );
   }
@@ -297,6 +309,27 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
     .at(-1);
   const room = useRoomContext();
   usePauseOldShare();
+
+  // 한 번 누르면 7개가 여기저기서 조금씩 늦게 차례로 올라간다. 마구 눌러도 한꺼번에 70개까지만
+  const [floats, setFloats] = useState<Float[]>([]);
+  function burst(kind: Reaction) {
+    const fresh = Array.from({ length: 7 }, (_, i) => ({
+      id: floatId++,
+      kind,
+      x: 3 + Math.random() * 88,
+      delay: i * 0.25 + Math.random() * 0.2,
+    }));
+    setFloats((f) => [...f, ...fresh].slice(-70));
+    setTimeout(() => setFloats((f) => f.filter((x) => !fresh.includes(x))), 5000);
+  }
+  const { send: sendReact } = useDataChannel(REACT_TOPIC, (msg) => {
+    const kind = new TextDecoder().decode(msg.payload) as Reaction;
+    if (msg.from && REACTS.includes(kind)) burst(kind);
+  });
+  function react(kind: Reaction) {
+    sendReact(text(kind), { reliable: false });
+    burst(kind); // 보낸 나한테는 돌아오지 않아서 내 화면에도 직접 띄운다
+  }
 
   // 화면공유 승인 받기: 방장이 아닌 사람이 요청하면 방장 화면에 [승인] [거부]가 뜬다
   const [requests, setRequests] = useState<{ identity: string; name: string }[]>([]); // 방장이 받은 요청
@@ -506,12 +539,13 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
         style={chatW ? { gridTemplateColumns: `minmax(0,1fr) min(${chatW}px,800px,50%)` } : undefined}
         className={`flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[minmax(0,1fr)_min(500px,50%)] md:grid-rows-[minmax(0,1fr)_auto] ${screen ? "phone-land:flex!" : ""}`}
       >
-        {/* PC: 채팅 카드 왼쪽 가장자리. 끌면 폭이 바뀌고, 두 번 누르면 기본 폭으로. 평소엔 안 보이고 마우스를 올리면 보라색 */}
+        {/* PC: 채팅 카드 왼쪽 가장자리. 끌면 폭이 바뀌고, 두 번 누르면 기본 폭으로. 평소엔 안 보이고 마우스를 올리면 보라색.
+            위아래 끝은 채팅 카드 위아래 끝과 맞춘다(my-2) */}
         <div
           onPointerDown={dragChat}
           onDoubleClick={() => saveChatW(null)}
           data-tip="드래그 너비 조절"
-          className={`z-10 hidden w-3 -translate-x-1.5 cursor-col-resize justify-self-start rounded-full hover:bg-indigo-500/40 md:col-start-2 md:row-span-2 md:row-start-1 md:block ${hideOnLand}`}
+          className={`z-10 hidden w-3 -translate-x-1.5 cursor-col-resize md:my-2 justify-self-start rounded-full hover:bg-indigo-500/40 md:col-start-2 md:row-span-2 md:row-start-1 md:block ${hideOnLand}`}
         />
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:contents">
           {/* 휴대폰: 목록이 열려 있을 때 바깥을 누르면 닫힌다 */}
@@ -519,14 +553,14 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
           {/* 휴대폰: 배지 아래로 스르륵 내려오는 둥근 카드 (가로 가운데를 배지와 맞춤). PC: 아래쪽 참여자 한 줄 */}
           <aside
             style={{ left: peopleAt.left, top: peopleAt.top }}
-            className={`fixed z-30 flex max-h-[60dvh] w-max max-w-[80vw] origin-top -translate-x-1/2 flex-col gap-1 overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-2 shadow-xl shadow-black/50 transition-[opacity,translate,scale,visibility] duration-200 ease-out ${showPeople ? "" : "pointer-events-none invisible -translate-y-2 scale-95 opacity-0"} md:visible md:pointer-events-auto md:static md:col-start-1 md:row-start-2 md:max-h-none md:w-auto md:max-w-none md:translate-none md:scale-100 md:flex-row md:gap-1 md:overflow-x-auto md:overflow-y-hidden md:rounded-none md:border-0 md:px-3 md:opacity-100 md:shadow-none md:transition-none ${hideOnLand}`}
+            className={`fixed z-30 flex max-h-[60dvh] w-max max-w-[80vw] origin-top -translate-x-1/2 flex-col gap-1 overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-2 shadow-xl shadow-black/50 transition-[opacity,translate,scale,visibility] duration-200 ease-out ${showPeople ? "" : "pointer-events-none invisible -translate-y-2 scale-95 opacity-0"} md:visible md:pointer-events-auto md:static md:col-start-1 md:row-start-2 md:max-h-none md:w-auto md:max-w-none md:translate-none md:scale-100 md:flex-row md:gap-1 md:overflow-x-auto md:overflow-y-hidden md:rounded-none md:border-0 md:px-3 md:z-auto md:opacity-100 md:shadow-none md:transition-none ${hideOnLand}`}
           >
             {participants.map((p) => (
               <PersonRow key={p.identity} p={p} isAdmin={isAdmin} />
             ))}
           </aside>
 
-          <Stage participants={participants} screen={screen} />
+          <Stage participants={participants} screen={screen} floats={floats} />
           {/* 휴대폰에서 화면공유 중에 자판이 올라오면 채팅 내용 칸이 먼저 줄고, 그래도 좁으면 공유 화면도 줄어든다 */}
           <ChatLog
             messages={messages}
@@ -538,6 +572,7 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
         <ChatInput
           send={sendChat}
           sendImage={sendImage}
+          react={react}
           className={`md:col-start-2 md:row-start-2 md:mr-2 md:mb-2 md:rounded-b-xl md:border md:border-t-0 md:bg-zinc-800/40 md:pb-3 ${hideOnLand}`}
         />
       </div>
@@ -546,7 +581,7 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
         createPortal(
           <div className="flex h-dvh flex-col">
             <ChatLog messages={messages} className="min-h-0 flex-1" />
-            <ChatInput send={sendChat} sendImage={sendImage} className="" />
+            <ChatInput send={sendChat} sendImage={sendImage} react={react} className="" />
             <Tooltips doc={pip.document} />
           </div>,
           pip.document.body,
@@ -620,10 +655,10 @@ function PersonRow({ p, isAdmin }: { p: Participant; isAdmin: boolean }) {
 
 // 가운데 위쪽: 화면공유가 있으면 공유 화면만, 없으면 PC는 "LIVE 방송 준비 중" 카드, 휴대폰은 프로필 사진 칸.
 // 자리가 모자라면 공유 화면이 줄어든다. 휴대폰은 채팅 내용이 그 아래, PC는 오른쪽.
-function Stage({ participants, screen }: { participants: Participant[]; screen?: TrackReference }) {
+function Stage({ participants, screen, floats }: { participants: Participant[]; screen?: TrackReference; floats: Float[] }) {
   return (
     <div
-      className={`flex min-h-0 flex-col gap-2 p-2 md:col-start-1 md:row-start-1 ${screen ? "phone-land:flex-1 phone-land:p-0" : "shrink-0"}`}
+      className={`relative flex min-h-0 flex-col gap-2 p-2 md:col-start-1 md:row-start-1 ${screen ? "phone-land:flex-1 phone-land:p-0" : "shrink-0"}`}
     >
       {screen?.participant.isLocal ? (
         // 내가 공유 중이면 내 공유 화면은 보여 주지 않는다. 모니터를 공유할 때 이 창이 다시 찍혀서
@@ -632,7 +667,7 @@ function Stage({ participants, screen }: { participants: Participant[]; screen?:
           내 화면을 공유하고 있어요. 다른 사람들에게는 내 화면이 보여요.
         </div>
       ) : screen ? (
-        <ScreenView screen={screen} />
+        <ScreenView screen={screen} floats={floats} />
       ) : (
         <>
           {/* PC: 공유 화면이 들어올 자리를 같은 크기(16:9) 카드로 미리 잡아 두고 가운데에 안내 */}
@@ -651,7 +686,40 @@ function Stage({ participants, screen }: { participants: Participant[]; screen?:
           </div>
         </>
       )}
+      {/* 남의 공유 화면이 없으면 이 칸 안에서 띄운다 (있으면 공유 화면 안에서. 전체화면에서도 보이게) */}
+      {!(screen && !screen.participant.isLocal) && <Floats floats={floats} />}
     </div>
+  );
+}
+
+// 부모 칸 안에서 하트는 맨 아래에서 위로 올라가고, ㅋ·헐은 맨 위에서 아래로 내려오며 사라진다
+function Floats({ floats }: { floats: Float[] }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      {floats.map((f) => (
+        <span
+          key={f.id}
+          style={{ left: `${f.x}%`, animationDelay: `${f.delay}s` }}
+          className={`absolute drop-shadow-[0_1px_2px_rgb(0_0_0/0.6)] ${
+            f.kind === "heart" ? "top-full animate-[float-up_2.5s_ease-out_both]" : "-top-12 animate-[float-down_2.5s_ease-in_both]"
+          }`}
+        >
+          {f.kind === "heart" ? (
+            <Heart className="size-[1.8rem] text-red-500" />
+          ) : (
+            <span className={`text-4xl font-black whitespace-nowrap ${STICKER_TEXT[f.kind]}`}>{f.kind === "k" ? "ㅋ" : "헐"}</span>
+          )}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function Heart({ className }: { className: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className={className}>
+      <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+    </svg>
   );
 }
 
@@ -659,7 +727,7 @@ function Stage({ participants, screen }: { participants: Participant[]; screen?:
 // 휴대폰을 가로로 눕히고 화면을 눌러도 전체화면이 되고, 한 번 더 누르면 풀린다.
 // 전체화면은 늘 가로. 왼쪽·오른쪽 어느 쪽으로 눕혀도 그 방향에 맞게 돌고, 눕혔다가 다시 세우면 끝난다 (안드로이드만)
 type IosVideo = HTMLVideoElement & { webkitEnterFullscreen?: () => void };
-type OrientationLock = { lock?: (o: "landscape") => Promise<void> };
+type OrientationLock = { lock?: (o: "landscape") => Promise<void>; unlock?: () => void };
 
 // 보는 사람 인터넷이 느릴 때 공유 화면 위에 띄울 안내. 내 공유 화면에는 띄우지 않는다.
 // 멈춤: 길이 너무 막혀서 서버가 화면은 멈추고 소리만 보내는 중. 느림: 아직 나오지만 곧 끊길 수 있음.
@@ -684,7 +752,7 @@ function useSlowNotice(screen: TrackReference) {
   return null;
 }
 
-function ScreenView({ screen }: { screen: TrackReference }) {
+function ScreenView({ screen, floats }: { screen: TrackReference; floats: Float[] }) {
   const slow = useSlowNotice(screen);
   const [full, setFull] = useState(false);
   const [pip, setPip] = useState(false);
@@ -692,7 +760,13 @@ function ScreenView({ screen }: { screen: TrackReference }) {
   const [ratio, setRatio] = useState(16 / 9); // 공유된 화면의 실제 가로:세로
 
   useEffect(() => {
-    const onChange = () => setFull(!!document.fullscreenElement);
+    // 휴대폰은 방 전체가 이미 전체화면일 수 있어서(입장 버튼), 공유 화면이 전체화면일 때만 true.
+    // 공유 화면 전체화면이 끝나 방 전체화면으로 돌아오면 가로 잠금도 푼다 (브라우저는 전체화면이 다 끝나야 풀어 줘서)
+    const onChange = () => {
+      const on = document.fullscreenElement === box.current;
+      setFull(on);
+      if (!on) (window.screen.orientation as unknown as OrientationLock).unlock?.();
+    };
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
@@ -802,9 +876,7 @@ function ScreenView({ screen }: { screen: TrackReference }) {
         }}
         className="size-full object-contain"
       />
-      <span className="absolute top-2 left-2 rounded bg-black/60 px-2 py-0.5 text-xs phone-land:hidden">
-        {screen.participant.name}님의 화면
-      </span>
+      <Floats floats={floats} />
       {/* 팝업 윈도우(PiP) 버튼, 오른쪽 위 */}
       {canPip && (
         <button
@@ -1181,10 +1253,12 @@ function ChatLog({ messages, className }: { messages: Msg[]; className: string }
 function ChatInput({
   send,
   sendImage,
+  react,
   className,
 }: {
   send: (text: string) => void;
   sendImage: (f: File) => void;
+  react: (kind: Reaction) => void;
   className: string;
 }) {
   const [text, setText] = useState("");
@@ -1195,6 +1269,34 @@ function ChatInput({
     if (pending) URL.revokeObjectURL(pending.url);
     setPending(null);
   }
+
+  // 휴대폰에서 뒤로가기로 자판만 닫으면 입력칸이 선택된 채(커서 깜빡임) 남아서, 자판이 내려가면 선택도 푼다.
+  // 자판이 내려가면 보이는 화면 높이가 확 늘어나는 걸로 안다 (자판 위 추천 단어 줄이 생기고 없어지는 정도는 무시)
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv || !isPhone()) return;
+    let last = vv.height;
+    const onResize = () => {
+      if (vv.height - last > 100 && document.activeElement === box.current) box.current?.blur();
+      last = vv.height;
+    };
+    vv.addEventListener("resize", onResize);
+    return () => vv.removeEventListener("resize", onResize);
+  }, []);
+
+  // 하트 버튼을 누르면 헐·ㅋ·하트 버튼이 위로 펼쳐지고, 다시 누르면 접힌다
+  const [picking, setPicking] = useState(false);
+  const picker = useRef<HTMLDivElement>(null);
+  // 펼쳐져 있을 때 버튼 말고 다른 곳을 눌러도 접힌다 (채팅분리 창에서도 되게 그 창의 문서에 단다)
+  useEffect(() => {
+    if (!picking) return;
+    const doc = picker.current!.ownerDocument;
+    const close = (e: PointerEvent) => {
+      if (!picker.current?.contains(e.target as Node)) setPicking(false);
+    };
+    doc.addEventListener("pointerdown", close);
+    return () => doc.removeEventListener("pointerdown", close);
+  }, [picking]);
 
   // 글이 길어지면 입력칸이 4줄까지 늘어난다 (그 뒤로는 칸 안에서 밀어서 본다)
   useEffect(() => {
@@ -1243,29 +1345,69 @@ function ChatInput({
             </button>
           </div>
         )}
-        <textarea
-          ref={box}
-          rows={1}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onPaste={(e) => {
-            const file = [...e.clipboardData.files].find((f) => f.type.startsWith("image/"));
-            if (!file) return; // 사진이 아니면 평소처럼 글자 붙여넣기
-            e.preventDefault();
-            if (pending) URL.revokeObjectURL(pending.url); // 다시 붙이면 새 사진으로 바꾼다
-            setPending({ file, url: URL.createObjectURL(file) });
-          }}
-          onKeyDown={(e) => {
-            // 한글을 조합하는 중에 누른 Enter는 건너뛴다 (안 그러면 마지막 글자가 한 번 더 보내진다)
-            if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
-            if (matchMedia("(pointer: coarse)").matches) return; // 휴대폰: 줄바꿈
-            e.preventDefault();
-            submit();
-          }}
-          maxLength={CHAT_MAX}
-          placeholder="메시지 입력"
-          className="max-h-32 w-full resize-none rounded-3xl bg-zinc-800 px-5 py-3 text-base leading-6 outline-none focus:ring-2 focus:ring-indigo-500"
-        />
+        <div className="relative">
+          <textarea
+            ref={box}
+            rows={1}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onPaste={(e) => {
+              const file = [...e.clipboardData.files].find((f) => f.type.startsWith("image/"));
+              if (!file) return; // 사진이 아니면 평소처럼 글자 붙여넣기
+              e.preventDefault();
+              if (pending) URL.revokeObjectURL(pending.url); // 다시 붙이면 새 사진으로 바꾼다
+              setPending({ file, url: URL.createObjectURL(file) });
+            }}
+            onKeyDown={(e) => {
+              // 한글을 조합하는 중에 누른 Enter는 건너뛴다 (안 그러면 마지막 글자가 한 번 더 보내진다)
+              if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+              if (matchMedia("(pointer: coarse)").matches) return; // 휴대폰: 줄바꿈
+              e.preventDefault();
+              submit();
+            }}
+            maxLength={CHAT_MAX}
+            placeholder="메시지 입력"
+            className="block max-h-32 w-full resize-none rounded-3xl bg-zinc-800 py-3 pr-14 pl-5 text-base leading-6 outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-inset"
+          />
+          {/* 입력칸 오른쪽 안쪽 하트 버튼. 누르면 헐·ㅋ·하트가 위로 하나씩 펼쳐진다 (위에서부터 헐, ㅋ, 하트) */}
+          <div ref={picker} className="pointer-events-none absolute right-1 bottom-1 flex flex-col items-center gap-2">
+            {(
+              [
+                ["hul", "헐 날리기", <span key="hul" className={STICKER_TEXT.hul}>헐</span>],
+                ["k", "ㅋ 날리기", <span key="k" className={STICKER_TEXT.k}>ㅋ</span>],
+                ["heart", "하트 날리기", <Heart key="h" className="size-5 text-red-500" />],
+              ] as const
+            ).map(([kind, label, face], i) => (
+              <button
+                key={kind}
+                type="button"
+                tabIndex={picking ? 0 : -1}
+                onPointerDown={(e) => e.preventDefault()} // 눌러도 입력칸에서 손이 안 떨어지게 (휴대폰 자판이 닫히지 않게)
+                onClick={() => react(kind)}
+                aria-label={label}
+                aria-hidden={!picking}
+                // 접혀 있을 땐 하트 버튼 자리로 들어가 숨는다. 아래쪽(하트 버튼에 가까운 것)부터 차례로 펼쳐진다
+                style={{ transitionDelay: `${(picking ? 2 - i : i) * 40}ms`, translate: picking ? undefined : `0 ${(3 - i) * 3}rem` }}
+                className={`flex size-10 items-center justify-center rounded-full bg-zinc-700 text-lg font-black text-amber-300 ring-1 ring-zinc-600 transition-[translate,opacity,scale] duration-200 ease-out hover:bg-zinc-600 ${
+                  picking ? "pointer-events-auto" : "scale-50 opacity-0"
+                }`}
+              >
+                {face}
+              </button>
+            ))}
+            <button
+              type="button"
+              onPointerDown={(e) => e.preventDefault()}
+              onClick={() => setPicking(!picking)}
+              aria-expanded={picking}
+              aria-label="감정 스티커"
+              data-tip="감정 스티커"
+              className={`pointer-events-auto flex size-10 items-center justify-center rounded-full hover:bg-zinc-700 ${picking ? "bg-zinc-700" : ""}`}
+            >
+              <Heart className="size-5 text-red-500" />
+            </button>
+          </div>
+        </div>
       </div>
       <button
         type="submit"

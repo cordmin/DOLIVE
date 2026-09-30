@@ -9,6 +9,12 @@ export const CUSTOM = "custom";
 
 export const isAvatar = (id: unknown) => id === CUSTOM || AVATARS.includes(id as string);
 
+// 손가락으로 쓰는 작은 화면 (크기를 0으로 알려 주는 브라우저도 있어서 0은 제외)
+export function isPhone() {
+  const short = Math.min(screen.width, screen.height);
+  return short > 0 && short <= 500 && matchMedia("(pointer: coarse)").matches;
+}
+
 // 브라우저에 저장된 사진이 목록에 없으면(예전 캐릭터 등) 첫 사진으로
 export const savedAvatar = () => {
   const id = sessionStorage.getItem("avatar");

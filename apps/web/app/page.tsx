@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
 import { PhotoCrop } from "@/components/PhotoCrop";
-import { AVATARS, CUSTOM, savedAvatar } from "@/lib/dolive";
+import { AVATARS, CUSTOM, isPhone, savedAvatar } from "@/lib/dolive";
 
 // 입장 화면: 프로필 사진(기본 11장 + 내 사진) + 닉네임 → 채팅방 입장
 // 내 사진은 이 브라우저(sessionStorage "photo")에 두었다가 입장할 때 서버 메모리에 올린다 (서버를 끄면 사라진다).
@@ -42,6 +42,9 @@ export default function Home() {
     sessionStorage.setItem("name", name.trim());
     sessionStorage.setItem("avatar", avatar);
     if (avatar === CUSTOM && custom) sessionStorage.setItem("photo", custom);
+    // 휴대폰은 입장하면서 주소창·아래 버튼 줄·시계 줄을 모두 숨긴다 (누른 순간에만 허락돼서 여기서. 아이폰은 막혀 있어 그냥 넘어간다).
+    // 시계 줄만 남기는 설정(navigationUI "show")은 시계 줄은 그대로 숨기고 아래 버튼 줄만 화면 위에 덮어 입력칸을 가려서 안 쓴다
+    if (isPhone()) document.documentElement.requestFullscreen?.().catch(() => {});
     router.push("/room");
   }
 
