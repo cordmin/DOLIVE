@@ -1,7 +1,7 @@
 import path from "node:path";
 import { AudioFrame, AudioSource, LocalAudioTrack, Room, RoomEvent, TrackPublishOptions, TrackSource } from "@livekit/rtc-node";
 import { AccessToken } from "livekit-server-sdk";
-import { ROOM, VOICE_BOT, VOICE_FROM } from "@/lib/dolive";
+import { ROOM, VOICE_BOT, VOICE_FROM, VOICE_ON } from "@/lib/dolive";
 import { loadTextToSpeech, loadVoiceStyle } from "@/lib/supertonic";
 
 // "/글" 음성: 서버가 Supertonic 3(F2 목소리)으로 읽고, 방에 "음성"이라는 참여자로 들어가 마이크처럼 흘려보낸다.
@@ -38,6 +38,9 @@ const SPEED = 0.89;
 // 배경음악 위에서도 잘 들리게. 거의 무음인 문장을 너무 키우지 않게 MAX_GAIN 배까지만
 const PEAK = 0.95;
 const MAX_GAIN = 4;
+// 그래도 작게 들려서 작은 소리를 끌어올려 전체를 꽉 차게 (라디오 방식, tanh 로 부드럽게 눌러서 한계는 안 넘음).
+// 1.5 = 전체 크기 1.5배쯤 (재 본 값 1.47배). 0 이면 안 누름. 키울수록 크지만 소리가 거칠어진다
+const DRIVE = 1.5;
 
 // 글을 읽어서 16비트 소리로. 앞뒤에 붙어 나오는 무음(앞 0.4초, 뒤 0.5초쯤)은 잘라서 바로 말이 시작되게 한다
 async function synth(text: string) {
@@ -51,7 +54,8 @@ async function synth(text: string) {
   let peak = 1e-6; // (Math.max(...part) 는 긴 문장에서 숫자가 너무 많아 터진다)
   for (const v of part) peak = Math.max(peak, Math.abs(v));
   const gain = Math.min(MAX_GAIN, PEAK / peak);
-  const pcm = Int16Array.from(part, (s) => Math.max(-1, Math.min(1, s * gain)) * 32767);
+  const squash = (x: number) => (DRIVE ? (Math.tanh((DRIVE * x) / PEAK) / Math.tanh(DRIVE)) * PEAK : x);
+  const pcm = Int16Array.from(part, (s) => Math.max(-1, Math.min(1, squash(s * gain))) * 32767);
   return { rate, pcm };
 }
 
@@ -100,18 +104,23 @@ export function say(text: string, from: string) {
     // 방에 막 들어왔으면 사람들이 새 소리를 받기 시작할 틈까지. 같은 사람이 이어서 보내면 기다릴 것 없음
     // ponytail: 0.3초 / 1초는 어림값. 보낸 사람에게 첫 마디가 새거나 남들에게 첫 마디가 잘리면 늘리기
     const ready = Date.now() + (fresh ? 1000 : me.attributes[VOICE_FROM] === from ? 0 : 300);
-    await me.setAttributes({ [VOICE_FROM]: from });
-    const parts = text.match(/[^.!?。…]+[.!?。…]*\s*/g) ?? [text]; // 문장마다
-    let next = synth(parts[0]);
-    for (let i = 0; i < parts.length; i++) {
-      const { pcm } = await next;
-      if (i + 1 < parts.length) next = synth(parts[i + 1]);
-      await sleep(ready - Date.now());
-      await push(source, pcm, rate);
-      if (i + 1 < parts.length) await push(source, new Int16Array(rate * 0.25), rate); // 문장 사이 쉼
+    // VOICE_ON: 이제부터 읽는다고 알린다. 소리를 만드는 동안 방 사람들 화면이 배경음악을 미리 줄여 둔다
+    await me.setAttributes({ [VOICE_FROM]: from, [VOICE_ON]: "1" });
+    try {
+      const parts = text.match(/[^.!?。…]+[.!?。…]*\s*/g) ?? [text]; // 문장마다
+      let next = synth(parts[0]);
+      for (let i = 0; i < parts.length; i++) {
+        const { pcm } = await next;
+        if (i + 1 < parts.length) next = synth(parts[i + 1]);
+        await sleep(ready - Date.now());
+        await push(source, pcm, rate);
+        if (i + 1 < parts.length) await push(source, new Int16Array(rate * 0.25), rate); // 문장 사이 쉼
+      }
+      await source.waitForPlayout();
+      await sleep(200); // 듣는 쪽에서 끝까지 다 나온 뒤에 다음 사람 글로 넘어간다 (보낸 사람에게 끝이 새지 않게)
+    } finally {
+      await me.setAttributes({ [VOICE_ON]: "" }).catch(() => {}); // 실패해도 배경음악이 줄어든 채로 남지 않게
     }
-    await source.waitForPlayout();
-    await sleep(200); // 듣는 쪽에서 끝까지 다 나온 뒤에 다음 사람 글로 넘어간다 (보낸 사람에게 끝이 새지 않게)
   });
   voice.line = turn.catch(() => {});
   return turn;

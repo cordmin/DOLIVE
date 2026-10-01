@@ -2,6 +2,7 @@ import { useDataChannel, useLocalParticipant, useLocalParticipantPermissions, us
 import { ScreenSharePresets, RoomEvent, Track, type Participant, type RemoteParticipant, type RemoteTrackPublication } from "livekit-client";
 import { useEffect, useState } from "react";
 import { Switch } from "@/components/Switch";
+import { VOICE_BOT, VOICE_ON } from "@/lib/dolive";
 
 // 공유하는 사람이 고르는 화질. 공유는 고른 화질과 한 단계 낮은 화질을 같이 보내고,
 // 보는 사람 인터넷이 느려서 끊기면 서버가 그 사람에게만 낮은 쪽으로 자동으로 바꿔 보낸다.
@@ -17,9 +18,10 @@ const SHARE_TOPIC = "dolive-share";
 const SCREEN_SHARE_SOURCE = 3; // LiveKit 권한 목록에서 화면공유를 뜻하는 번호 (TrackSource.SCREEN_SHARE)
 const text = (s: string) => new TextEncoder().encode(s);
 
-// 라디오 DJ처럼: 누가 마이크로 말하거나 "/글" 음성이 나오는 동안(음성 참여자도 마이크로 보낸다) 화면공유 소리(배경음악 등)를
-// DUCK 까지 0.5초에 걸쳐 낮추고, 말이 끝나고 0.7초 뒤에 1초에 걸쳐 되돌린다.
-// 보는 사람 브라우저가 각자 크기만 바꿔서 서버 부담은 없다. '말하는 중'은 방 서버가 마이크 소리로만 판단한다 (공유 소리는 안 셈)
+// 라디오 DJ처럼: 누가 마이크로 말하거나 "/글" 음성이 나오는 동안 화면공유 소리(배경음악 등)를
+// DUCK 까지 0.25초에 걸쳐 낮추고, 말이 끝나고 0.7초 뒤에 1초에 걸쳐 되돌린다.
+// 보는 사람 브라우저가 각자 크기만 바꿔서 서버 부담은 없다. '말하는 중'은 방 서버가 마이크 소리로만 판단한다 (공유 소리는 안 셈).
+// 방 서버의 '말하는 중' 알림은 0.5초쯤 늦어서, "/글" 음성은 음성 참여자가 읽기 전에 미리 켜 두는 VOICE_ON 으로 먼저 줄인다
 // ponytail: 아이폰 브라우저는 코드로 소리 크기를 못 바꿔서 거기선 안 줄어든다. 공유하는 사람 PC에서 직접 듣는 노래도 그대로
 const DUCK = 0.3;
 export function useDuckShareAudio() {
@@ -29,8 +31,8 @@ export function useDuckShareAudio() {
     let lastTalk = 0;
     const iv = setInterval(() => {
       const now = Date.now();
-      if (room.activeSpeakers.length) lastTalk = now;
-      const next = now - lastTalk < 700 ? Math.max(DUCK, vol - 0.07) : Math.min(1, vol + 0.035);
+      if (room.activeSpeakers.length || room.remoteParticipants.get(VOICE_BOT)?.attributes[VOICE_ON]) lastTalk = now;
+      const next = now - lastTalk < 700 ? Math.max(DUCK, vol - 0.14) : Math.min(1, vol + 0.035);
       if (next === vol) return;
       vol = next;
       room.remoteParticipants.forEach((p) => p.setVolume(vol, Track.Source.ScreenShareAudio));

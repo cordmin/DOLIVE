@@ -45,6 +45,8 @@ export const TTS_MAX = 200; // "/" 로 읽어 주는 글은 이 글자 수까지
 // 지금 누구 글을 읽는지 이 참여자의 속성 VOICE_FROM 에 적어 두고, 그 사람 화면에서만 소리를 끈다
 export const VOICE_BOT = "dolive-voice";
 export const VOICE_FROM = "from";
+// 읽는 동안 "1". 화면공유 소리(배경음악)를 말이 나오기 전에 미리 줄이는 데 쓴다 (app/room/share.tsx)
+export const VOICE_ON = "on";
 
 // 채팅 사진: 보여 줘도 안전한 종류만 (SVG 같은 건 새 탭에서 열 때 이 사이트 안에서 코드가 돌 수 있어서 뺀다)
 export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
