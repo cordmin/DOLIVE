@@ -332,7 +332,11 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
         </button>
         {/* PC: 참여자 사진·이름을 한 줄로. 자리가 모자라면 뒤쪽은 안 보이고(다음 줄로 넘어가 가려짐), 마우스를 올리면 아래로 스르륵 펼쳐 모두 보여 준다.
             줄 높이(40px)의 가운데가 맨 위 막대 가운데 = 로고 글자 가운데 (16px 로고 글자는 줄 가운데에 딱 그려진다. 재서 확인함) */}
-        <div className="group relative ml-6 hidden h-10 min-w-0 flex-1 md:block">
+        <div
+          // 펼친 목록을 아래로 내려 본 채 마우스가 나가도, 접히면서 맨 위(나 → 마이크 켠 사람 → 나머지 순서의 첫 줄)로 돌아오게
+          onPointerLeave={(e) => e.currentTarget.firstElementChild?.scrollTo({ top: 0, behavior: "smooth" })}
+          className="group relative ml-6 hidden h-10 min-w-0 flex-1 md:block"
+        >
           <div className="absolute inset-x-0 top-0 z-30 h-10 max-h-[60vh] overflow-hidden rounded-xl transition-[height,background-color,box-shadow] duration-300 ease-out [interpolate-size:allow-keywords] group-hover:h-auto group-hover:-inset-x-2 group-hover:overflow-y-auto group-hover:bg-zinc-900 group-hover:px-2 group-hover:pb-2 group-hover:shadow-xl group-hover:shadow-black/50 group-hover:ring-1 group-hover:ring-zinc-700">
             <div className="flex flex-wrap gap-x-2 gap-y-1">
               {participants.map((p) => (
