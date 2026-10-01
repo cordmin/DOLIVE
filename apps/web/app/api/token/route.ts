@@ -1,6 +1,6 @@
 import { AccessToken } from "livekit-server-sdk";
 import { keepImage } from "@/lib/chat";
-import { AVATARS, CUSTOM, ROOM, isAvatar } from "@/lib/dolive";
+import { AVATARS, CUSTOM, DORMS, ROOM, isAvatar } from "@/lib/dolive";
 import { MIC_ONLY, dormsCheck, isLocal, isStaff } from "@/lib/server";
 
 const JPEG = "data:image/jpeg;base64,";
@@ -18,6 +18,8 @@ export async function POST(req: Request) {
   // 내 사진은 서버 메모리에 두고(채팅 사진과 같은 곳) 그 주소를 입장권에 적는다. 서버를 끄면 사라진다.
   // 방을 나가도 남아 있어서, 나중에 들어온 사람도 지난 채팅에서 그 사람 사진을 본다
   let face = avatar;
+  // 도름스 사진은 도름스가 알려 준 주소 그대로 (https 만). 사진이 없으면 첫 사진으로
+  if (avatar === DORMS) face = user?.picture?.startsWith("https://") ? user.picture : AVATARS[0];
   if (avatar === CUSTOM) {
     const jpeg = typeof photo === "string" && photo.startsWith(JPEG) ? Buffer.from(photo.slice(JPEG.length), "base64") : null;
     face = AVATARS[0]; // 사진이 없거나 너무 크면 첫 사진으로

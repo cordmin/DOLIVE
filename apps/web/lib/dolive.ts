@@ -1,13 +1,16 @@
 // 채팅방은 하나뿐
 export const ROOM = "dolive";
 
-// 기본 프로필 사진 "1" ~ "11" (입장 화면에 이 순서로 나온다). 사진은 assets/profile/<id>.webp, 모두 240x300
-export const AVATARS = Array.from({ length: 11 }, (_, i) => String(i + 1));
+// 기본 프로필 사진 "1" ~ "9" (입장 화면에 이 순서로 나온다). 사진은 assets/profile/<id>.webp, 모두 240x300
+// (10·11번 사진 파일은 남아 있지만 그 자리를 도름스 사진·내 사진 칸에 내줘서 고를 수 없다)
+export const AVATARS = Array.from({ length: 9 }, (_, i) => String(i + 1));
 
-// 내가 직접 고른 사진. 입장할 때 서버 메모리에 올리고(api/token), 서버를 끄면 사라진다 (파일로는 저장 안 함)
+// 내가 직접 고른 사진. 이 브라우저(localStorage "photo")에 남겨 두고, 입장할 때 서버 메모리에 올린다(api/token. 서버엔 파일로 저장 안 함)
 export const CUSTOM = "custom";
+// 도름스 프로필 사진. 사진 주소는 서버가 도름스에서 받아 입장권에 적는다(api/token)
+export const DORMS = "dorms";
 
-export const isAvatar = (id: unknown) => id === CUSTOM || AVATARS.includes(id as string);
+export const isAvatar = (id: unknown) => id === CUSTOM || id === DORMS || AVATARS.includes(id as string);
 
 // 손가락으로 쓰는 작은 화면 (크기를 0으로 알려 주는 브라우저도 있어서 0은 제외)
 export function isPhone() {
@@ -50,10 +53,11 @@ export const VOICE_ON = "on";
 export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 export const IMAGE_MAX = 10 * 1024 * 1024;
 
-// 서버의 도름스 확인에 막혔을 때(응답의 reason). 로그인이 필요하면 도름스 로그인 뒤 채팅방으로 돌아오고,
+// 서버의 도름스 확인에 막혔을 때(응답의 reason). 로그인이 필요하면 입장 화면으로 (도름스로 바로 보내면 도름스에 로그인돼 있는
+// 브라우저는 묻지 않고 다시 로그인돼서 로그아웃이 풀린다. 로그인은 입장 화면 [로그인]으로만).
 // 허용이 끊겼거나 도름스 연결이 안 되면 안내 화면([다시 시도] 버튼이 있다, app/dorms-denied)으로 간다. 도름스 때문이 아니면 false
 export function leaveForDorms(reason: unknown) {
-  if (reason === "authentication_required") location.href = "/api/auth/dorms/start?next=/room";
+  if (reason === "authentication_required") location.href = "/";
   else if (reason === "access_denied" || reason === "temporarily_unavailable") location.href = `/dorms-denied?reason=${reason}&next=/room`;
   else return false;
   return true;

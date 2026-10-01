@@ -25,6 +25,7 @@ export function Avatar({
           src={own ? id : `/profile/${id}${px ? `?w=${px}` : ""}`}
           srcSet={px && !own ? [1, 2, 3].map((x) => `/profile/${id}?w=${px * x} ${x}x`).join(", ") : undefined}
           alt=""
+          referrerPolicy="no-referrer" // 도름스 사진처럼 바깥 주소 사진이 우리 주소를 보고 막지 않게
           className={`size-full object-cover ${round ? "rounded-full" : ""} bg-zinc-700 ${talking ? "ring-2 ring-green-500" : ""}`}
         />
       )}
