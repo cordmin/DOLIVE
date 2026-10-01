@@ -31,6 +31,9 @@ const voice: Voice = (g.doliveVoice ??= {
 // (그래픽카드로 돌려 봤지만 문장 길이가 바뀔 때마다 준비를 다시 해서 CPU보다 빠르지 않았다)
 const STEPS = 5;
 
+// 소리 크기. 1 = 모델이 만든 그대로. 1.3 = 30% 크게 (넘치는 부분은 잘라서 찢어지는 소리가 안 나게 한다)
+const GAIN = 1.3;
+
 // 글을 읽어서 16비트 소리로. 앞뒤에 붙어 나오는 무음(앞 0.4초, 뒤 0.5초쯤)은 잘라서 바로 말이 시작되게 한다
 async function synth(text: string) {
   const { tts, style } = await voice.tts;
@@ -39,7 +42,7 @@ async function synth(text: string) {
   const loud = (v: number) => Math.abs(v) > 0.03;
   const start = Math.max(0, wav.findIndex(loud) - rate * 0.05); // 말 시작 0.05초 전부터
   const end = Math.min(wav.length, wav.findLastIndex(loud) + rate * 0.15); // 말 끝 0.15초 뒤까지
-  const pcm = Int16Array.from(wav.slice(start, end > start ? end : wav.length), (s) => Math.max(-1, Math.min(1, s)) * 32767);
+  const pcm = Int16Array.from(wav.slice(start, end > start ? end : wav.length), (s) => Math.max(-1, Math.min(1, s * GAIN)) * 32767);
   return { rate, pcm };
 }
 
