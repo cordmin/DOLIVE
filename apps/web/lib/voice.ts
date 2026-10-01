@@ -27,11 +27,32 @@ const voice: Voice = (g.doliveVoice ??= {
   replays: Promise.resolve(),
 });
 
-// 글을 읽어서 16비트 소리로 (1초쯤 걸린다)
+// 소리를 다듬는 횟수. 원래 예시는 8번인데 5번으로 줄여도 목소리는 거의 같고, 짧은 채팅 한 줄 만드는 시간이 0.5초 → 0.35초쯤으로 준다.
+// (그래픽카드로 돌려 봤지만 문장 길이가 바뀔 때마다 준비를 다시 해서 CPU보다 빠르지 않았다)
+const STEPS = 5;
+
+// 글을 읽어서 16비트 소리로. 앞뒤에 붙어 나오는 무음(앞 0.4초, 뒤 0.5초쯤)은 잘라서 바로 말이 시작되게 한다
 async function synth(text: string) {
   const { tts, style } = await voice.tts;
-  const { wav } = await tts.call(text, "ko", style, 8, 1.05);
-  return { rate: tts.sampleRate, pcm: Int16Array.from(wav, (s) => Math.max(-1, Math.min(1, s)) * 32767) };
+  const { wav } = await tts.call(text, "ko", style, STEPS, 1.05);
+  const rate = tts.sampleRate;
+  const loud = (v: number) => Math.abs(v) > 0.03;
+  const start = Math.max(0, wav.findIndex(loud) - rate * 0.05); // 말 시작 0.05초 전부터
+  const end = Math.min(wav.length, wav.findLastIndex(loud) + rate * 0.15); // 말 끝 0.15초 뒤까지
+  const pcm = Int16Array.from(wav.slice(start, end > start ? end : wav.length), (s) => Math.max(-1, Math.min(1, s)) * 32767);
+  return { rate, pcm };
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
+
+// 방에 소리 흘려보내기. 실제 소리 길이만큼 시간이 걸린다 (소리 통로가 1초어치만 쌓아 두고 기다린다)
+async function push(source: AudioSource, pcm: Int16Array, rate: number) {
+  const step = rate / 10; // 0.1초씩 넣는다
+  for (let i = 0; i < pcm.length; i += step) {
+    // subarray 는 안 된다: rtc-node 가 조각의 시작 위치를 무시하고 늘 맨 앞(무음)을 보낸다. slice 로 따로 복사한다
+    const part = pcm.slice(i, i + step);
+    await source.captureFrame(new AudioFrame(part, rate, 1, part.length));
+  }
 }
 
 // 처음 말할 때 방에 들어가서 계속 머문다. 방 서버가 꺼졌다 켜지면 다음에 말할 때 다시 들어간다.
@@ -54,21 +75,31 @@ function join(sampleRate: number) {
 }
 
 // 한 줄로 서서 차례대로 말한다 (두 사람이 같이 보내도 소리가 겹치지 않게). from: 보낸 사람 (그 사람한테는 안 들리게)
+// 빨리 들리게: 누구 글인지는 소리를 만들기 전에 먼저 알려서 기다리는 시간이 만드는 시간과 겹치게 하고,
+// 문장이 여럿이면 첫 문장을 흘려보내는 동안 다음 문장을 만든다
 export function say(text: string, from: string) {
   const turn = voice.line.then(async () => {
-    const { rate, pcm } = await synth(text);
+    const { tts } = await voice.tts;
+    const rate = tts.sampleRate;
+    const fresh = !voice.room;
     const { room, source } = await join(rate);
-    // 누구 글인지 먼저 알리고, 방 사람들 화면이 그걸 받아 소리를 끄고 켤 틈을 준 뒤에 말한다.
-    // ponytail: 0.5초 기다린다 (처음 들어온 직후엔 새 소리를 받기 시작할 시간도 겸한다). 보낸 사람에게 첫 마디가 새거나 남들에게 잘리면 늘리기
-    await room.localParticipant!.setAttributes({ [VOICE_FROM]: from });
-    await new Promise((r) => setTimeout(r, 500));
-    const step = rate / 10; // 0.1초씩 넣는다
-    for (let i = 0; i < pcm.length; i += step) {
-      // subarray 는 안 된다: rtc-node 가 조각의 시작 위치를 무시하고 늘 맨 앞(무음)을 보낸다. slice 로 따로 복사한다
-      const part = pcm.slice(i, i + step);
-      await source.captureFrame(new AudioFrame(part, rate, 1, part.length));
+    const me = room.localParticipant!;
+    // 첫 소리 전에 이만큼은 지나야 한다. 방 사람들 화면이 '누구 글인지' 받아서 보낸 사람은 소리를 끌 틈.
+    // 방에 막 들어왔으면 사람들이 새 소리를 받기 시작할 틈까지. 같은 사람이 이어서 보내면 기다릴 것 없음
+    // ponytail: 0.3초 / 1초는 어림값. 보낸 사람에게 첫 마디가 새거나 남들에게 첫 마디가 잘리면 늘리기
+    const ready = Date.now() + (fresh ? 1000 : me.attributes[VOICE_FROM] === from ? 0 : 300);
+    await me.setAttributes({ [VOICE_FROM]: from });
+    const parts = text.match(/[^.!?。…]+[.!?。…]*\s*/g) ?? [text]; // 문장마다
+    let next = synth(parts[0]);
+    for (let i = 0; i < parts.length; i++) {
+      const { pcm } = await next;
+      if (i + 1 < parts.length) next = synth(parts[i + 1]);
+      await sleep(ready - Date.now());
+      await push(source, pcm, rate);
+      if (i + 1 < parts.length) await push(source, new Int16Array(rate * 0.25), rate); // 문장 사이 쉼
     }
     await source.waitForPlayout();
+    await sleep(200); // 듣는 쪽에서 끝까지 다 나온 뒤에 다음 사람 글로 넘어간다 (보낸 사람에게 끝이 새지 않게)
   });
   voice.line = turn.catch(() => {});
   return turn;
