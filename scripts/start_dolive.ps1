@@ -36,7 +36,7 @@ Write-Host "  DO" -NoNewline -ForegroundColor White
 Write-Host "LIVE" -ForegroundColor Red
 Line
 
-Say $(if ($Stop) { "끄는 중..." } else { "켜는 중..." }) DarkGray
+Say $(if ($Stop) { "서버 종료 중..." } else { "서버 시작 중..." }) DarkGray
 
 # Before stopping, close the broadcast room so viewers see "방송이 끝났어요" right away (apps/web/app/api/end)
 if ($Stop) {

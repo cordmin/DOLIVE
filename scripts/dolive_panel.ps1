@@ -1,4 +1,4 @@
-﻿# DOLIVE 켜기/끄기 창. 프로젝트 폴더의 "DOLIVE" 바로 가기가 검은 창 없이 이걸 띄운다
+﻿# DOLIVE 서버 시작/종료 창. 프로젝트 폴더의 "DOLIVE" 바로 가기가 검은 창 없이 이걸 띄운다
 # (conhost --headless powershell ... dolive_panel.ps1). 실제로 켜고 끄는 일은 start_dolive.ps1 이 한다.
 # Saved as UTF-8 with BOM so Windows PowerShell 5.1 shows the Korean text correctly.
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
@@ -31,29 +31,40 @@ function Label($text, $x, $y, $size, $color, [switch]$Bold) {
     $l.Font = Font $size -Bold:$Bold; $l.ForeColor = Color $color; $l.BackColor = [Drawing.Color]::Transparent
     $form.Controls.Add($l); $l
 }
-# 버튼 모서리를 둥글게
-function Round($ctl, $r) {
-    $d = $r * 2; $w = $ctl.Width; $h = $ctl.Height
-    $p = New-Object Drawing.Drawing2D.GraphicsPath
-    $p.AddArc(0, 0, $d, $d, 180, 90); $p.AddArc($w - $d, 0, $d, $d, 270, 90)
-    $p.AddArc($w - $d, $h - $d, $d, $d, 0, 90); $p.AddArc(0, $h - $d, $d, $d, 90, 90); $p.CloseFigure()
-    $ctl.Region = New-Object Drawing.Region $p
-}
+# 둥근 버튼을 직접 그린다. 윈도우 기본 방식(Region으로 모서리 자르기)은 모서리가 계단처럼 자글자글해서,
+# 바탕을 창 색으로 칠하고 그 위에 부드럽게(AntiAlias) 둥근 사각형과 글자를 그린다. 마우스를 올리면 조금 밝게, 못 누를 땐 글자를 흐리게
 function Button($text, $x, $y, $w, $h, $size) {
     $b = New-Object Windows.Forms.Button
     $b.Text = $text; $b.Location = "$x,$y"; $b.Size = "$w,$h"; $b.Font = Font $size -Bold
     $b.FlatStyle = "Flat"; $b.FlatAppearance.BorderSize = 0; $b.ForeColor = [Drawing.Color]::White
     $b.Cursor = [Windows.Forms.Cursors]::Hand
-    # 창이 뒤로 가면 윈도우가 테두리를 1줄 그려서, 테두리 색을 늘 바탕색과 같게 맞춘다
-    $b.Add_BackColorChanged({ param($s) $s.FlatAppearance.BorderColor = $s.BackColor })
-    Round $b 10
+    $b.Add_Paint({
+        param($s, $e)
+        $g = $e.Graphics; $g.SmoothingMode = "AntiAlias"
+        $g.Clear($s.Parent.BackColor)
+        $r = 10; $d = $r * 2; $w = $s.Width - 1; $h = $s.Height - 1
+        $p = New-Object Drawing.Drawing2D.GraphicsPath
+        $p.AddArc(0, 0, $d, $d, 180, 90); $p.AddArc($w - $d, 0, $d, $d, 270, 90)
+        $p.AddArc($w - $d, $h - $d, $d, $d, 0, 90); $p.AddArc(0, $h - $d, $d, $d, 90, 90); $p.CloseFigure()
+        $c = $s.BackColor
+        if ($s.Enabled -and $s.ClientRectangle.Contains($s.PointToClient([Windows.Forms.Cursor]::Position))) {
+            $c = [Drawing.Color]::FromArgb([Math]::Min(255, $c.R + 20), [Math]::Min(255, $c.G + 20), [Math]::Min(255, $c.B + 20))
+        }
+        $brush = New-Object Drawing.SolidBrush $c
+        $g.FillPath($brush, $p); $brush.Dispose(); $p.Dispose()
+        $fg = if ($s.Enabled) { $s.ForeColor } else { Color "#a1a1aa" }
+        $flags = [Windows.Forms.TextFormatFlags]"HorizontalCenter, VerticalCenter"
+        [Windows.Forms.TextRenderer]::DrawText($g, $s.Text, $s.Font, $s.ClientRectangle, $fg, $flags)
+    })
+    $b.Add_MouseEnter({ param($s) $s.Invalidate() })
+    $b.Add_MouseLeave({ param($s) $s.Invalidate() })
     $form.Controls.Add($b); $b
 }
 
 $form = New-Object Windows.Forms.Form
 $form.Text = "DOLIVE"
 $form.Icon = New-Object Drawing.Icon (Join-Path $PSScriptRoot "icons\dolive.ico")
-$form.ClientSize = "360,320"
+$form.ClientSize = "308,292"
 $form.FormBorderStyle = "FixedSingle"; $form.MaximizeBox = $false; $form.StartPosition = "CenterScreen"
 $form.BackColor = Color "#18181b"
 # 창 제목 줄도 어둡게 (윈도우 11)
@@ -94,31 +105,28 @@ $form.Controls.Add($spin)
 $spinTimer = New-Object Windows.Forms.Timer
 $spinTimer.Interval = 30
 $spinTimer.Add_Tick({ $spin.Tag = ($spin.Tag + 12) % 360; $spin.Invalidate() })
-$power = Button "" 24 92 312 58 15
+$power = Button "" 24 92 260 58 15
 
 $line = New-Object Windows.Forms.Label
-$line.Location = "24,174"; $line.Size = "312,1"; $line.BackColor = Color "#3f3f46"
+$line.Location = "24,174"; $line.Size = "260,1"; $line.BackColor = Color "#3f3f46"
 $form.Controls.Add($line)
 
-[void](Label "DOLIVE 링크" 24 192 9.5 "#71717a")
-$friends = New-Object Windows.Forms.LinkLabel
-$friends.Text = $friendsUrl; $friends.Location = "24,214"; $friends.AutoSize = $true; $friends.Font = Font 11
-$friends.LinkColor = Color "#67e8f9"; $friends.ActiveLinkColor = Color "#a5f3fc"; $friends.LinkBehavior = "HoverUnderline"
-$friends.Add_LinkClicked({ Start-Process $friendsUrl })
-$form.Controls.Add($friends)
-$copy = Button "주소 복사" 256 210 80 28 9
-$copy.BackColor = Color "#3f3f46"
-$copy.Add_Click({
-    [Windows.Forms.Clipboard]::SetText($friendsUrl)
-    $copy.Text = "복사됨"
-})
-
-[void](Label "방장(관리자) 링크" 24 252 9.5 "#71717a")
-$admin = New-Object Windows.Forms.LinkLabel
-$admin.Text = $hostUrl; $admin.Location = "24,274"; $admin.AutoSize = $true; $admin.Font = Font 11
-$admin.LinkColor = Color "#67e8f9"; $admin.ActiveLinkColor = Color "#a5f3fc"; $admin.LinkBehavior = "HoverUnderline"
-$admin.Add_LinkClicked({ Start-Process $hostUrl })
-$form.Controls.Add($admin)
+# 한 줄에 이름(왼쪽, LIVE OFF 글자색) + [접속하기](그 주소를 연다) + 복사 아이콘(주소 복사, 누르면 체크 표시로). 세 줄 모두 같은 자리·같은 크기
+# 아이콘은 윈도우에 들어 있는 기호 글꼴(Segoe MDL2 Assets)의 복사·체크 모양
+function LinkRow($title, $url, $y) {
+    [void](Label $title 24 ($y + 4) 11 "#a1a1aa")
+    $go = Button "접속하기" 166 $y 80 30 9
+    $go.BackColor = Color "#3f3f46"; $go.Tag = $url
+    $go.Add_Click({ param($s) Start-Process $s.Tag })
+    $copy = Button ([string][char]0xE8C8) 254 $y 30 30 9
+    $copy.Font = New-Object Drawing.Font("Segoe MDL2 Assets", 11)
+    $copy.BackColor = Color "#3f3f46"; $copy.Tag = $url
+    $copy.Add_Click({ param($s) [Windows.Forms.Clipboard]::SetText($s.Tag); $s.Text = [string][char]0xE73E })
+    $tip.SetToolTip($copy, "주소 복사")
+}
+# 관리자(방장) = 이 PC (입장 화면 오른쪽 위에 [전체기기 로그아웃]) / 클라이언트 = 친구들 주소 (부방장도 여기서 입장 화면 오른쪽 위 [관리자 로그인])
+LinkRow "관리자(방장)" $hostUrl 194
+LinkRow "클라이언트" $friendsUrl 238
 
 # 켜고 끄는 일은 뒤에서 start_dolive.ps1 로 (그동안 창이 멈추지 않게)
 $job = @{ proc = $null; wantOn = $false }
@@ -129,10 +137,10 @@ function Show-State($note) {
     $spinTimer.Stop(); $spin.Visible = $false; $status.Left = $sx
     if (IsOn) {
         $status.Text = "●  LIVE ON"; $status.ForeColor = Color "#4ade80"
-        $power.Text = "끄기"; $power.BackColor = Color "#3f3f46"
+        $power.Text = "서버 종료"; $power.BackColor = Color "#3f3f46"
     } else {
         $status.Text = "●  LIVE OFF"; $status.ForeColor = Color "#a1a1aa"
-        $power.Text = "켜기"; $power.BackColor = Color "#4f46e5"
+        $power.Text = "서버 시작"; $power.BackColor = Color "#4f46e5"
     }
     # 로고 옆 자리가 좁아서 짧게 쓰고, 자세한 안내는 마우스를 올리면 뜬다
     if ($note) { $status.Text = "●  잘 안 됐어요"; $status.ForeColor = Color "#f87171" }
@@ -142,7 +150,7 @@ function Show-State($note) {
 
 $power.Add_Click({
     $job.wantOn = -not (IsOn)
-    $status.Text = $(if ($job.wantOn) { "켜는 중..." } else { "끄는 중..." })
+    $status.Text = $(if ($job.wantOn) { "시작 중..." } else { "종료 중..." })
     $status.ForeColor = Color "#facc15"
     $status.Left = $sx + 26; $spin.Visible = $true; $spinTimer.Start()
     $power.Enabled = $false
@@ -159,7 +167,7 @@ $menu = New-Object Windows.Forms.ContextMenuStrip
 [void]$menu.Items.Add("열기", $null, { Show-Panel })
 # 서버 차단 및 종료 = 서버까지 모두 끄고(바깥에서 못 들어오게) 이 창도 끝낸다
 [void]$menu.Items.Add("서버 차단 및 종료", $null, {
-    $job.quit = $true; $form.Hide(); $tray.Text = "DOLIVE 끄는 중..."
+    $job.quit = $true; $form.Hide(); $tray.Text = "DOLIVE 종료 중..."
     if ($job.proc -and -not $job.proc.HasExited) { $job.proc.Kill() }  # 켜는 중이었으면 멈추고
     Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$starter`" -Stop" -WindowStyle Hidden -Wait
     $form.Close()

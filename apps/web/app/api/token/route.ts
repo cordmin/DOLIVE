@@ -1,7 +1,7 @@
 import { AccessToken } from "livekit-server-sdk";
 import { keepImage } from "@/lib/chat";
 import { AVATARS, CUSTOM, ROOM, isAvatar } from "@/lib/dolive";
-import { MIC_ONLY, isAdmin } from "@/lib/server";
+import { MIC_ONLY, isLocal, loginKey, logins } from "@/lib/server";
 
 const JPEG = "data:image/jpeg;base64,";
 
@@ -25,9 +25,13 @@ export async function POST(req: Request) {
     }
   }
 
-  const admin = isAdmin(req);
+  const local = isLocal(req);
+  const key = loginKey(req);
+  const admin = local || !!key;
+  const identity = `${nickname}#${crypto.randomUUID().slice(0, 4)}`;
+  if (key) logins.get(key)!.identities.push(identity); // 로그아웃시키면 방에서도 내보내려고 적어 둔다
   const at = new AccessToken(process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET, {
-    identity: `${nickname}#${crypto.randomUUID().slice(0, 4)}`,
+    identity,
     name: nickname,
     attributes: { avatar: face, admin: admin ? "1" : "" },
     ttl: "12h",
@@ -42,9 +46,9 @@ export async function POST(req: Request) {
     ...(admin ? {} : { canPublishSources: MIC_ONLY }),
   });
 
-  // 3단계(바깥 접속)에서 LIVEKIT_PUBLIC_URL=wss://<도메인> 을 넣는다. 방장은 항상 localhost.
+  // 3단계(바깥 접속)에서 LIVEKIT_PUBLIC_URL=wss://<도메인> 을 넣는다. 서버 PC에서 들어온 사람만 localhost.
   const url =
-    !admin && process.env.LIVEKIT_PUBLIC_URL ? process.env.LIVEKIT_PUBLIC_URL : "ws://localhost:7880";
+    !local && process.env.LIVEKIT_PUBLIC_URL ? process.env.LIVEKIT_PUBLIC_URL : "ws://localhost:7880";
 
   return Response.json({ token: await at.toJwt(), url, isAdmin: admin });
 }

@@ -20,7 +20,7 @@
 |---|---|---|
 | 통화 서버 | `server/bin/livekit-server.exe`, `server/config/livekit.yaml` | 7880, TCP 7881, UDP 50000-60000. `use_external_ip` + `advertise_internal_ip` |
 | 웹 | `apps/web` (Next.js 16.3, Tailwind 4, `@livekit/components-react`) | `127.0.0.1:3000`에만 열림 |
-| 토큰 | `apps/web/app/api/token/route.ts` | Host가 localhost이고 X-Forwarded-For가 루프백뿐이면 방장. 바깥 사용자에게는 `LIVEKIT_PUBLIC_URL` |
+| 토큰 | `apps/web/app/api/token/route.ts` | Host가 localhost이고 X-Forwarded-For가 루프백뿐이면 방장(`isLocal`), 또는 방장 로그인 쿠키가 있으면 방장(`app/api/login`, 입장 화면 `app/page.tsx` 오른쪽 위). 서버 PC가 아닌 곳에는 `LIVEKIT_PUBLIC_URL` |
 | 방장 마이크 끄기 | `apps/web/app/api/mute/route.ts` | 방장 판별·통화 서버 창구(`rooms`)는 `lib/server.ts`(토큰·채팅과 같이 씀). LiveKit `RoomServiceClient.mutePublishedTrack` |
 | 화면공유 승인 | `apps/web/app/api/share/route.ts`, `lib/server.ts` | 방장 아닌 사람 입장권은 `MIC_ONLY`. 방장이 승인하면 `updateParticipant`로 `WITH_SCREEN`, 공유 끝나면 도로 `MIC_ONLY`. 요청/거부는 데이터 메시지 `dolive-share` |
 | 프로필 사진 | `apps/web/app/profile/[id]/route.ts` | 기본 사진 `assets/profile/<id>.webp`. 내 사진은 입장할 때 `api/token`이 서버 메모리에 올리고 `/api/chat/<id>` 주소를 입장권에 적음 (파일 저장 안 함) |

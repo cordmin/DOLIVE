@@ -329,8 +329,9 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
           </svg>
         </button>
         <div className="ml-auto flex items-center gap-2">
+          {/* 서버 PC에서 들어온 사람도, 다른 컴퓨터에서 관리자 로그인한 사람도 "관리자" (입장 화면 오른쪽 위 표시와 같은 모양) */}
           {isAdmin && (
-            <span className="rounded bg-amber-500 px-2 py-0.5 text-xs font-bold text-black">방장</span>
+            <span className="rounded bg-amber-500 px-2 py-0.5 text-xs font-bold text-black">관리자</span>
           )}
           <MediaControls asked={asked} requestShare={requestShare} />
           {docPip && sharing && (

@@ -16,6 +16,47 @@ export default function Home() {
   const [custom, setCustom] = useState<string>(); // 내가 고른 사진 (data: 주소, 새로고침하면 없어진다)
   const [picked, setPicked] = useState<File>(); // 자리 맞추기 중인 사진
   const picker = useRef<HTMLInputElement>(null);
+  // 오른쪽 위: 서버 PC(방장)면 로그인된 부방장 기기 수 + [전체기기 로그아웃], 부방장이면 [로그아웃], 나머지는 [관리자 로그인]
+  // ([관리자 로그인]은 휴대폰에선 숨긴다. 관리자가 필요한 화면공유를 휴대폰에선 못 해서)
+  // (부방장 = 다른 컴퓨터에서 비밀번호로 로그인한 운영진. 방장과 같은 권한, 12시간 뒤 저절로 로그아웃. app/api/login)
+  const [me, setMe] = useState<{ local: boolean; count: number; loggedIn: boolean }>();
+  const [password, setPassword] = useState<string | null>(null); // null = 비밀번호 칸 닫힘
+  const loadMe = () =>
+    fetch("/api/login", { cache: "no-store" })
+      .then((r) => r.json())
+      .then(setMe)
+      .catch(() => {});
+
+  // 부방장이 다른 곳에서 로그인하면 따라가게 10초마다 다시 센다
+  useEffect(() => {
+    loadMe();
+    const t = setInterval(loadMe, 10000);
+    return () => clearInterval(t);
+  }, []);
+
+  // 다른 컴퓨터에서 로그인한 부방장(운영진)을 모두 로그아웃시킨다. 방에 있던 부방장도 나가진다 (app/api/login)
+  async function logoutAll() {
+    if (!confirm("부방장 전체 기기를 로그아웃할까요? 방에 있는 부방장도 방에서 나가져요.")) return;
+    await fetch("/api/login", { method: "DELETE" });
+    loadMe();
+    alert("부방장 전체 기기를 로그아웃했어요.");
+  }
+
+  async function login() {
+    const r = await fetch("/api/login", { method: "POST", body: JSON.stringify({ password }) });
+    if (!r.ok) {
+      setPassword("");
+      return alert((await r.json()).error);
+    }
+    setPassword(null);
+    loadMe();
+  }
+
+  // 부방장 본인 로그아웃
+  async function logout() {
+    await fetch("/api/login", { method: "DELETE" });
+    loadMe();
+  }
 
   // sessionStorage는 브라우저에만 있어서 화면이 뜬 뒤(effect)에 읽어야 서버 화면과 어긋나지 않는다
   useEffect(() => {
@@ -50,9 +91,44 @@ export default function Home() {
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-4 sm:p-8">
-      <h1 className="text-3xl font-bold">
-        DO<span className="text-red-500">LIVE</span>
-      </h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold">
+          DO<span className="text-red-500">LIVE</span>
+        </h1>
+        {me?.local ? (
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-zinc-400">{me.count ? `부방장 ${me.count}대 로그인 중` : "로그인된 부방장 없음"}</span>
+            <button onClick={logoutAll} className="rounded-lg bg-zinc-700 px-3 py-2 text-sm font-semibold hover:bg-zinc-600">
+              전체기기 로그아웃
+            </button>
+          </div>
+        ) : me?.loggedIn ? (
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-zinc-400">
+              <span className="text-green-400">●</span> 관리자로 로그인됨
+            </span>
+            <button onClick={logout} className="rounded-lg bg-zinc-700 px-3 py-2 text-sm font-semibold hover:bg-zinc-600">
+              로그아웃
+            </button>
+          </div>
+        ) : !me || isPhone() ? null : password === null ? (
+          <button onClick={() => setPassword("")} className="rounded-lg bg-zinc-700 px-3 py-2 text-sm font-semibold hover:bg-zinc-600">
+            관리자 로그인
+          </button>
+        ) : (
+          // Enter 로 로그인, Esc 나 빈 채로 다른 곳을 누르면 닫힌다
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => (e.key === "Enter" && password ? login() : e.key === "Escape" && setPassword(null))}
+            onBlur={() => !password && setPassword(null)}
+            autoFocus
+            placeholder="비밀번호 입력 후 Enter"
+            className="w-48 rounded-lg bg-zinc-800 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        )}
+      </div>
 
       <section className="flex flex-col gap-2">
         <span className="text-sm text-zinc-400">프로필 사진 선택</span>
