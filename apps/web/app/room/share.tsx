@@ -17,6 +17,28 @@ const SHARE_TOPIC = "dolive-share";
 const SCREEN_SHARE_SOURCE = 3; // LiveKit 권한 목록에서 화면공유를 뜻하는 번호 (TrackSource.SCREEN_SHARE)
 const text = (s: string) => new TextEncoder().encode(s);
 
+// 라디오 DJ처럼: 누가 마이크로 말하거나 "/글" 음성이 나오는 동안(음성 참여자도 마이크로 보낸다) 화면공유 소리(배경음악 등)를
+// DUCK 까지 0.5초에 걸쳐 낮추고, 말이 끝나고 0.7초 뒤에 1초에 걸쳐 되돌린다.
+// 보는 사람 브라우저가 각자 크기만 바꿔서 서버 부담은 없다. '말하는 중'은 방 서버가 마이크 소리로만 판단한다 (공유 소리는 안 셈)
+// ponytail: 아이폰 브라우저는 코드로 소리 크기를 못 바꿔서 거기선 안 줄어든다. 공유하는 사람 PC에서 직접 듣는 노래도 그대로
+const DUCK = 0.3;
+export function useDuckShareAudio() {
+  const room = useRoomContext();
+  useEffect(() => {
+    let vol = 1;
+    let lastTalk = 0;
+    const iv = setInterval(() => {
+      const now = Date.now();
+      if (room.activeSpeakers.length) lastTalk = now;
+      const next = now - lastTalk < 700 ? Math.max(DUCK, vol - 0.07) : Math.min(1, vol + 0.035);
+      if (next === vol) return;
+      vol = next;
+      room.remoteParticipants.forEach((p) => p.setVolume(vol, Track.Source.ScreenShareAudio));
+    }, 50);
+    return () => clearInterval(iv);
+  }, [room]);
+}
+
 // 새 사람이 화면공유를 시작하면 내 공유는 잠시 멈춘다. 멈춘 동안은 아예 보내지 않아서 데이터가 들지 않는다.
 // 그 사람이 공유를 끝내고 보내는 사람이 아무도 없으면 내 공유를 다시 보낸다.
 // ponytail: 셋이 겹쳐 공유하다 마지막 사람이 끝내면 멈춰 있던 둘이 같이 다시 켜진다. 드문 일이라 그대로 둠.

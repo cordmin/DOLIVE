@@ -20,7 +20,7 @@ import { Tooltips } from "@/components/Tooltips";
 import { VOICE_BOT, VOICE_FROM, isPhone, savedAvatar } from "@/lib/dolive";
 import { ChatInput, ChatLog, useMessages } from "./chat";
 import { useReactions } from "./reactions";
-import { MediaControls, usePauseOldShare, useShareRequests } from "./share";
+import { MediaControls, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
 import { Stage, useAvatarOf } from "./stage";
 
 // 방 화면은 여러 파일로 나눠 둔다: chat.tsx(채팅), stage.tsx(공유 화면·프로필 사진 칸), share.tsx(화면공유·마이크), reactions.tsx(하트·ㅋ·헐)
@@ -199,6 +199,7 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
   const room = useRoomContext();
   usePauseOldShare();
   useMuteMyVoice();
+  useDuckShareAudio();
 
   const { floats, react } = useReactions();
   const { waiting, answer, asked, requestShare } = useShareRequests(isAdmin, participants);
