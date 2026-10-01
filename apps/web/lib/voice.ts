@@ -31,8 +31,10 @@ const voice: Voice = (g.doliveVoice ??= {
 // (그래픽카드로 돌려 봤지만 문장 길이가 바뀔 때마다 준비를 다시 해서 CPU보다 빠르지 않았다)
 const STEPS = 5;
 
-// 소리 크기. 1 = 모델이 만든 그대로. 1.3 = 30% 크게 (넘치는 부분은 잘라서 찢어지는 소리가 안 나게 한다)
-const GAIN = 1.3;
+// 소리 크기: 문장마다 가장 큰 소리가 한계의 PEAK 에 닿게 키운다 (이 목소리는 원래 한계의 30%쯤이라 보통 3배쯤 커진다).
+// 배경음악 위에서도 잘 들리게. 거의 무음인 문장을 너무 키우지 않게 MAX_GAIN 배까지만
+const PEAK = 0.95;
+const MAX_GAIN = 4;
 
 // 글을 읽어서 16비트 소리로. 앞뒤에 붙어 나오는 무음(앞 0.4초, 뒤 0.5초쯤)은 잘라서 바로 말이 시작되게 한다
 async function synth(text: string) {
@@ -42,7 +44,11 @@ async function synth(text: string) {
   const loud = (v: number) => Math.abs(v) > 0.03;
   const start = Math.max(0, wav.findIndex(loud) - rate * 0.05); // 말 시작 0.05초 전부터
   const end = Math.min(wav.length, wav.findLastIndex(loud) + rate * 0.15); // 말 끝 0.15초 뒤까지
-  const pcm = Int16Array.from(wav.slice(start, end > start ? end : wav.length), (s) => Math.max(-1, Math.min(1, s * GAIN)) * 32767);
+  const part = wav.slice(start, end > start ? end : wav.length);
+  let peak = 1e-6; // (Math.max(...part) 는 긴 문장에서 숫자가 너무 많아 터진다)
+  for (const v of part) peak = Math.max(peak, Math.abs(v));
+  const gain = Math.min(MAX_GAIN, PEAK / peak);
+  const pcm = Int16Array.from(part, (s) => Math.max(-1, Math.min(1, s * gain)) * 32767);
   return { rate, pcm };
 }
 
