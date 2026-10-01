@@ -38,6 +38,10 @@ Line
 
 Say $(if ($Stop) { "끄는 중..." } else { "켜는 중..." }) DarkGray
 
+# Before stopping, close the broadcast room so viewers see "방송이 끝났어요" right away (apps/web/app/api/end)
+if ($Stop) {
+    try { Invoke-RestMethod -Method Post "http://127.0.0.1:3000/api/end" -TimeoutSec 3 | Out-Null } catch {}
+}
 Stop-All
 if ($Stop) {
     Say "[ 끔 ] 통화 서버, 웹 화면, 바깥 연결을 모두 껐어요" Green

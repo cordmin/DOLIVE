@@ -10,7 +10,7 @@ import {
   useIsMuted,
   useIsSpeaking,
 } from "@livekit/components-react";
-import { ConnectionError, ConnectionErrorReason, Track, type Participant, type RoomOptions } from "livekit-client";
+import { ConnectionError, ConnectionErrorReason, DisconnectReason, Track, type Participant, type RoomOptions } from "livekit-client";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
@@ -139,7 +139,8 @@ export default function RoomPage() {
       connect
       audio={false} // 마이크는 꺼진 채로 들어간다 (위쪽 스위치로 켠다)
       options={ROOM_OPTIONS}
-      onDisconnected={goHome}
+      // 방장이 서버를 끄면서 방을 닫았으면(api/end) 물어볼 것 없이 바로 "방송이 끝났어요"
+      onDisconnected={(reason) => (reason === DisconnectReason.ROOM_DELETED ? setEnded(true) : goHome())}
       onError={(e) => {
         // 다시 붙는 중에 [예]로 내가 끊은 건 오류가 아니다 (바로 "방송이 끝났어요" 화면이 뜬다)
         if (e instanceof ConnectionError && e.reason === ConnectionErrorReason.Cancelled) return;
