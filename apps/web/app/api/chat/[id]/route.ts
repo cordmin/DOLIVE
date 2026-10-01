@@ -1,4 +1,4 @@
-import { store } from "@/lib/chat";
+import { isOwner, remove, store, whoSent } from "@/lib/chat";
 import { dormsCheck } from "@/lib/server";
 
 // 채팅 사진(+ 내 사진 프로필). 주소(id)는 아무도 짐작할 수 없는 긴 번호라서, 채팅을 본 사람만 안다.
@@ -13,4 +13,13 @@ export async function GET(req: Request, ctx: RouteContext<"/api/chat/[id]">) {
   const headers = { etag, "cache-control": "private, no-cache", "x-content-type-options": "nosniff" };
   if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
   return new Response(new Uint8Array(img.data), { headers: { ...headers, "content-type": img.type } });
+}
+
+// 메시지 지우기 (id = 메시지 id. 사진 메시지는 사진 id 와 같다). 내가 보낸 것, 또는 관리자(방장·운영진)는 누구 것이든
+export async function DELETE(req: Request, ctx: RouteContext<"/api/chat/[id]">) {
+  const { owner, admin, deny } = await whoSent(req);
+  if (deny) return deny;
+  const id = (await ctx.params).id;
+  if (!admin && !isOwner(id, owner)) return new Response(null, { status: 403 });
+  return new Response(null, { status: (await remove(id)) ? 204 : 404 });
 }

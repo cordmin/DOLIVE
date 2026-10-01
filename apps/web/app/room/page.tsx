@@ -174,7 +174,7 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
   const [showPeople, setShowPeople] = useState(false); // 휴대폰에서 참여자 목록 열기
   const [peopleAt, setPeopleAt] = useState({ left: 0, top: 0 }); // 목록 카드가 내려올 자리 (배지 가로 가운데, 배지 바로 아래)
   // 채팅 글·사진 (들어올 때 서버 기록을 받고, 그 뒤엔 새로 온 것을 더한다)
-  const { messages, send: sendChat, sendImage } = useMessages(token);
+  const { messages, send: sendChat, sendImage, remove: removeChat } = useMessages(token);
   // 공유가 여럿이면 멈추지 않은(보내는 중인) 것 하나만 보여 준다
   const screen = useTracks([Track.Source.ScreenShare])
     .filter((t) => !t.publication.isMuted)
@@ -392,6 +392,8 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
           {/* 휴대폰에서 화면공유 중에 자판이 올라오면 채팅 내용 칸이 먼저 줄고, 그래도 좁으면 공유 화면도 줄어든다 */}
           <ChatLog
             messages={messages}
+            isAdmin={isAdmin}
+            remove={removeChat}
             // PC: 채팅 내용 + 아래 입력칸이 둥근 카드 하나로 이어진다 (구분선 없이 카드로 나눔)
             className={`${screen ? "min-h-24 flex-1" : "min-h-0 flex-1"} border-t border-zinc-800 md:col-start-2 md:row-start-1 md:mt-2 md:mr-2 md:min-h-0 md:rounded-t-xl md:border md:border-b-0 md:bg-zinc-800/40 ${hideOnLand}`}
           />
@@ -409,7 +411,7 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
       {pip &&
         createPortal(
           <div className="flex h-dvh flex-col">
-            <ChatLog messages={messages} className="min-h-0 flex-1" />
+            <ChatLog messages={messages} isAdmin={isAdmin} remove={removeChat} className="min-h-0 flex-1" />
             <ChatInput send={sendChat} sendImage={sendImage} react={react} className="" />
             <Tooltips doc={pip.document} />
           </div>,

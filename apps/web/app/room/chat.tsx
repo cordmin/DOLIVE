@@ -32,9 +32,12 @@ export function useMessages(token: string) {
       }),
     [],
   );
-  // 서버가 보낸 것만 받는다 (사람이 같은 이름표로 보낸 가짜 채팅은 무시)
+  // 서버가 보낸 것만 받는다 (사람이 같은 이름표로 보낸 가짜 채팅은 무시). { deleted: id } 는 누가 지운 메시지
   useDataChannel(CHAT_TOPIC, (msg) => {
-    if (!msg.from) add([JSON.parse(new TextDecoder().decode(msg.payload))]);
+    if (msg.from) return;
+    const data = JSON.parse(new TextDecoder().decode(msg.payload));
+    if (data.deleted) setMessages((prev) => prev.filter((m) => m.id !== data.deleted));
+    else add([data]);
   });
 
   const auth = { Authorization: `Bearer ${token}` };
@@ -80,7 +83,17 @@ export function useMessages(token: string) {
     post(img, img.type).catch((e) => alert(e.message === "503" ? DORMS_DOWN : "사진을 보내지 못했어요."));
   }
 
-  return { messages, send, sendImage };
+  // 메시지 지우기 (서버가 내 것인지·관리자인지 다시 확인하고, 방 안 모두에게서 지운다)
+  const remove = useCallback(
+    async (id: string) => {
+      const r = await fetch(`/api/chat/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }).catch(() => null);
+      if (r?.ok || r?.status === 404) setMessages((prev) => prev.filter((m) => m.id !== id));
+      else alert(r?.status === 503 ? DORMS_DOWN.replace("보내", "지워") : "메시지를 지우지 못했어요.");
+    },
+    [token],
+  );
+
+  return { messages, send, sendImage, remove };
 }
 
 // 사진은 보내기 전에 이 브라우저에서 줄인다 (긴 쪽 1600px, webp. webp 를 못 만드는 브라우저는 jpg).
@@ -190,9 +203,57 @@ function LinkPreview({ url, onLoad }: { url: string; onLoad: () => void }) {
 // 같은 사람이 같은 분에 이어 보낸 말은 한 묶음이라 사진·이름은 첫 말에만, 시간은 마지막 말에만 붙인다.
 // 링크가 있으면 말풍선 아래에 첫 링크의 미리보기 카드, 사진은 말풍선 대신 사진 그대로 (누르면 화면 위에 크게)
 // memo: 하트가 날거나 누가 말할 때마다 방 화면이 다시 그려지는데, 채팅 글이 그대로면 긴 채팅 목록은 다시 그리지 않는다
-export const ChatLog = memo(function ChatLog({ messages, className }: { messages: ChatMsg[]; className: string }) {
+export const ChatLog = memo(function ChatLog({
+  messages,
+  className,
+  isAdmin,
+  remove,
+}: {
+  messages: ChatMsg[];
+  className: string;
+  isAdmin: boolean; // 관리자는 누구 메시지든 지울 수 있다
+  remove: (id: string) => void;
+}) {
   const list = useRef<HTMLDivElement>(null);
   const mineIds = myIds();
+
+  // 메시지 지우기: PC 는 메시지에 마우스를 올리면 시간 옆 휴지통, 휴대폰은 메시지를 꾹(0.5초) 누르면 확인 창.
+  // 지울 수 있는 것: 내가 보낸 것(이 탭 이름표, 또는 같은 도름스 계정 = mine), 관리자는 전부. 서버가 다시 확인한다
+  const askDel = useRef<HTMLDialogElement>(null);
+  const [delTarget, setDelTarget] = useState<string | null>(null);
+  const canDelete = (m: ChatMsg) => isAdmin || !!m.mine || mineIds.includes(m.identity);
+  function ask(id: string) {
+    setDelTarget(id);
+    askDel.current?.showModal();
+  }
+  const pressTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const touching = useRef(false); // 손가락으로 누르는 중 (마우스 오른쪽 클릭 메뉴는 그대로 두려고)
+  const held = useRef(false); // 꾹 눌러서 확인 창을 띄웠다 → 손을 뗄 때 따라오는 클릭(사진 크게 보기·링크 열기)은 무시
+  const holdToDelete = (m: ChatMsg) =>
+    canDelete(m)
+      ? {
+          onPointerDown: (e: React.PointerEvent) => {
+            touching.current = e.pointerType !== "mouse";
+            held.current = false;
+            if (touching.current)
+              pressTimer.current = setTimeout(() => {
+                held.current = true;
+                ask(m.id);
+              }, 500);
+          },
+          // 손을 떼거나, 밀어서 목록을 움직이면(브라우저가 가져가면 cancel) 취소
+          onPointerUp: () => clearTimeout(pressTimer.current),
+          onPointerCancel: () => clearTimeout(pressTimer.current),
+          onPointerLeave: () => clearTimeout(pressTimer.current),
+          onClickCapture: (e: React.MouseEvent) => {
+            if (!held.current) return;
+            held.current = false;
+            e.preventDefault();
+            e.stopPropagation();
+          },
+          onContextMenu: (e: React.MouseEvent) => touching.current && e.preventDefault(), // 꾹 누를 때 뜨는 휴대폰 메뉴 대신
+        }
+      : {};
 
   // 사진 크게 보기: 브라우저 기본 모달(dialog). ESC로 닫히는 것도 브라우저가 해 준다. 바깥 어두운 곳을 눌러도 닫힌다
   const viewer = useRef<HTMLDialogElement>(null);
@@ -232,7 +293,7 @@ export const ChatLog = memo(function ChatLog({ messages, className }: { messages
         const mine = mineIds.includes(m.identity);
         const link = m.message.match(LINK)?.[0];
         return (
-          <div key={m.id} className={`flex gap-2 ${mine ? "justify-end" : ""} ${first ? "mt-3" : "mt-1"}`}>
+          <div key={m.id} className={`group/msg flex gap-2 ${mine ? "justify-end" : ""} ${first ? "mt-3" : "mt-1"}`}>
             {!mine &&
               (first ? (
                 <Avatar id={avatarOf(m.avatar)} px={52} className="size-10 shrink-0 md:size-13" />
@@ -245,12 +306,13 @@ export const ChatLog = memo(function ChatLog({ messages, className }: { messages
                 {m.image ? (
                   // 사진 폭은 늘 240px (옆에 시간이 붙어도 사진이 줄지 않게 shrink-0). 아주 긴 사진은 위아래를 잘라 보여 준다.
                   // loading="lazy": 화면 가까이 왔을 때만 받는다 (늦게 들어온 사람이 지난 사진을 한꺼번에 다 받지 않게)
-                  <button type="button" onClick={() => openImage(m)} className="shrink-0 cursor-zoom-in">
+                  <button type="button" onClick={() => openImage(m)} {...holdToDelete(m)} className="shrink-0 cursor-zoom-in">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={m.image} alt="보낸 사진" loading="lazy" onLoad={toBottom} className="max-h-72 w-60 rounded-2xl bg-zinc-800 object-cover" />
                   </button>
                 ) : (
                   <p
+                    {...holdToDelete(m)}
                     className={`min-w-0 rounded-2xl px-3 py-2 break-words whitespace-pre-wrap ${
                       mine ? "bg-indigo-600" : "bg-zinc-800"
                     } ${first ? (mine ? "rounded-tr-sm" : "rounded-tl-sm") : ""}`}
@@ -273,12 +335,49 @@ export const ChatLog = memo(function ChatLog({ messages, className }: { messages
                   </p>
                 )}
                 {last && <span className="shrink-0 text-[11px] text-zinc-500">{chatTime(m.timestamp)}</span>}
+                {/* PC: 마우스를 올린 메시지에만 보이는 작은 휴지통 (휴대폰은 꾹 누르기) */}
+                {canDelete(m) && (
+                  <button
+                    type="button"
+                    onClick={() => ask(m.id)}
+                    aria-label="메시지 삭제"
+                    data-tip="삭제"
+                    className="hidden shrink-0 self-center text-zinc-500 opacity-0 group-hover/msg:opacity-100 hover:text-red-400 md:block"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-3.5">
+                      <path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />
+                    </svg>
+                  </button>
+                )}
               </div>
               {link && <LinkPreview url={link} onLoad={toBottom} />}
             </div>
           </div>
         );
       })}
+
+      {/* 지우기 확인 (채팅방 나가기 창과 같은 모양, 화면 가운데) */}
+      <dialog
+        ref={askDel}
+        onClose={() => setDelTarget(null)}
+        className="m-auto w-72 rounded-xl bg-zinc-800 p-5 text-zinc-100 ring-1 ring-zinc-700 backdrop:bg-black/60"
+      >
+        <p className="mb-10 text-center font-semibold">메시지를 삭제할까요?</p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              if (delTarget) remove(delTarget);
+              askDel.current?.close();
+            }}
+            className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold hover:bg-red-500"
+          >
+            삭제
+          </button>
+          <button onClick={() => askDel.current?.close()} className="flex-1 rounded-lg bg-zinc-700 py-2 text-sm hover:bg-zinc-600">
+            취소
+          </button>
+        </div>
+      </dialog>
 
       <dialog
         ref={viewer}

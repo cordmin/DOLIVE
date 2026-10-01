@@ -39,6 +39,7 @@ export type ChatMsg = {
   message: string;
   image?: string;
   imageType?: string;
+  mine?: boolean; // 기록을 받을 때만: 내(같은 도름스 계정)가 보낸 것 → 지우기 버튼 (api/chat GET)
   tts?: boolean; // "/글" 로 보낸 음성 글 (말풍선 앞 스피커를 누르면 /api/voice/<id> 로 다시 듣는다)
 };
 export const CHAT_TOPIC = "dolive-chat";
