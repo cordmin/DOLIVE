@@ -100,7 +100,8 @@ function useMessages(token: string) {
       setMessages((prev) => {
         const seen = new Set(prev.map((m) => m.id));
         const fresh = list.filter((m) => !seen.has(m.id));
-        return fresh.length ? [...prev, ...fresh].sort((a, b) => a.n - b.n) : prev;
+        // 서버 시계로 잰 시각 순서, 같은 순간이면 받은 번호 순서 (서버를 다시 켜면 번호는 0부터라 시각을 먼저 본다)
+        return fresh.length ? [...prev, ...fresh].sort((a, b) => a.timestamp - b.timestamp || a.n - b.n) : prev;
       }),
     [],
   );

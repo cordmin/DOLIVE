@@ -22,7 +22,7 @@ export const savedAvatar = () => {
 };
 
 // 채팅 한 줄. 서버가 기록해 두고(lib/chat.ts) 방 안 모두에게 CHAT_TOPIC 으로 보낸다.
-// n: 서버가 받은 순서 (기기마다 시계가 달라도 순서가 섞이지 않게), image: 사진 주소 (/api/chat/<id>)
+// n: 서버가 받은 순서 (timestamp 도 서버 시계라 기기마다 시계가 달라도 순서가 섞이지 않는다. 같은 순간이면 n 으로 가른다), image: 사진 주소 (/api/chat/<id>)
 export type ChatMsg = {
   id: string;
   n: number;
