@@ -30,6 +30,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# Supertonic 목소리 모델 (400MB, 받는 법은 lib/voice.ts)
+/models/
+
 # env files (can opt-in for committing if needed)
 .env*
 

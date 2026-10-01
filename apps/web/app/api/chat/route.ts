@@ -1,5 +1,9 @@
 import { keepImage, post, store, whoSent } from "@/lib/chat";
-import { CHAT_MAX, IMAGE_MAX, IMAGE_TYPES } from "@/lib/dolive";
+import { CHAT_MAX, IMAGE_MAX, IMAGE_TYPES, TTS_MAX } from "@/lib/dolive";
+import { say } from "@/lib/voice";
+
+// 음성은 한 사람당 5초에 한 번만 (장난으로 계속 보내서 서버가 바빠지지 않게)
+const lastSpoke = new Map<string, number>();
 
 // 방에 들어온 사람만: 서버가 켜진 뒤의 채팅 기록 전부
 export async function GET(req: Request) {
@@ -25,5 +29,15 @@ export async function POST(req: Request) {
   const { message } = await req.json().catch(() => ({}));
   const text = typeof message === "string" ? message.trim() : "";
   if (!text || text.length > CHAT_MAX) return new Response(null, { status: 400 });
+
+  // "/글" 은 서버가 읽어서 보낸 사람 말고 방 모두에게 들려준다 (lib/voice.ts). 말풍선에는 "/" 를 뺀 글이 보인다
+  const said = text.startsWith("/") ? text.slice(1).trim() : "";
+  if (said) {
+    if (said.length > TTS_MAX) return new Response(null, { status: 413 });
+    if (Date.now() - (lastSpoke.get(who.identity) ?? 0) < 5000) return new Response(null, { status: 429 });
+    lastSpoke.set(who.identity, Date.now());
+    say(said, who.identity).catch((e) => console.error("음성 실패", e));
+    return Response.json(await post({ ...who, message: said, tts: true }));
+  }
   return Response.json(await post({ ...who, message: text }));
 }

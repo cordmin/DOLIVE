@@ -2,7 +2,7 @@ import { useDataChannel, useRoomContext } from "@livekit/components-react";
 import { RoomEvent } from "livekit-client";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
-import { CHAT_MAX, CHAT_TOPIC, IMAGE_MAX, IMAGE_TYPES, avatarOf, isPhone, type ChatMsg } from "@/lib/dolive";
+import { CHAT_MAX, CHAT_TOPIC, IMAGE_MAX, IMAGE_TYPES, TTS_MAX, avatarOf, isPhone, type ChatMsg } from "@/lib/dolive";
 import { Heart, STICKER_TEXT, type Reaction } from "./reactions";
 
 // 이 탭에서 내가 썼던 identity 들. 나갔다가 다시 들어오면 identity 가 새로 바뀌어서, 예전 내 글도 내 글로 보이게 모아 둔다
@@ -55,10 +55,17 @@ export function useMessages(token: string) {
 
   async function post(body: BodyInit, type: string) {
     const r = await fetch("/api/chat", { method: "POST", headers: { ...auth, "Content-Type": type }, body });
-    if (!r.ok) throw new Error();
+    if (!r.ok) throw new Error(String(r.status));
     add([await r.json()]);
   }
-  const send = (message: string) => post(JSON.stringify({ message }), "application/json").catch(() => alert("메시지를 보내지 못했어요."));
+  const send = (message: string) =>
+    post(JSON.stringify({ message }), "application/json").catch((e) =>
+      alert(
+        e.message === "429" ? "음성은 5초에 한 번만 보낼 수 있어요."
+        : e.message === "413" ? `음성은 ${TTS_MAX}자까지만 보낼 수 있어요.`
+        : "메시지를 보내지 못했어요.",
+      ),
+    );
   async function sendImage(file: File) {
     if (!IMAGE_TYPES.includes(file.type)) return alert("PNG, JPG, GIF, WEBP 사진만 보낼 수 있어요.");
     const img = await shrink(file);
@@ -240,6 +247,20 @@ export const ChatLog = memo(function ChatLog({ messages, className }: { messages
                       mine ? "bg-indigo-600" : "bg-zinc-800"
                     } ${first ? (mine ? "rounded-tr-sm" : "rounded-tl-sm") : ""}`}
                   >
+                    {m.tts && (
+                      // "/글" 음성 글: 앞의 작은 스피커를 누르면 다시 듣는다 (보낸 사람도). 처음엔 서버가 다시 읽느라 1초쯤 걸린다
+                      <button
+                        type="button"
+                        onClick={() => new Audio(`/api/voice/${m.id}`).play().catch(() => {})}
+                        aria-label="음성 다시 듣기"
+                        data-tip="다시 듣기"
+                        className="mr-1 inline-flex align-[-2px] opacity-70 hover:opacity-100"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-3.5">
+                          <path d="M11 5 6 9H3v6h3l5 4zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
+                        </svg>
+                      </button>
+                    )}
                     <Linkified text={m.message} />
                   </p>
                 )}
@@ -318,6 +339,18 @@ export function ChatInput({
     setPending({ file, url: URL.createObjectURL(file) });
   }
   const filePicker = useRef<HTMLInputElement>(null);
+  // 휴대폰은 사진 고르는 창이 열리면 브라우저가 전체화면을 풀어 버린다 (막을 방법이 없다).
+  // 그래서 돌아와서 화면을 처음 누를 때 다시 전체화면으로 (브라우저는 사람이 누른 순간에만 전체화면을 허락한다)
+  function pickFile() {
+    const doc = box.current!.ownerDocument;
+    if (doc.fullscreenElement === doc.documentElement) {
+      const back = () => {
+        if (!doc.fullscreenElement) doc.documentElement.requestFullscreen?.().catch(() => {});
+      };
+      doc.addEventListener("pointerup", back, { once: true });
+    }
+    filePicker.current?.click();
+  }
 
   // 휴대폰에서 뒤로가기로 자판만 닫으면 입력칸이 선택된 채(커서 깜빡임) 남아서, 자판이 내려가면 선택도 푼다.
   // 자판이 내려가면 보이는 화면 높이가 확 늘어나는 걸로 안다 (자판 위 추천 단어 줄이 생기고 없어지는 정도는 무시)
@@ -421,7 +454,7 @@ export function ChatInput({
           <button
             type="button"
             onPointerDown={(e) => e.preventDefault()}
-            onClick={() => filePicker.current?.click()}
+            onClick={pickFile}
             aria-label="사진 올리기"
             data-tip="사진 올리기"
             className="absolute bottom-[9px] left-[9px] flex size-7.5 items-center justify-center rounded-full bg-zinc-700 hover:bg-zinc-600"
