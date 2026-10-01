@@ -19,20 +19,27 @@ const SCREEN_SHARE_SOURCE = 3; // LiveKit 권한 목록에서 화면공유를 �
 const text = (s: string) => new TextEncoder().encode(s);
 
 // 라디오 DJ처럼: 누가 마이크로 말하거나 "/글" 음성이 나오는 동안 화면공유 소리(배경음악 등)를
-// DUCK 까지 0.25초에 걸쳐 낮추고, 말이 끝나고 0.7초 뒤에 1초에 걸쳐 되돌린다.
+// DUCK(마이크) / DUCK_TTS("/글" 음성, 휴대폰에서도 또렷하게 더 낮춤) 까지 0.25초에 걸쳐 낮추고, 말이 끝나고 0.7초 뒤에 1초에 걸쳐 되돌린다.
 // 보는 사람 브라우저가 각자 크기만 바꿔서 서버 부담은 없다. '말하는 중'은 방 서버가 마이크 소리로만 판단한다 (공유 소리는 안 셈).
 // 방 서버의 '말하는 중' 알림은 0.5초쯤 늦어서, "/글" 음성은 음성 참여자가 읽기 전에 미리 켜 두는 VOICE_ON 으로 먼저 줄인다
 // ponytail: 아이폰 브라우저는 코드로 소리 크기를 못 바꿔서 거기선 안 줄어든다. 공유하는 사람 PC에서 직접 듣는 노래도 그대로
 const DUCK = 0.3;
+const DUCK_TTS = 0.15;
 export function useDuckShareAudio() {
   const room = useRoomContext();
   useEffect(() => {
     let vol = 1;
     let lastTalk = 0;
+    let floor = DUCK;
     const iv = setInterval(() => {
       const now = Date.now();
-      if (room.activeSpeakers.length || room.remoteParticipants.get(VOICE_BOT)?.attributes[VOICE_ON]) lastTalk = now;
-      const next = now - lastTalk < 700 ? Math.max(DUCK, vol - 0.14) : Math.min(1, vol + 0.035);
+      const tts = !!room.remoteParticipants.get(VOICE_BOT)?.attributes[VOICE_ON];
+      if (tts || room.activeSpeakers.length) {
+        lastTalk = now;
+        floor = tts ? DUCK_TTS : DUCK;
+      }
+      const target = now - lastTalk < 700 ? floor : 1;
+      const next = vol > target ? Math.max(target, vol - 0.14) : Math.min(target, vol + 0.035); // 내릴 땐 빠르게, 올릴 땐 천천히
       if (next === vol) return;
       vol = next;
       room.remoteParticipants.forEach((p) => p.setVolume(vol, Track.Source.ScreenShareAudio));
