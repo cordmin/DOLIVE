@@ -193,6 +193,7 @@ export function MediaControls({ asked, requestShare }: { asked: boolean; request
                     contentHint: "detail",
                     video: { displaySurface: "monitor" }, // 고르는 창에서 '전체 화면' 칸이 먼저 열리게
                     selfBrowserSurface: "exclude", // 이 탭은 목록에서 뺀다 (화면 속 화면이 끝없이 비치는 것 방지)
+                    systemAudio: "include", // '전체 화면'에서 '시스템 오디오와 공유'를 늘 보여 준다 (켜짐이 기본)
                   },
                   { screenShareEncoding: QUALITY[quality].top.encoding, screenShareSimulcastLayers: [QUALITY[quality].low] },
                 ),

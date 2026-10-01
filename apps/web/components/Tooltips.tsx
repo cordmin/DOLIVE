@@ -17,10 +17,12 @@ export function Tooltips({ doc }: { doc?: Document }) {
     const d = doc ?? document;
     const over = (e: PointerEvent) => {
       if (e.pointerType !== "mouse") return;
-      // 펼친 고르는 칸(화질)의 항목 위에서는 안 띄운다 (목록이 맨 위에 그려져서 말풍선이 그 뒤에 숨는다)
+      // 펼친 고르는 칸(화질)의 목록 위에서는 안 띄운다 (목록이 맨 위에 그려져서 말풍선이 그 뒤에 숨고, 목록보다 넓어서 목록이 넓어진 것처럼 보인다).
+      // 항목 위는 option 으로, 항목 사이 틈·가장자리는 고르는 칸 자체로 잡히니 마우스가 정말 그 칸 안에 있을 때만 띄운다
       const el = (e.target as Element).closest?.("[data-tip]");
       if (!el || (e.target as Element).closest("option")) return setTip(null);
       const r = el.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return setTip(null);
       // 세로로 긴 것(채팅 폭 손잡이)은 마우스가 있는 높이에 띄운다
       const top = r.height > 100 ? e.clientY - 8 : r.top;
       const below = top < 48;

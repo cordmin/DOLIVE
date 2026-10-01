@@ -34,12 +34,13 @@ export default function Home() {
 
   // sessionStorage는 브라우저에만 있어서 화면이 뜬 뒤(effect)에 읽어야 서버 화면과 어긋나지 않는다
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setName(sessionStorage.getItem("name") ?? "");
+    // 닉네임은 다시 꺼내 쓰지 않는다 (로그인하면 도름스 닉네임, 로그아웃이면 빈칸. 예전에 쓴 닉네임이 남아 보이지 않게).
+    // sessionStorage "name" 은 입장할 때 채팅방(app/room)에 넘겨주는 용도로만 쓴다
     let photo: string | null = null;
     try {
       photo = localStorage.getItem("photo");
     } catch {}
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (photo) setCustom(photo);
     const saved = savedAvatar();
     setAvatar(saved === CUSTOM && !photo ? AVATARS[0] : saved);

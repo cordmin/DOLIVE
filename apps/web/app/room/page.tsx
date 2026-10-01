@@ -208,9 +208,9 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
     const box = grid.current!.getBoundingClientRect();
     handle.setPointerCapture(e.pointerId);
     let w = chatW;
-    // 채팅 칸은 300px ~ 800px (창이 좁으면 절반까지). 큰 모니터에서 공유 화면 자리를 뺏지 않게
+    // 채팅 칸은 300px ~ 600px (창이 좁으면 절반까지). 큰 모니터에서 공유 화면 자리를 뺏지 않게
     const move = (ev: PointerEvent) => {
-      w = Math.round(Math.min(Math.max(box.right - ev.clientX, 300), 800, box.width * 0.5));
+      w = Math.round(Math.min(Math.max(box.right - ev.clientX, 300), 600, box.width * 0.5));
       setChatW(w);
     };
     const up = () => {
@@ -304,7 +304,8 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
         </div>
       )}
       <header
-        className={`${hideOnLand} flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b border-zinc-800 px-3 md:border-b-0 text-sm whitespace-nowrap`}
+        // PC 는 아래로 펼치는 참여자 목록이 잘리지 않게 overflow 를 풀어 둔다 (휴대폰은 좁아서 옆으로 밀어 본다)
+        className={`${hideOnLand} flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b border-zinc-800 px-3 md:overflow-visible md:border-b-0 text-sm whitespace-nowrap`}
       >
         <b className="text-base">
           DO<span className="text-red-500">LIVE</span>
@@ -329,6 +330,17 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
             <path d="M5.2 7.2a.75.75 0 0 1 1.06 0L10 10.94l3.74-3.74a.75.75 0 1 1 1.06 1.06l-4.27 4.27a.75.75 0 0 1-1.06 0L5.2 8.26a.75.75 0 0 1 0-1.06Z" />
           </svg>
         </button>
+        {/* PC: 참여자 사진·이름을 한 줄로. 자리가 모자라면 뒤쪽은 안 보이고(다음 줄로 넘어가 가려짐), 마우스를 올리면 아래로 스르륵 펼쳐 모두 보여 준다.
+            줄 높이(40px)의 가운데가 맨 위 막대 가운데 = 로고 글자 가운데 (16px 로고 글자는 줄 가운데에 딱 그려진다. 재서 확인함) */}
+        <div className="group relative ml-6 hidden h-10 min-w-0 flex-1 md:block">
+          <div className="absolute inset-x-0 top-0 z-30 h-10 max-h-[60vh] overflow-hidden rounded-xl transition-[height,background-color,box-shadow] duration-300 ease-out [interpolate-size:allow-keywords] group-hover:h-auto group-hover:-inset-x-2 group-hover:overflow-y-auto group-hover:bg-zinc-900 group-hover:px-2 group-hover:pb-2 group-hover:shadow-xl group-hover:shadow-black/50 group-hover:ring-1 group-hover:ring-zinc-700">
+            <div className="flex flex-wrap gap-x-2 gap-y-1">
+              {participants.map((p) => (
+                <PersonRow key={p.identity} p={p} isAdmin={isAdmin} />
+              ))}
+            </div>
+          </div>
+        </div>
         <div className="ml-auto flex items-center gap-2">
           {/* 서버 PC에서 들어온 사람도, 운영진 목록(서버 켜기 창 톱니바퀴)에 있는 도름스 회원도 "관리자" (입장 화면 오른쪽 위 표시와 같은 모양) */}
           {isAdmin && (
@@ -343,11 +355,12 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
         </div>
       </header>
 
-      {/* PC는 2x2 칸(grid). 오른쪽 채팅 칸은 기본 500px, 창이 좁으면 절반까지만 (끌어서 바꾼 폭이 있으면 그 폭). 휴대폰은 위에서 아래로 쌓고, 안쪽 칸(md:contents)이 참여자 목록을 띄울 자리가 된다.
+      {/* PC는 2x2 칸(grid): 왼쪽은 위아래 두 칸을 다 쓰는 공유 화면, 오른쪽은 채팅 내용 + 입력칸. 오른쪽 채팅 칸은 기본 500px, 창이 좁으면 절반까지만 (끌어서 바꾼 폭이 있으면 그 폭).
+          휴대폰은 위에서 아래로 쌓고, 안쪽 칸(md:contents)이 참여자 목록을 띄울 자리가 된다. (PC 참여자 목록은 맨 위 줄에)
           휴대폰 가로 + 화면공유는 공유 화면만 꽉 차게 (나머지는 hideOnLand 로 숨김) */}
       <div
         ref={grid}
-        style={chatW ? { gridTemplateColumns: `minmax(0,1fr) min(${chatW}px,800px,50%)` } : undefined}
+        style={chatW ? { gridTemplateColumns: `minmax(0,1fr) min(${chatW}px,600px,50%)` } : undefined}
         className={`flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[minmax(0,1fr)_min(500px,50%)] md:grid-rows-[minmax(0,1fr)_auto] ${screen ? "phone-land:flex!" : ""}`}
       >
         {/* PC: 채팅 카드 왼쪽 가장자리. 끌면 폭이 바뀌고, 두 번 누르면 기본 폭으로. 평소엔 안 보이고 마우스를 올리면 보라색.
@@ -361,10 +374,10 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:contents">
           {/* 휴대폰: 목록이 열려 있을 때 바깥을 누르면 닫힌다 */}
           {showPeople && <div onClick={() => setShowPeople(false)} className="fixed inset-0 z-20 md:hidden" />}
-          {/* 휴대폰: 배지 아래로 스르륵 내려오는 둥근 카드 (가로 가운데를 배지와 맞춤). PC: 아래쪽 참여자 한 줄 */}
+          {/* 휴대폰: 배지 아래로 스르륵 내려오는 둥근 카드 (가로 가운데를 배지와 맞춤). PC 는 맨 위 줄에 따로 있어서 숨긴다 */}
           <aside
             style={{ left: peopleAt.left, top: peopleAt.top }}
-            className={`fixed z-30 flex max-h-[60dvh] w-max max-w-[80vw] origin-top -translate-x-1/2 flex-col gap-1 overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-2 shadow-xl shadow-black/50 transition-[opacity,translate,scale,visibility] duration-200 ease-out ${showPeople ? "" : "pointer-events-none invisible -translate-y-2 scale-95 opacity-0"} md:visible md:pointer-events-auto md:static md:col-start-1 md:row-start-2 md:max-h-none md:w-auto md:max-w-none md:translate-none md:scale-100 md:flex-row md:gap-1 md:overflow-x-auto md:overflow-y-hidden md:rounded-none md:border-0 md:px-3 md:z-auto md:opacity-100 md:shadow-none md:transition-none ${hideOnLand}`}
+            className={`fixed z-30 flex max-h-[60dvh] w-max max-w-[80vw] origin-top -translate-x-1/2 flex-col gap-1 overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-2 shadow-xl shadow-black/50 transition-[opacity,translate,scale,visibility] duration-200 ease-out ${showPeople ? "" : "pointer-events-none invisible -translate-y-2 scale-95 opacity-0"} md:hidden ${hideOnLand}`}
           >
             {participants.map((p) => (
               <PersonRow key={p.identity} p={p} isAdmin={isAdmin} />
@@ -384,9 +397,8 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
           send={sendChat}
           sendImage={sendImage}
           react={react}
-          // PC: 아래 줄 높이는 왼쪽 참여자 줄이 정해서 입력줄보다 높다. 남는 높이를 위아래 똑같이 나눠 입력줄을 가운데에 (flex-wrap 이어야 content-center 가 먹는다).
-          // 경계선이 없어서 "맨 아래로" 버튼은 이 칸 위쪽 끝을 사이에 두고 보내기 버튼과 대칭 = (칸 높이 - 버튼 48px) / 2
-          className={`md:col-start-2 md:row-start-2 md:mr-2 md:mb-2 md:flex-wrap md:content-center md:rounded-b-xl md:border md:border-t-0 md:bg-zinc-800/40 md:pb-3 md:[--down-gap:calc(50%-24px)] ${hideOnLand}`}
+          // PC: 경계선이 없어서 "맨 아래로" 버튼은 이 칸 위쪽 끝을 사이에 두고 보내기 버튼과 대칭 = (칸 높이 - 버튼 48px) / 2
+          className={`md:col-start-2 md:row-start-2 md:mr-2 md:mb-2 md:rounded-b-xl md:border md:border-t-0 md:bg-zinc-800/40 md:pb-3 md:[--down-gap:calc(50%-24px)] ${hideOnLand}`}
         />
       </div>
 
@@ -437,13 +449,20 @@ function PersonRow({ p, isAdmin }: { p: Participant; isAdmin: boolean }) {
   }
 
   return (
-    // 사진 + 이름 (PC 아래쪽 한 줄은 사진 밑에 이름). 마이크는 사진 구석 점, 말하는 중은 초록 테두리.
-    // 나는 사진 아래에 걸친 ME (이름 옆에 붙이면 이름이 잘려서)
-    <div className="flex items-center gap-2 rounded p-1 hover:bg-zinc-800 md:w-[4.5rem] md:shrink-0 md:flex-col md:gap-2">
+    // 사진 + 이름. 마이크는 사진 구석 점, 말하는 중은 초록 테두리.
+    // PC 맨 위 줄: 접혀 있으면 32px 사진 옆에 이름(높이 40px), 줄에 마우스를 올리면(group-hover) 47px 사진 아래 이름으로 커진다 (사진은 스르륵)
+    // 휴대폰 목록: 나는 사진 아래에 걸친 ME (이름 옆에 붙이면 이름이 잘려서). PC 는 사진을 가려서 ME 를 안 보인다
+    <div className="flex items-center gap-2 rounded p-1 hover:bg-zinc-800 md:shrink-0 md:pr-2 md:group-hover:w-[4.5rem] md:group-hover:flex-col md:group-hover:pr-1">
       <div className="relative shrink-0">
-        <Avatar id={useAvatarOf(p)} talking={speaking && !muted} mic={!muted} px={47} className="w-10 md:w-[47px]" />
+        <Avatar
+          id={useAvatarOf(p)}
+          talking={speaking && !muted}
+          mic={!muted}
+          px={47}
+          className="w-10 md:w-8 md:transition-[width] md:duration-300 md:ease-out md:group-hover:w-[47px]"
+        />
         {p.isLocal && (
-          <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded-full bg-indigo-600 px-1 text-[10px] leading-[14px] font-bold ring-2 ring-zinc-900">
+          <span className="absolute -bottom-1.5 left-1/2 md:hidden -translate-x-1/2 rounded-full bg-indigo-600 px-1 text-[10px] leading-[14px] font-bold ring-2 ring-zinc-900">
             ME
           </span>
         )}
@@ -457,7 +476,7 @@ function PersonRow({ p, isAdmin }: { p: Participant; isAdmin: boolean }) {
           />
         )}
       </div>
-      <div className="min-w-0 truncate text-sm md:w-full md:text-center">{p.name}</div>
+      <div className="min-w-0 truncate text-sm md:max-w-32 md:group-hover:w-full md:group-hover:text-center">{p.name}</div>
     </div>
   );
 }

@@ -24,7 +24,8 @@ export function useAvatarOf(p: Participant) {
 export function Stage({ participants, screen, floats }: { participants: Participant[]; screen?: TrackReference; floats: Float[] }) {
   return (
     <div
-      className={`relative flex min-h-0 flex-col gap-2 p-2 md:col-start-1 md:row-start-1 ${screen ? "phone-land:flex-1 phone-land:p-0" : "shrink-0"}`}
+      // PC: 위아래 두 칸을 다 써서 바닥이 오른쪽 채팅 카드 바닥과 맞는다. 공유 화면이 이 칸 크기(cqw·cqh)에 맞춰 커지게 크기를 알려 준다
+      className={`relative flex min-h-0 flex-col gap-2 p-2 md:col-start-1 md:row-span-2 md:row-start-1 md:[container-type:size] ${screen ? "phone-land:flex-1 phone-land:p-0" : "shrink-0"}`}
     >
       {screen?.participant.isLocal ? (
         // 내가 공유 중이면 내 공유 화면은 보여 주지 않는다. 모니터를 공유할 때 이 창이 다시 찍혀서
@@ -36,14 +37,14 @@ export function Stage({ participants, screen, floats }: { participants: Particip
         <ScreenView screen={screen} floats={floats} />
       ) : (
         <>
-          {/* PC: 공유 화면이 들어올 자리를 같은 크기(16:9) 카드로 미리 잡아 두고 가운데에 안내 */}
-          <div className="hidden aspect-video w-full items-center justify-center gap-3 rounded-xl border border-zinc-800 bg-zinc-800/40 text-2xl font-bold text-zinc-400 md:flex lg:mx-auto lg:max-w-[calc((100dvh-13rem)*16/9)]">
+          {/* PC: 공유 화면이 들어올 자리(왼쪽 칸 전체)를 카드로 미리 잡아 두고 가운데에 안내 */}
+          <div className="hidden min-h-0 w-full flex-1 items-center justify-center gap-3 rounded-xl border border-zinc-800 bg-zinc-800/40 text-2xl font-bold text-zinc-400 md:flex">
             <span className="size-3 animate-pulse rounded-full bg-red-500" />
             <span>
               <span className="text-red-500">LIVE</span> 방송 준비 중
             </span>
           </div>
-          {/* 휴대폰만 (PC는 아래쪽 참여자 줄에 사진이 이미 있어서 숨김). 한 줄, 손가락으로 밀어서 본다 (스크롤바 없음)
+          {/* 휴대폰만 (PC는 맨 위 참여자 줄에 사진이 이미 있어서 숨김). 한 줄, 손가락으로 밀어서 본다 (스크롤바 없음)
               p-0.5: 말할 때 생기는 초록 테두리(바깥쪽 2px)가 스크롤 칸 가장자리에서 잘리지 않게 */}
           <div className="grid auto-cols-[80px] grid-flow-col gap-2 overflow-x-auto p-0.5 [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden">
             {participants.map((p) => (
@@ -203,10 +204,11 @@ function ScreenView({ screen, floats }: { screen: TrackReference; floats: Float[
       onClick={() => {
         if (!swiped.current && document.documentElement.hasAttribute("data-phone-land")) toggleFull();
       }}
-      // PC: 공유된 화면 비율 그대로(위아래 검은 띠 없이). 높이는 위쪽 막대·아래 참여자 줄을 뺀 만큼까지
+      // PC: 공유된 화면 비율 그대로(검은 띠 없이) 왼쪽 칸 안에서 가장 크게, 가운데에. 보통 PC 화면은 옆으로 넓어서 높이가 칸 바닥(= 채팅 카드 바닥)까지 닿는다.
+      // 휴대폰 가로는 전처럼 꽉 채운다 (넓은 휴대폰은 md 도 걸려서 ! 로 이긴다)
       style={{ "--ratio": ratio } as React.CSSProperties}
       // 모서리는 채팅 카드와 같은 둥글기(rounded-xl). overflow-hidden: 영상 모서리도 같이 둥글게 잘리도록
-      className="relative aspect-video min-h-0 w-full touch-none overflow-hidden rounded-xl bg-black [&:fullscreen]:rounded-none lg:mx-auto lg:aspect-(--ratio) lg:max-w-[calc((100dvh-13rem)*var(--ratio))] phone-land:aspect-auto phone-land:flex-1 phone-land:rounded-none"
+      className="relative aspect-video min-h-0 w-full touch-none overflow-hidden rounded-xl bg-black [&:fullscreen]:rounded-none md:m-auto md:aspect-(--ratio) md:w-[min(100cqw,calc(100cqh*var(--ratio)))] phone-land:m-0! phone-land:aspect-auto! phone-land:w-full! phone-land:flex-1 phone-land:rounded-none"
     >
       <VideoTrack
         trackRef={screen}
