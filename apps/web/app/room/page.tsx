@@ -1405,18 +1405,18 @@ function ChatInput({
             }}
             maxLength={CHAT_MAX}
             placeholder="메시지 입력"
-            className="block max-h-32 w-full resize-none rounded-3xl bg-zinc-800 py-3 pr-14 pl-14 text-base leading-6 outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-inset"
+            className="block max-h-32 w-full resize-none rounded-3xl bg-zinc-800 py-3 pr-14 pl-12 text-base leading-6 outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-inset"
           />
-          {/* 입력칸 왼쪽 안쪽 + 버튼: 사진 파일 고르기 */}
+          {/* 입력칸 왼쪽 안쪽 + 버튼: 사진 파일 고르기. 동그라미는 30px, 입력칸(48px) 세로 가운데 */}
           <button
             type="button"
             onPointerDown={(e) => e.preventDefault()}
             onClick={() => filePicker.current?.click()}
             aria-label="사진 올리기"
             data-tip="사진 올리기"
-            className="absolute bottom-1 left-1 flex size-10 items-center justify-center rounded-full bg-zinc-700 hover:bg-zinc-600"
+            className="absolute bottom-[9px] left-[9px] flex size-7.5 items-center justify-center rounded-full bg-zinc-700 hover:bg-zinc-600"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden className="size-5">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden className="size-4">
               <path d="M12 5v14M5 12h14" />
             </svg>
           </button>
@@ -1464,9 +1464,10 @@ function ChatInput({
               aria-expanded={picking}
               aria-label="감정 스티커"
               data-tip="감정 스티커"
-              className={`pointer-events-auto flex size-10 items-center justify-center rounded-full hover:bg-zinc-600 ${picking ? "bg-zinc-600" : "bg-zinc-700"}`}
+              // 동그라미는 30px. 펼쳐지는 스티커(40px) 줄 가운데에 서고, 아래를 5px 띄워 입력칸 세로 가운데에 맞춘다
+              className={`pointer-events-auto mb-[5px] flex size-7.5 items-center justify-center rounded-full hover:bg-zinc-600 ${picking ? "bg-zinc-600" : "bg-zinc-700"}`}
             >
-              <Heart className="size-5 text-red-500" />
+              <Heart className="size-4 text-red-500" />
             </button>
           </div>
         </div>
