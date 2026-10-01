@@ -1,8 +1,7 @@
 import { AccessToken } from "livekit-server-sdk";
-import { isAdmin } from "@/lib/admin";
 import { keepImage } from "@/lib/chat";
 import { AVATARS, CUSTOM, ROOM, isAvatar } from "@/lib/dolive";
-import { MIC_ONLY } from "@/lib/share";
+import { MIC_ONLY, isAdmin } from "@/lib/server";
 
 const JPEG = "data:image/jpeg;base64,";
 

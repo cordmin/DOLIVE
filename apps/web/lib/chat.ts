@@ -1,5 +1,6 @@
-import { DataPacket_Kind, RoomServiceClient, TokenVerifier } from "livekit-server-sdk";
+import { DataPacket_Kind, TokenVerifier } from "livekit-server-sdk";
 import { CHAT_TOPIC, ROOM, type ChatMsg } from "@/lib/dolive";
+import { rooms } from "@/lib/server";
 
 // 서버가 켜진 뒤의 채팅 전부. 서버 메모리에만 두고 파일로는 저장하지 않아서, 서버를 끄면 사라진다.
 // (개발 중 코드를 고쳐 다시 읽혀도 안 사라지게 globalThis 에 둔다)
@@ -35,7 +36,6 @@ export async function whoSent(req: Request) {
 export async function post(msg: Omit<ChatMsg, "id" | "n" | "timestamp">, id = crypto.randomUUID()) {
   const m: ChatMsg = { ...msg, id, n: store.messages.length, timestamp: Date.now() };
   store.messages.push(m);
-  const rooms = new RoomServiceClient("http://localhost:7880", process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET);
   await rooms
     .sendData(ROOM, new TextEncoder().encode(JSON.stringify(m)), DataPacket_Kind.RELIABLE, { topic: CHAT_TOPIC })
     .catch(() => {}); // 못 보내도 기록엔 남아서, 들어올 때 다시 받는다

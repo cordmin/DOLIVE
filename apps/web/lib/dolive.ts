@@ -15,6 +15,9 @@ export function isPhone() {
   return short > 0 && short <= 500 && matchMedia("(pointer: coarse)").matches;
 }
 
+// 방 안에서 그 사람 사진: 사진 번호, 또는 고른 사진 주소 (/api/chat/<id>). 비어 있으면 첫 사진
+export const avatarOf = (a?: string) => a || AVATARS[0];
+
 // 브라우저에 저장된 사진이 목록에 없으면(예전 캐릭터 등) 첫 사진으로
 export const savedAvatar = () => {
   const id = sessionStorage.getItem("avatar");

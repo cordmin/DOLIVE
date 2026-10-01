@@ -1,0 +1,185 @@
+import { useDataChannel, useLocalParticipant, useLocalParticipantPermissions, useRoomContext } from "@livekit/components-react";
+import { ScreenSharePresets, RoomEvent, Track, type Participant, type RemoteParticipant, type RemoteTrackPublication } from "livekit-client";
+import { useEffect, useState } from "react";
+import { Switch } from "@/components/Switch";
+
+// 공유하는 사람이 고르는 화질. 공유는 고른 화질과 한 단계 낮은 화질을 같이 보내고,
+// 보는 사람 인터넷이 느려서 끊기면 서버가 그 사람에게만 낮은 쪽으로 자동으로 바꿔 보낸다.
+// 고르는 칸에 이 순서대로 나온다 (기본인 720p 가 위)
+const QUALITY = {
+  "720p": { top: ScreenSharePresets.h720fps30, low: ScreenSharePresets.h360fps15 },
+  "1080p": { top: ScreenSharePresets.h1080fps30, low: ScreenSharePresets.h720fps30 },
+};
+type Quality = keyof typeof QUALITY;
+
+// 화면공유 요청("request")과 거부("denied")를 주고받는 채널
+const SHARE_TOPIC = "dolive-share";
+const SCREEN_SHARE_SOURCE = 3; // LiveKit 권한 목록에서 화면공유를 뜻하는 번호 (TrackSource.SCREEN_SHARE)
+const text = (s: string) => new TextEncoder().encode(s);
+
+// 새 사람이 화면공유를 시작하면 내 공유는 잠시 멈춘다. 멈춘 동안은 아예 보내지 않아서 데이터가 들지 않는다.
+// 그 사람이 공유를 끝내고 보내는 사람이 아무도 없으면 내 공유를 다시 보낸다.
+// ponytail: 셋이 겹쳐 공유하다 마지막 사람이 끝내면 멈춰 있던 둘이 같이 다시 켜진다. 드문 일이라 그대로 둠.
+export function usePauseOldShare() {
+  const room = useRoomContext();
+  useEffect(() => {
+    const mine = () =>
+      [Track.Source.ScreenShare, Track.Source.ScreenShareAudio]
+        .map((s) => room.localParticipant.getTrackPublication(s))
+        .filter((p) => !!p);
+    const onPublished = (pub: RemoteTrackPublication) => {
+      if (pub.source === Track.Source.ScreenShare) mine().forEach((p) => p.mute());
+    };
+    const onUnpublished = (pub: RemoteTrackPublication) => {
+      if (pub.source !== Track.Source.ScreenShare) return;
+      const othersSending = [...room.remoteParticipants.values()].some((p) => {
+        const s = p.getTrackPublication(Track.Source.ScreenShare);
+        return s && s !== pub && !s.isMuted;
+      });
+      if (!othersSending) mine().forEach((p) => p.unmute());
+    };
+    room.on(RoomEvent.TrackPublished, onPublished).on(RoomEvent.TrackUnpublished, onUnpublished);
+    return () => {
+      room.off(RoomEvent.TrackPublished, onPublished).off(RoomEvent.TrackUnpublished, onUnpublished);
+    };
+  }, [room]);
+}
+
+// 화면공유 승인 받기: 방장이 아닌 사람이 요청하면 방장 화면에 [승인] [거부]가 뜬다.
+// waiting: 방장이 지금 답할 요청 (방을 나간 사람 요청은 건너뛴다), asked: 내가 요청하고 기다리는 중
+export function useShareRequests(isAdmin: boolean, participants: Participant[]) {
+  const room = useRoomContext();
+  const [requests, setRequests] = useState<{ identity: string; name: string }[]>([]); // 방장이 받은 요청
+  const [asked, setAsked] = useState(false); // 내가 요청하고 기다리는 중
+  const { send } = useDataChannel(SHARE_TOPIC, (msg) => {
+    const what = new TextDecoder().decode(msg.payload);
+    const from = msg.from;
+    if (what === "request" && isAdmin && from) {
+      setRequests((r) =>
+        r.some((x) => x.identity === from.identity) ? r : [...r, { identity: from.identity, name: from.name ?? "" }],
+      );
+    }
+    if (what === "denied") {
+      setAsked(false);
+      alert("방장이 화면공유를 거부했어요.");
+    }
+  });
+
+  function requestShare() {
+    const admins = participants.filter((p) => p.attributes?.admin === "1").map((p) => p.identity);
+    if (!admins.length) return alert("방장이 방에 없어서 화면공유를 요청할 수 없어요.");
+    send(text("request"), { reliable: true, destinationIdentities: admins });
+    setAsked(true);
+    setTimeout(() => setAsked(false), 60_000); // 방장이 답이 없으면 1분 뒤 다시 누를 수 있게
+  }
+
+  async function answer(req: { identity: string }, allow: boolean) {
+    setRequests((r) => r.filter((x) => x.identity !== req.identity));
+    if (!allow) return send(text("denied"), { reliable: true, destinationIdentities: [req.identity] });
+    const r = await fetch("/api/share", { method: "POST", body: JSON.stringify({ identity: req.identity, allow: true }) });
+    if (!r.ok) alert("승인하지 못했어요. 그 사람이 방을 나갔을 수 있어요.");
+  }
+
+  // 방장: 승인받은 사람이 공유를 끝내면 권한을 도로 거둔다 (다음에 또 하려면 다시 승인받기)
+  useEffect(() => {
+    if (!isAdmin) return;
+    const onUnpublished = (pub: RemoteTrackPublication, p: RemoteParticipant) => {
+      if (pub.source !== Track.Source.ScreenShare || p.attributes.admin === "1") return;
+      fetch("/api/share", { method: "POST", body: JSON.stringify({ identity: p.identity, allow: false }) });
+    };
+    room.on(RoomEvent.TrackUnpublished, onUnpublished);
+    return () => {
+      room.off(RoomEvent.TrackUnpublished, onUnpublished);
+    };
+  }, [room, isAdmin]);
+  const waiting = requests.find((r) => participants.some((p) => p.identity === r.identity));
+  return { waiting, answer, asked, requestShare };
+}
+
+// 위쪽 오른쪽: 화면공유(PC만) + 마이크 스위치
+// 화면공유 버튼: 방장은 바로 공유. 다른 사람은 [화면공유 -> 요청 중... -> (방장 승인) -> 지금 공유하기] 순서.
+// (승인이 나도 공유 고르는 창은 본인이 버튼을 눌러야 열린다 - 브라우저 규칙)
+export function MediaControls({ asked, requestShare }: { asked: boolean; requestShare: () => void }) {
+  const { localParticipant: me, isMicrophoneEnabled, isScreenShareEnabled } = useLocalParticipant();
+  const canShare = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
+  const sources = useLocalParticipantPermissions()?.canPublishSources ?? [];
+  const allowed = sources.length === 0 || sources.includes(SCREEN_SHARE_SOURCE); // 빈 목록 = 다 보낼 수 있음(방장)
+  const approved = allowed && sources.length > 0; // 방장이 아닌데 승인받음
+  const paused = me.getTrackPublication(Track.Source.ScreenShare)?.isMuted; // 다른 사람이 공유 중이라 멈춤
+  const [quality, setQuality] = useState<Quality>("720p");
+
+  async function run(action: () => Promise<unknown>, fail: string) {
+    try {
+      await action();
+    } catch (e) {
+      // 화면공유 창에서 '취소'를 누른 경우는 조용히 넘어간다
+      if ((e as Error).name !== "NotAllowedError" || fail !== "화면공유") alert(`${fail}를 켤 수 없어요.`);
+    }
+  }
+
+  return (
+    <>
+      {canShare && (allowed || isScreenShareEnabled) && (
+        // 공유 중에 바꾸려면 공유를 끝냈다 다시 해야 해서(승인받은 사람은 승인도 다시), 공유 중엔 잠근다.
+        // 말풍선은 감싼 칸에 단다 (잠긴 칸은 마우스를 받지 않아서 감싼 칸이 대신 받는다)
+        <span className="hidden sm:flex" data-tip={isScreenShareEnabled ? "공유를 멈춘 뒤 바꿀 수 있어요" : "화면공유 화질"}>
+          <select
+            className="quality-select flex items-center gap-1 rounded-full bg-zinc-800 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-60"
+            value={quality}
+            disabled={isScreenShareEnabled}
+            onChange={(e) => setQuality(e.target.value as Quality)}
+          >
+            {Object.keys(QUALITY).map((q) => (
+              <option key={q}>{q}</option>
+            ))}
+          </select>
+        </span>
+      )}
+      {canShare && (
+        <button
+          // 휴대폰은 화면공유를 못 하고 자리도 좁아서 숨긴다
+          className={`hidden rounded-full px-3 py-1.5 disabled:opacity-60 sm:block ${
+            isScreenShareEnabled ? "bg-indigo-600" : approved ? "bg-green-600 hover:bg-green-500" : "bg-zinc-800 hover:bg-zinc-700"
+          }`}
+          disabled={!isScreenShareEnabled && !allowed && asked}
+          onClick={() =>
+            !isScreenShareEnabled && !allowed
+              ? requestShare()
+              : run(
+              () =>
+                me.setScreenShareEnabled(
+                  !isScreenShareEnabled,
+                  {
+                    audio: {
+                      autoGainControl: false,
+                      echoCancellation: false,
+                      noiseSuppression: false,
+                    },
+                    resolution: QUALITY[quality].top.resolution,
+                    contentHint: "detail",
+                    video: { displaySurface: "monitor" }, // 고르는 창에서 '전체 화면' 칸이 먼저 열리게
+                    selfBrowserSurface: "exclude", // 이 탭은 목록에서 뺀다 (화면 속 화면이 끝없이 비치는 것 방지)
+                  },
+                  { screenShareEncoding: QUALITY[quality].top.encoding, screenShareSimulcastLayers: [QUALITY[quality].low] },
+                ),
+              "화면공유",
+            )
+          }
+        >
+          {isScreenShareEnabled
+            ? paused
+              ? "공유 중지 (잠시 멈춤)"
+              : "공유 중지"
+            : allowed
+              ? approved
+                ? "지금 공유하기"
+                : "화면공유"
+              : asked
+                ? "요청 중..."
+                : "화면공유"}
+        </button>
+      )}
+      <Switch label="마이크" on={isMicrophoneEnabled} onChange={(on) => run(() => me.setMicrophoneEnabled(on), "마이크")} />
+    </>
+  );
+}

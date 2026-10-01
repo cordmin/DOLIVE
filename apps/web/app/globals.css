@@ -17,7 +17,7 @@
   }
 }
 
-/* 하트는 공유 화면 맨 아래에서 위로 올라가고, ㅋ·헐은 맨 위에서 아래로 내려오며 사라지기 (room/page.tsx 의 Floats) */
+/* 하트는 공유 화면 맨 아래에서 위로 올라가고, ㅋ·헐은 맨 위에서 아래로 내려오며 사라지기 (room/reactions.tsx 의 Floats) */
 @keyframes float-up {
   70% {
     opacity: 1;
