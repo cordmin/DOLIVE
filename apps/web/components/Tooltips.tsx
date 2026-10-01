@@ -17,8 +17,9 @@ export function Tooltips({ doc }: { doc?: Document }) {
     const d = doc ?? document;
     const over = (e: PointerEvent) => {
       if (e.pointerType !== "mouse") return;
+      // 펼친 고르는 칸(화질)의 항목 위에서는 안 띄운다 (목록이 맨 위에 그려져서 말풍선이 그 뒤에 숨는다)
       const el = (e.target as Element).closest?.("[data-tip]");
-      if (!el) return setTip(null);
+      if (!el || (e.target as Element).closest("option")) return setTip(null);
       const r = el.getBoundingClientRect();
       // 세로로 긴 것(채팅 폭 손잡이)은 마우스가 있는 높이에 띄운다
       const top = r.height > 100 ? e.clientY - 8 : r.top;

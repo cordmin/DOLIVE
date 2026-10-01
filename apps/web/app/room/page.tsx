@@ -46,9 +46,10 @@ const ROOM_OPTIONS: RoomOptions = {
 
 // 공유하는 사람이 고르는 화질. 공유는 고른 화질과 한 단계 낮은 화질을 같이 보내고,
 // 보는 사람 인터넷이 느려서 끊기면 서버가 그 사람에게만 낮은 쪽으로 자동으로 바꿔 보낸다.
+// 고르는 칸에 이 순서대로 나온다 (기본인 720p 가 위)
 const QUALITY = {
-  "1080p": { top: ScreenSharePresets.h1080fps30, low: ScreenSharePresets.h720fps30 },
   "720p": { top: ScreenSharePresets.h720fps30, low: ScreenSharePresets.h360fps15 },
+  "1080p": { top: ScreenSharePresets.h1080fps30, low: ScreenSharePresets.h720fps30 },
 };
 type Quality = keyof typeof QUALITY;
 
@@ -133,13 +134,44 @@ function useMessages(token: string) {
     add([await r.json()]);
   }
   const send = (message: string) => post(JSON.stringify({ message }), "application/json").catch(() => alert("메시지를 보내지 못했어요."));
-  function sendImage(file: File) {
+  async function sendImage(file: File) {
     if (!IMAGE_TYPES.includes(file.type)) return alert("PNG, JPG, GIF, WEBP 사진만 보낼 수 있어요.");
-    if (file.size > IMAGE_MAX) return alert("10MB보다 큰 사진은 보낼 수 없어요.");
-    post(file, file.type).catch(() => alert("사진을 보내지 못했어요."));
+    const img = await shrink(file);
+    if (img.size > IMAGE_MAX) return alert("10MB보다 큰 사진은 보낼 수 없어요.");
+    post(img, img.type).catch(() => alert("사진을 보내지 못했어요."));
   }
 
   return { messages, send, sendImage };
+}
+
+// 사진은 보내기 전에 이 브라우저에서 줄인다 (긴 쪽 1600px, webp. webp 를 못 만드는 브라우저는 jpg).
+// 방 사람 모두가 서버에서 각자 받아 가서, 줄인 만큼 서버 인터넷이 덜 든다.
+// 움직이는 GIF는 멈춘 그림이 되면 안 돼서 그대로. 줄여도 더 크면(이미 작은 사진) 원본 그대로
+const SHRINK_PX = 1600;
+async function shrink(file: File): Promise<Blob> {
+  if (file.type === "image/gif") return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, SHRINK_PX / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(bmp.width * scale);
+    c.height = Math.round(bmp.height * scale);
+    const ctx = c.getContext("2d")!;
+    ctx.drawImage(bmp, 0, 0, c.width, c.height);
+    bmp.close();
+    const blob = (type: string) => new Promise<Blob | null>((r) => c.toBlob(r, type, 0.85));
+    let out = await blob("image/webp");
+    if (out?.type !== "image/webp") {
+      // jpg 는 투명한 곳이 검게 나와서 흰 바탕을 깐다
+      ctx.globalCompositeOperation = "destination-over";
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, c.width, c.height);
+      out = await blob("image/jpeg");
+    }
+    return out && out.size < file.size ? out : file;
+  } catch {
+    return file; // 브라우저가 못 여는 사진이면 원본 그대로 (서버가 종류를 다시 확인한다)
+  }
 }
 
 // 새 사람이 화면공유를 시작하면 내 공유는 잠시 멈춘다. 멈춘 동안은 아예 보내지 않아서 데이터가 들지 않는다.
@@ -1186,10 +1218,11 @@ function ChatLog({ messages, className }: { messages: Msg[]; className: string }
               {first && !mine && <span className="mb-1 text-xs text-zinc-400">{m.name}</span>}
               <div className={`flex items-end gap-1.5 ${mine ? "flex-row-reverse" : ""}`}>
                 {m.image ? (
-                  // 사진 폭은 늘 240px (옆에 시간이 붙어도 사진이 줄지 않게 shrink-0). 아주 긴 사진은 위아래를 잘라 보여 준다
+                  // 사진 폭은 늘 240px (옆에 시간이 붙어도 사진이 줄지 않게 shrink-0). 아주 긴 사진은 위아래를 잘라 보여 준다.
+                  // loading="lazy": 화면 가까이 왔을 때만 받는다 (늦게 들어온 사람이 지난 사진을 한꺼번에 다 받지 않게)
                   <button type="button" onClick={() => openImage(m)} className="shrink-0 cursor-zoom-in">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={m.image} alt="보낸 사진" onLoad={toBottom} className="max-h-72 w-60 rounded-2xl bg-zinc-800 object-cover" />
+                    <img src={m.image} alt="보낸 사진" loading="lazy" onLoad={toBottom} className="max-h-72 w-60 rounded-2xl bg-zinc-800 object-cover" />
                   </button>
                 ) : (
                   <p
@@ -1250,7 +1283,7 @@ function ChatLog({ messages, className }: { messages: Msg[]; className: string }
 
 // 맨 아래 항상 보이는 입력칸. 보낸 뒤에도 입력칸에 그대로 머물러 휴대폰 자판이 닫히지 않는다.
 // 줄바꿈: PC는 Shift+Enter (Enter는 보내기), 휴대폰은 자판의 줄바꿈 키 (보내기는 비행기 버튼)
-// 사진을 복사해서 입력칸에 붙여 넣으면(Ctrl+V) 입력칸 위에 작게 올려 두고, 보내기(비행기·Enter)를 눌러야 보낸다
+// 사진을 복사해서 입력칸에 붙여 넣거나(Ctrl+V) 왼쪽 + 버튼으로 고르면 입력칸 위에 작게 올려 두고, 보내기(비행기·Enter)를 눌러야 보낸다
 function ChatInput({
   send,
   sendImage,
@@ -1270,6 +1303,11 @@ function ChatInput({
     if (pending) URL.revokeObjectURL(pending.url);
     setPending(null);
   }
+  function stage(file: File) {
+    if (pending) URL.revokeObjectURL(pending.url); // 다시 고르면 새 사진으로 바꾼다
+    setPending({ file, url: URL.createObjectURL(file) });
+  }
+  const filePicker = useRef<HTMLInputElement>(null);
 
   // 휴대폰에서 뒤로가기로 자판만 닫으면 입력칸이 선택된 채(커서 깜빡임) 남아서, 자판이 내려가면 선택도 푼다.
   // 자판이 내려가면 보이는 화면 높이가 확 늘어나는 걸로 안다 (자판 위 추천 단어 줄이 생기고 없어지는 정도는 무시)
@@ -1356,8 +1394,7 @@ function ChatInput({
               const file = [...e.clipboardData.files].find((f) => f.type.startsWith("image/"));
               if (!file) return; // 사진이 아니면 평소처럼 글자 붙여넣기
               e.preventDefault();
-              if (pending) URL.revokeObjectURL(pending.url); // 다시 붙이면 새 사진으로 바꾼다
-              setPending({ file, url: URL.createObjectURL(file) });
+              stage(file);
             }}
             onKeyDown={(e) => {
               // 한글을 조합하는 중에 누른 Enter는 건너뛴다 (안 그러면 마지막 글자가 한 번 더 보내진다)
@@ -1368,7 +1405,31 @@ function ChatInput({
             }}
             maxLength={CHAT_MAX}
             placeholder="메시지 입력"
-            className="block max-h-32 w-full resize-none rounded-3xl bg-zinc-800 py-3 pr-14 pl-5 text-base leading-6 outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-inset"
+            className="block max-h-32 w-full resize-none rounded-3xl bg-zinc-800 py-3 pr-14 pl-14 text-base leading-6 outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-inset"
+          />
+          {/* 입력칸 왼쪽 안쪽 + 버튼: 사진 파일 고르기 */}
+          <button
+            type="button"
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => filePicker.current?.click()}
+            aria-label="사진 올리기"
+            data-tip="사진 올리기"
+            className="absolute bottom-1 left-1 flex size-10 items-center justify-center rounded-full bg-zinc-700 hover:bg-zinc-600"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden className="size-5">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+          <input
+            ref={filePicker}
+            type="file"
+            accept={IMAGE_TYPES.join(",")}
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = ""; // 같은 사진을 다시 골라도 알 수 있게
+              if (file) stage(file);
+            }}
           />
           {/* 입력칸 오른쪽 안쪽 하트 버튼. 누르면 헐·ㅋ·하트가 위로 하나씩 펼쳐진다 (위에서부터 헐, ㅋ, 하트) */}
           <div ref={picker} className="pointer-events-none absolute right-1 bottom-1 flex flex-col items-center gap-2">
@@ -1403,7 +1464,7 @@ function ChatInput({
               aria-expanded={picking}
               aria-label="감정 스티커"
               data-tip="감정 스티커"
-              className={`pointer-events-auto flex size-10 items-center justify-center rounded-full hover:bg-zinc-700 ${picking ? "bg-zinc-700" : ""}`}
+              className={`pointer-events-auto flex size-10 items-center justify-center rounded-full hover:bg-zinc-600 ${picking ? "bg-zinc-600" : "bg-zinc-700"}`}
             >
               <Heart className="size-5 text-red-500" />
             </button>
