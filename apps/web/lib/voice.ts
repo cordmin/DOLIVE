@@ -1,11 +1,11 @@
 import path from "node:path";
 import { AudioFrame, AudioSource, LocalAudioTrack, Room, RoomEvent, TrackPublishOptions, TrackSource } from "@livekit/rtc-node";
 import { AccessToken } from "livekit-server-sdk";
-import { ROOM, VOICE_BOT, VOICE_FROM, VOICE_ON } from "@/lib/dolive";
+import { ROOM, VOICE_BOT, VOICE_ON } from "@/lib/dolive";
 import { loadTextToSpeech, loadVoiceStyle } from "@/lib/supertonic";
 
 // "/글" 음성: 서버가 Supertonic 3(F2 목소리)으로 읽고, 방에 "음성"이라는 참여자로 들어가 마이크처럼 흘려보낸다.
-// 소리는 만들자마자 보내고 어디에도 저장하지 않는다. 보낸 사람 화면은 그 소리를 끈다 (VOICE_FROM, app/room/page.tsx).
+// 소리는 만들자마자 보내고 어디에도 저장하지 않는다. 보낸 사람을 포함해 모두가 바로 듣는다.
 // 다시 듣기(말풍선 스피커)는 누를 때 다시 읽어서 누른 사람에게만 WAV 로 준다 (replay, api/voice/[id]).
 // 모델(400MB)은 깃에 없어서 models/supertonic 에 직접 받아 둔다:
 //   https://huggingface.co/supertone-oss-archive/supertonic-3 의 onnx 폴더 파일 전부 + voice_styles/F2.json
@@ -90,22 +90,21 @@ function join(sampleRate: number) {
   }));
 }
 
-// 한 줄로 서서 차례대로 말한다 (두 사람이 같이 보내도 소리가 겹치지 않게). from: 보낸 사람 (그 사람한테는 안 들리게)
-// 빨리 들리게: 누구 글인지는 소리를 만들기 전에 먼저 알려서 기다리는 시간이 만드는 시간과 겹치게 하고,
+// 한 줄로 서서 차례대로 말한다 (두 사람이 같이 보내도 소리가 겹치지 않게).
+// 빨리 들리게: 읽는다는 신호(VOICE_ON)는 소리를 만들기 전에 먼저 보내서 배경음악 줄이기가 만드는 시간과 겹치게 하고,
 // 문장이 여럿이면 첫 문장을 흘려보내는 동안 다음 문장을 만든다
-export function say(text: string, from: string) {
+export function say(text: string) {
   const turn = voice.line.then(async () => {
     const { tts } = await voice.tts;
     const rate = tts.sampleRate;
     const fresh = !voice.room;
     const { room, source } = await join(rate);
     const me = room.localParticipant!;
-    // 첫 소리 전에 이만큼은 지나야 한다. 방 사람들 화면이 '누구 글인지' 받아서 보낸 사람은 소리를 끌 틈.
-    // 방에 막 들어왔으면 사람들이 새 소리를 받기 시작할 틈까지. 같은 사람이 이어서 보내면 기다릴 것 없음
-    // ponytail: 0.3초 / 1초는 어림값. 보낸 사람에게 첫 마디가 새거나 남들에게 첫 마디가 잘리면 늘리기
-    const ready = Date.now() + (fresh ? 1000 : me.attributes[VOICE_FROM] === from ? 0 : 300);
+    // 방에 막 들어왔으면 사람들이 새 소리를 받기 시작할 때까지 첫 소리를 기다린다
+    // ponytail: 1초는 어림값. 서버를 켜고 첫 음성의 첫 마디가 잘리면 늘리기
+    const ready = Date.now() + (fresh ? 1000 : 0);
     // VOICE_ON: 이제부터 읽는다고 알린다. 소리를 만드는 동안 방 사람들 화면이 배경음악을 미리 줄여 둔다
-    await me.setAttributes({ [VOICE_FROM]: from, [VOICE_ON]: "1" });
+    await me.setAttributes({ [VOICE_ON]: "1" });
     try {
       const parts = text.match(/[^.!?。…]+[.!?。…]*\s*/g) ?? [text]; // 문장마다
       let next = synth(parts[0]);

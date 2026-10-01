@@ -41,10 +41,8 @@ export type ChatMsg = {
 export const CHAT_TOPIC = "dolive-chat";
 export const CHAT_MAX = 2000; // 글자 수
 export const TTS_MAX = 200; // "/" 로 읽어 주는 글은 이 글자 수까지 (30초쯤)
-// "/글" 을 읽어 주는 서버 참여자 (lib/voice.ts). 사람 이름표엔 늘 # 이 있어서 겹치지 않는다.
-// 지금 누구 글을 읽는지 이 참여자의 속성 VOICE_FROM 에 적어 두고, 그 사람 화면에서만 소리를 끈다
+// "/글" 을 읽어 주는 서버 참여자 (lib/voice.ts). 사람 이름표엔 늘 # 이 있어서 겹치지 않는다
 export const VOICE_BOT = "dolive-voice";
-export const VOICE_FROM = "from";
 // 읽는 동안 "1". 화면공유 소리(배경음악)를 말이 나오기 전에 미리 줄이는 데 쓴다 (app/room/share.tsx)
 export const VOICE_ON = "on";
 

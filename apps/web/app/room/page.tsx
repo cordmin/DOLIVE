@@ -10,14 +10,14 @@ import {
   useIsMuted,
   useIsSpeaking,
 } from "@livekit/components-react";
-import { ConnectionError, ConnectionErrorReason, RoomEvent, Track, type Participant, type RoomOptions } from "livekit-client";
+import { ConnectionError, ConnectionErrorReason, Track, type Participant, type RoomOptions } from "livekit-client";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
 import { Switch } from "@/components/Switch";
 import { Tooltips } from "@/components/Tooltips";
-import { VOICE_BOT, VOICE_FROM, isPhone, savedAvatar } from "@/lib/dolive";
+import { VOICE_BOT, isPhone, savedAvatar } from "@/lib/dolive";
 import { ChatInput, ChatLog, useMessages } from "./chat";
 import { useReactions } from "./reactions";
 import { MediaControls, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
@@ -78,25 +78,6 @@ function usePhoneLandscape() {
       root.removeAttribute("data-phone-land");
     };
   }, []);
-}
-
-// "/글" 음성은 보낸 사람 자신에게는 안 들리게: 서버 참여자가 지금 읽는 글의 주인을 VOICE_FROM 에 적어 두면(lib/voice.ts),
-// 그게 나일 때만 그 참여자 소리를 안 받는다(서버가 나한테만 안 보냄). 다른 사람 글이면 다시 받는다.
-// (소리 크기를 0으로 줄이는 방법은 안 된다: 소리 칸이 화면에 붙기 전에 0으로 하면 livekit-client 가 0을 '값 없음'으로 보고 건너뛴다)
-function useMuteMyVoice() {
-  const room = useRoomContext();
-  useEffect(() => {
-    const apply = () => {
-      const bot = room.remoteParticipants.get(VOICE_BOT);
-      const mine = bot?.attributes[VOICE_FROM] === room.localParticipant.identity;
-      bot?.audioTrackPublications.forEach((p) => p.setEnabled(!mine));
-    };
-    apply();
-    room.on(RoomEvent.ParticipantAttributesChanged, apply).on(RoomEvent.TrackSubscribed, apply);
-    return () => {
-      room.off(RoomEvent.ParticipantAttributesChanged, apply).off(RoomEvent.TrackSubscribed, apply);
-    };
-  }, [room]);
 }
 
 export default function RoomPage() {
@@ -198,7 +179,6 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
     .at(-1);
   const room = useRoomContext();
   usePauseOldShare();
-  useMuteMyVoice();
   useDuckShareAudio();
 
   const { floats, react } = useReactions();

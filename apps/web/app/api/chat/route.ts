@@ -30,13 +30,13 @@ export async function POST(req: Request) {
   const text = typeof message === "string" ? message.trim() : "";
   if (!text || text.length > CHAT_MAX) return new Response(null, { status: 400 });
 
-  // "/글" 은 서버가 읽어서 보낸 사람 말고 방 모두에게 들려준다 (lib/voice.ts). 말풍선에는 "/" 를 뺀 글이 보인다
+  // "/글" 은 서버가 읽어서 방 모두에게 들려준다 (lib/voice.ts). 말풍선에는 "/" 를 뺀 글이 보인다
   const said = text.startsWith("/") ? text.slice(1).trim() : "";
   if (said) {
     if (said.length > TTS_MAX) return new Response(null, { status: 413 });
     if (Date.now() - (lastSpoke.get(who.identity) ?? 0) < 5000) return new Response(null, { status: 429 });
     lastSpoke.set(who.identity, Date.now());
-    say(said, who.identity).catch((e) => console.error("음성 실패", e));
+    say(said).catch((e) => console.error("음성 실패", e));
     return Response.json(await post({ ...who, message: said, tts: true }));
   }
   return Response.json(await post({ ...who, message: text }));
