@@ -2,7 +2,7 @@ import { useDataChannel, useLocalParticipant, useLocalParticipantPermissions, us
 import { ScreenSharePresets, RoomEvent, Track, type Participant, type RemoteParticipant, type RemoteTrackPublication } from "livekit-client";
 import { useEffect, useState } from "react";
 import { Switch } from "@/components/Switch";
-import { VOICE_BOT, VOICE_ON } from "@/lib/dolive";
+import { VOICE_BOT, VOICE_FROM, VOICE_ON } from "@/lib/dolive";
 
 // 공유하는 사람이 고르는 화질. 공유는 고른 화질과 한 단계 낮은 화질을 같이 보내고,
 // 보는 사람 인터넷이 느려서 끊기면 서버가 그 사람에게만 낮은 쪽으로 자동으로 바꿔 보낸다.
@@ -25,6 +25,9 @@ const text = (s: string) => new TextEncoder().encode(s);
 // ponytail: 아이폰 브라우저는 코드로 소리 크기를 못 바꿔서 거기선 안 줄어든다. 공유하는 사람 PC에서 직접 듣는 노래도 그대로
 const DUCK = 0.3;
 const DUCK_TTS = 0.15;
+// 내가 보낸 "/글" 음성은 내 기기에서 바로 안 나오고(VOICE_FROM, page.tsx), 방장 PC에서 나온 소리가 방장의 화면공유 소리에 담겨 되돌아와서 들린다.
+// 그 화면공유 소리를 15%로 줄이면 되돌아온 내 음성도 같이 작아져서, 내 음성일 땐 30%까지만 줄인다 (되돌아온 음성 2배)
+const DUCK_MY_TTS = 0.3;
 export function useDuckShareAudio() {
   const room = useRoomContext();
   useEffect(() => {
@@ -33,10 +36,11 @@ export function useDuckShareAudio() {
     let floor = DUCK;
     const iv = setInterval(() => {
       const now = Date.now();
-      const tts = !!room.remoteParticipants.get(VOICE_BOT)?.attributes[VOICE_ON];
+      const bot = room.remoteParticipants.get(VOICE_BOT);
+      const tts = !!bot?.attributes[VOICE_ON];
       if (tts || room.activeSpeakers.length) {
         lastTalk = now;
-        floor = tts ? DUCK_TTS : DUCK;
+        floor = !tts ? DUCK : bot!.attributes[VOICE_FROM] === room.localParticipant.identity ? DUCK_MY_TTS : DUCK_TTS;
       }
       const target = now - lastTalk < 700 ? floor : 1;
       const next = vol > target ? Math.max(target, vol - 0.14) : Math.min(target, vol + 0.035); // 내릴 땐 빠르게, 올릴 땐 천천히
