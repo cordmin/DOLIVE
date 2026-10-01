@@ -49,3 +49,12 @@ export const VOICE_ON = "on";
 // 채팅 사진: 보여 줘도 안전한 종류만 (SVG 같은 건 새 탭에서 열 때 이 사이트 안에서 코드가 돌 수 있어서 뺀다)
 export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 export const IMAGE_MAX = 10 * 1024 * 1024;
+
+// 서버의 도름스 확인에 막혔을 때(응답의 reason). 로그인이 필요하면 도름스 로그인 뒤 채팅방으로 돌아오고,
+// 허용이 끊겼거나 도름스 연결이 안 되면 안내 화면([다시 시도] 버튼이 있다, app/dorms-denied)으로 간다. 도름스 때문이 아니면 false
+export function leaveForDorms(reason: unknown) {
+  if (reason === "authentication_required") location.href = "/api/auth/dorms/start?next=/room";
+  else if (reason === "access_denied" || reason === "temporarily_unavailable") location.href = `/dorms-denied?reason=${reason}&next=/room`;
+  else return false;
+  return true;
+}

@@ -4,6 +4,7 @@
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 Add-Type -Namespace Win -Name Dwm -MemberDefinition @'
 [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wParam, string lParam);
 '@
 [Windows.Forms.Application]::EnableVisualStyles()
 
@@ -111,21 +112,152 @@ $line = New-Object Windows.Forms.Label
 $line.Location = "24,174"; $line.Size = "260,1"; $line.BackColor = Color "#3f3f46"
 $form.Controls.Add($line)
 
-# 한 줄에 이름(왼쪽, LIVE OFF 글자색) + [접속하기](그 주소를 연다) + 복사 아이콘(주소 복사, 누르면 체크 표시로). 세 줄 모두 같은 자리·같은 크기
-# 아이콘은 윈도우에 들어 있는 기호 글꼴(Segoe MDL2 Assets)의 복사·체크 모양
-function LinkRow($title, $url, $y) {
+# 운영진 = 채팅방에서 방장 권한(화면공유·마이크 끄기·화면공유 허락)을 받는 도름스 회원.
+# 톱니바퀴 창에서 닉네임을 한 줄 칸에 적고 [+](또는 Enter), 배지의 X 로 지운다. 바꿀 때마다 바로 파일에 저장하고,
+# 웹 서버(apps/web/lib/server.ts isStaff)가 요청마다 이 파일을 다시 읽어서 다음 입장부터 적용된다
+$staffFile = "$root\server\config\staff.txt"
+$staff = @{ names = New-Object Collections.Generic.List[string]; flow = $null; box = $null; wrap = $null }
+function Save-Staff { [IO.File]::WriteAllLines($staffFile, [string[]]$staff.names, (New-Object Text.UTF8Encoding $false)) }
+
+# 다 그린 뒤 한 번에 보여 준다 (직접 그리는 칸이 지웠다 그리는 순간이 보여 깜빡이지 않게. 윈도우가 숨겨 둔 설정이라 꺼내서 켠다)
+function NoFlicker($c) { [Windows.Forms.Control].GetProperty("DoubleBuffered", [Reflection.BindingFlags]"NonPublic, Instance").SetValue($c, $true) }
+
+# 둥근 사각형 모양 (r = 모서리 둥글기)
+function RoundRect($x, $y, $w, $h, $r) {
+    $d = $r * 2; $p = New-Object Drawing.Drawing2D.GraphicsPath
+    $p.AddArc($x, $y, $d, $d, 180, 90); $p.AddArc($x + $w - $d, $y, $d, $d, 270, 90)
+    $p.AddArc($x + $w - $d, $y + $h - $d, $d, $d, 0, 90); $p.AddArc($x, $y + $h - $d, $d, $d, 90, 90); $p.CloseFigure(); $p
+}
+
+# 닉네임 배지: 살짝 둥근 알약 모양 + 오른쪽 X (누르면 지운다). 마우스가 X 위에 있으면 X 를 밝게 (그때 손가락 커서)
+function Add-Badge($name) {
+    $font = Font 10
+    $tw = [Windows.Forms.TextRenderer]::MeasureText($name, $font, [Drawing.Size]::Empty, [Windows.Forms.TextFormatFlags]::NoPadding).Width
+    $b = New-Object Windows.Forms.Panel
+    $b.Size = "$($tw + 44),30"; $b.Margin = "0,0,8,8"; $b.Tag = $name; $b.Font = $font
+    NoFlicker $b
+    $b.Add_Paint({
+        param($s, $e)
+        $g = $e.Graphics; $g.SmoothingMode = "AntiAlias"; $g.Clear($s.Parent.BackColor)
+        $p = RoundRect 0 0 ($s.Width - 1) ($s.Height - 1) 9
+        $brush = New-Object Drawing.SolidBrush (Color "#3f3f46"); $g.FillPath($brush, $p); $brush.Dispose(); $p.Dispose()
+        $flags = [Windows.Forms.TextFormatFlags]"VerticalCenter, NoPadding"
+        [Windows.Forms.TextRenderer]::DrawText($g, $s.Tag, $s.Font, (New-Object Drawing.Rectangle 12, 0, ($s.Width - 40), $s.Height), (Color "#f4f4f5"), $flags)
+        $hot = $s.Cursor -eq [Windows.Forms.Cursors]::Hand  # X 위에 있는지는 커서 모양으로 기억한다 (MouseMove)
+        $xFont = New-Object Drawing.Font("Segoe MDL2 Assets", 7)
+        [Windows.Forms.TextRenderer]::DrawText($g, [string][char]0xE711, $xFont, (New-Object Drawing.Rectangle ($s.Width - 30), 0, 26, $s.Height),
+            $(if ($hot) { Color "#ffffff" } else { Color "#a1a1aa" }), [Windows.Forms.TextFormatFlags]"HorizontalCenter, VerticalCenter")
+        $xFont.Dispose()
+    })
+    # X 안팎을 넘나들 때만 다시 그린다 (움직일 때마다 그리면 깜빡인다)
+    $b.Add_MouseMove({
+        param($s, $e)
+        $hot = $e.X -ge $s.Width - 30
+        if ($hot -ne ($s.Cursor -eq [Windows.Forms.Cursors]::Hand)) {
+            $s.Cursor = $(if ($hot) { [Windows.Forms.Cursors]::Hand } else { [Windows.Forms.Cursors]::Default }); $s.Invalidate()
+        }
+    })
+    $b.Add_MouseLeave({ param($s) if ($s.Cursor -eq [Windows.Forms.Cursors]::Hand) { $s.Cursor = [Windows.Forms.Cursors]::Default; $s.Invalidate() } })
+    $b.Add_MouseClick({
+        param($s, $e)
+        if ($e.X -lt $s.Width - 30) { return }
+        [void]$staff.names.Remove($s.Tag); Save-Staff
+        $staff.flow.Controls.Remove($s); $s.Dispose()
+    })
+    $staff.flow.Controls.Add($b)
+}
+
+# 칸에 적은 닉네임 추가 (빈칸·이미 있는 이름은 넘어간다. 대소문자는 같은 이름으로 본다)
+function Add-Staff {
+    $name = $staff.box.Text.Trim()
+    $staff.box.Text = ""; [void]$staff.box.Focus()
+    if (-not $name -or ($staff.names | Where-Object { $_ -ieq $name })) { return }
+    $staff.names.Add($name); Save-Staff; Add-Badge $name
+}
+
+function Show-Staff {
+    $dlg = New-Object Windows.Forms.Form
+    $dlg.Text = "운영진"; $dlg.Icon = $form.Icon
+    $dlg.ClientSize = "308,300"; $dlg.FormBorderStyle = "FixedSingle"; $dlg.MaximizeBox = $false; $dlg.MinimizeBox = $false
+    $dlg.StartPosition = "CenterParent"; $dlg.BackColor = $form.BackColor
+    $dlg.Add_HandleCreated({ param($s) $on = 1; [void][Win.Dwm]::DwmSetWindowAttribute($s.Handle, 20, [ref]$on, 4) })
+
+    # 한 줄 입력칸: 둥근 테두리 칸 안에 테두리 없는 글자칸 (글자칸에 있으면 테두리가 보라색)
+    $wrap = New-Object Windows.Forms.Panel
+    $wrap.Location = "24,24"; $wrap.Size = "216,38"; NoFlicker $wrap
+    $wrap.Add_Paint({
+        param($s, $e)
+        $g = $e.Graphics; $g.SmoothingMode = "AntiAlias"; $g.Clear($s.Parent.BackColor)
+        $p = RoundRect 0 0 ($s.Width - 1) ($s.Height - 1) 9
+        $brush = New-Object Drawing.SolidBrush (Color "#27272a"); $g.FillPath($brush, $p); $brush.Dispose()
+        $pen = New-Object Drawing.Pen((Color $(if ($staff.box.Focused) { "#6366f1" } else { "#3f3f46" })), 1)
+        $g.DrawPath($pen, $p); $pen.Dispose(); $p.Dispose()
+    })
+    $box = New-Object Windows.Forms.TextBox
+    $box.BorderStyle = "None"; $box.Font = Font 11; $box.BackColor = Color "#27272a"; $box.ForeColor = Color "#f4f4f5"
+    $box.Location = "12,9"; $box.Width = 192; $box.MaxLength = 40
+    $box.Add_HandleCreated({ param($s) [void][Win.Dwm]::SendMessage($s.Handle, 0x1501, [IntPtr]1, "도름스 닉네임") })  # 빈칸일 때 흐린 안내 글
+    $box.Add_GotFocus({ $staff.wrap.Invalidate() }); $box.Add_LostFocus({ $staff.wrap.Invalidate() })
+    $box.Add_KeyDown({ param($s, $e) if ($e.KeyCode -eq "Enter") { $e.SuppressKeyPress = $true; Add-Staff } })
+    $wrap.Controls.Add($box)
+    $dlg.Controls.Add($wrap)
+    $staff.box = $box; $staff.wrap = $wrap
+
+    # 동그란 [+] 버튼
+    $plus = New-Object Windows.Forms.Button
+    $plus.Location = "248,24"; $plus.Size = "38,38"; $plus.FlatStyle = "Flat"; $plus.FlatAppearance.BorderSize = 0
+    $plus.Cursor = [Windows.Forms.Cursors]::Hand; NoFlicker $plus
+    $plus.Add_Paint({
+        param($s, $e)
+        $g = $e.Graphics; $g.SmoothingMode = "AntiAlias"; $g.Clear($s.Parent.BackColor)
+        $hot = $s.ClientRectangle.Contains($s.PointToClient([Windows.Forms.Cursor]::Position))
+        $brush = New-Object Drawing.SolidBrush (Color $(if ($hot) { "#6366f1" } else { "#4f46e5" }))
+        $g.FillEllipse($brush, 0, 0, $s.Width - 1, $s.Height - 1); $brush.Dispose()
+        $f = New-Object Drawing.Font("Segoe MDL2 Assets", 11)
+        [Windows.Forms.TextRenderer]::DrawText($g, [string][char]0xE710, $f, $s.ClientRectangle, [Drawing.Color]::White, [Windows.Forms.TextFormatFlags]"HorizontalCenter, VerticalCenter")
+        $f.Dispose()
+    })
+    $plus.Add_MouseEnter({ param($s) $s.Invalidate() }); $plus.Add_MouseLeave({ param($s) $s.Invalidate() })
+    $plus.Add_Click({ Add-Staff })
+    $tip.SetToolTip($plus, "추가")
+    $dlg.Controls.Add($plus)
+
+    # 배지들이 왼쪽부터 차례로 쌓이는 자리 (넘치면 아랫줄로, 더 넘치면 스크롤)
+    $flow = New-Object Windows.Forms.FlowLayoutPanel
+    $flow.Location = "24,78"; $flow.Size = "268,206"; $flow.AutoScroll = $true; $flow.BackColor = $dlg.BackColor
+    $dlg.Controls.Add($flow)
+    $staff.flow = $flow
+
+    $staff.names.Clear()
+    foreach ($n in (Get-Content $staffFile -Encoding UTF8 -ErrorAction SilentlyContinue)) {
+        $n = $n.Trim()
+        if ($n -and -not ($staff.names | Where-Object { $_ -ieq $n })) { $staff.names.Add($n); Add-Badge $n }
+    }
+    $dlg.Add_Shown({ [void]$staff.box.Focus() })
+    [void]$dlg.ShowDialog($form)
+    $dlg.Dispose()
+}
+
+# 한 줄에 이름(왼쪽, LIVE OFF 글자색) + [접속하기](그 주소를 연다) + 오른쪽 작은 아이콘 버튼. 두 줄 모두 같은 자리·같은 크기
+# 아이콘은 윈도우에 들어 있는 기호 글꼴(Segoe MDL2 Assets)의 모양: 관리자 줄은 톱니바퀴(운영진 창), 클라이언트 줄은 복사(누르면 체크 표시로)
+function LinkRow($title, $url, $y, [switch]$Staff) {
     [void](Label $title 24 ($y + 4) 11 "#a1a1aa")
     $go = Button "접속하기" 166 $y 80 30 9
     $go.BackColor = Color "#3f3f46"; $go.Tag = $url
     $go.Add_Click({ param($s) Start-Process $s.Tag })
-    $copy = Button ([string][char]0xE8C8) 254 $y 30 30 9
-    $copy.Font = New-Object Drawing.Font("Segoe MDL2 Assets", 11)
-    $copy.BackColor = Color "#3f3f46"; $copy.Tag = $url
-    $copy.Add_Click({ param($s) [Windows.Forms.Clipboard]::SetText($s.Tag); $s.Text = [string][char]0xE73E })
-    $tip.SetToolTip($copy, "주소 복사")
+    $icon = Button ([string][char]$(if ($Staff) { 0xE713 } else { 0xE8C8 })) 254 $y 30 30 9
+    $icon.Font = New-Object Drawing.Font("Segoe MDL2 Assets", 11)
+    $icon.BackColor = Color "#3f3f46"; $icon.Tag = $url
+    if ($Staff) {
+        $icon.Add_Click({ Show-Staff })
+        $tip.SetToolTip($icon, "운영진 (관리자 권한 주기)")
+    } else {
+        $icon.Add_Click({ param($s) [Windows.Forms.Clipboard]::SetText($s.Tag); $s.Text = [string][char]0xE73E })
+        $tip.SetToolTip($icon, "주소 복사")
+    }
 }
-# 관리자(방장) = 이 PC (입장 화면 오른쪽 위에 [전체기기 로그아웃]) / 클라이언트 = 친구들 주소 (부방장도 여기서 입장 화면 오른쪽 위 [관리자 로그인])
-LinkRow "관리자(방장)" $hostUrl 194
+# 관리자(방장) = 이 PC / 클라이언트 = 친구들 주소 (도름스 로그인해야 들어간다. 운영진은 톱니바퀴에서 정한다)
+LinkRow "관리자(방장)" $hostUrl 194 -Staff
 LinkRow "클라이언트" $friendsUrl 238
 
 # 켜고 끄는 일은 뒤에서 start_dolive.ps1 로 (그동안 창이 멈추지 않게)

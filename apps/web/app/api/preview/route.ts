@@ -1,5 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { dormsCheck } from "@/lib/server";
 
 // 채팅에 올라온 링크의 미리보기(제목·설명·그림 주소)를 서버가 대신 읽어 온다. (브라우저는 다른 사이트를 직접 못 읽어서)
 // 집 안 기기(공유기 관리 화면, 이 PC의 통화 서버 등)를 두드리는 데 쓰이지 않게 바깥 인터넷 주소만 읽는다.
@@ -9,6 +10,8 @@ type Preview = { title: string; description?: string; image?: string; site: stri
 const cache = new Map<string, Preview | null>();
 
 export async function GET(req: Request) {
+  const { deny } = await dormsCheck(req); // 도름스 회원만 (아무나 이 서버로 다른 사이트를 읽게 두지 않는다)
+  if (deny) return deny;
   const url = new URL(req.url).searchParams.get("url") ?? "";
   if (!cache.has(url)) {
     if (cache.size > 500) cache.clear();

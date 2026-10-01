@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "version": "0.2.0",
+  "targetVersion": "0.2.0",
+  "files": {
+    "app/api/auth/dorms/callback/route.ts": "f79ddfdc5a6785f5631fc1ac2cda2f54776c34290b3b8ab306a1235e6e9a858e",
+    "app/api/auth/dorms/logout/route.ts": "32803997032ccfef68b639c1a3a8b6a54e0efd40197c8fba4126870981ad9a07",
+    "app/api/auth/dorms/start/route.ts": "cd950d8806c0771f9f748d63d60934c1e8b365da196d835d8d9a34a8ecfbc13b",
+    "app/dorms-denied/page.tsx": "d5eab685d0cf42b516ffc8ce2786ab5a3cd00acab8971a9dc94bf524a022d3f0",
+    "components/DormsLoginButton.tsx": "d6c5e4e8bc4be63c112c032b3110966512e60b22ace946e257bd66d9f70a8dd4",
+    "lib/dormsLogin.ts": "e29e473004a1e70e6a0bd374f10a84e40ab443f89520274cda8e56c4569c6e6d"
+  },
+  "pending": []
+}

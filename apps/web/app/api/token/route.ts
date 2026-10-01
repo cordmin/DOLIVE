@@ -1,11 +1,14 @@
 import { AccessToken } from "livekit-server-sdk";
 import { keepImage } from "@/lib/chat";
 import { AVATARS, CUSTOM, ROOM, isAvatar } from "@/lib/dolive";
-import { MIC_ONLY, isLocal, loginKey, logins } from "@/lib/server";
+import { MIC_ONLY, dormsCheck, isLocal, isStaff } from "@/lib/server";
 
 const JPEG = "data:image/jpeg;base64,";
 
 export async function POST(req: Request) {
+  // 도름스 회원만 입장권을 받는다 (서버 PC는 빼고)
+  const { user, deny } = await dormsCheck(req);
+  if (deny) return deny;
   const { name, avatar, photo } = await req.json().catch(() => ({}));
   const nickname = typeof name === "string" ? name.trim() : "";
   if (!isAvatar(avatar) || nickname.length < 1 || nickname.length > 20) {
@@ -26,14 +29,13 @@ export async function POST(req: Request) {
   }
 
   const local = isLocal(req);
-  const key = loginKey(req);
-  const admin = local || !!key;
+  const admin = local || isStaff(user); // 서버 PC, 또는 운영진 목록에 있는 도름스 회원
   const identity = `${nickname}#${crypto.randomUUID().slice(0, 4)}`;
-  if (key) logins.get(key)!.identities.push(identity); // 로그아웃시키면 방에서도 내보내려고 적어 둔다
   const at = new AccessToken(process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET, {
     identity,
     name: nickname,
-    attributes: { avatar: face, admin: admin ? "1" : "" },
+    // dorms: 도름스 회원 id(sub). 채팅할 때 지금 도름스 로그인과 같은 사람인지 맞춰 본다 (lib/chat.ts whoSent). 서버 PC는 빈칸
+    attributes: { avatar: face, admin: admin ? "1" : "", dorms: user?.id ?? "" },
     ttl: "12h",
   });
   at.addGrant({

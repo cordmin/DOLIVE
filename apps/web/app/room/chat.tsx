@@ -2,11 +2,12 @@ import { useDataChannel, useRoomContext } from "@livekit/components-react";
 import { RoomEvent } from "livekit-client";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
-import { CHAT_MAX, CHAT_TOPIC, IMAGE_MAX, IMAGE_TYPES, TTS_MAX, avatarOf, isPhone, type ChatMsg } from "@/lib/dolive";
+import { CHAT_MAX, CHAT_TOPIC, IMAGE_MAX, IMAGE_TYPES, TTS_MAX, avatarOf, isPhone, leaveForDorms, type ChatMsg } from "@/lib/dolive";
 import { Heart, STICKER_TEXT, type Reaction } from "./reactions";
 
 // 이 탭에서 내가 썼던 identity 들. 나갔다가 다시 들어오면 identity 가 새로 바뀌어서, 예전 내 글도 내 글로 보이게 모아 둔다
 const MY_IDS = "dolive-my-ids";
+const DORMS_DOWN = "도름스에서 확인하지 못했어요. 잠시 뒤 다시 보내 주세요.";
 function myIds(): string[] {
   try {
     return JSON.parse(sessionStorage.getItem(MY_IDS) ?? "[]");
@@ -42,8 +43,8 @@ export function useMessages(token: string) {
       const me = room.localParticipant.identity;
       if (!myIds().includes(me)) sessionStorage.setItem(MY_IDS, JSON.stringify([...myIds(), me]));
       fetch("/api/chat", { headers: { Authorization: `Bearer ${token}` } })
-        .then((r) => (r.ok ? r.json() : []))
-        .then(add, () => {});
+        .then(async (r) => (r.ok ? r.json() : Promise.reject((await r.json().catch(() => null))?.reason)))
+        .then(add, (reason) => reason !== "temporarily_unavailable" && leaveForDorms(reason)); // 도름스가 잠깐 안 되면 기록만 못 받는다
     };
     // 방에 붙은 뒤에 받아야 그 사이에 올라온 글을 놓치지 않는다 (겹친 글은 add 가 걸러 낸다)
     if (room.state === "connected") load();
@@ -55,7 +56,12 @@ export function useMessages(token: string) {
 
   async function post(body: BodyInit, type: string) {
     const r = await fetch("/api/chat", { method: "POST", headers: { ...auth, "Content-Type": type }, body });
-    if (!r.ok) throw new Error(String(r.status));
+    if (!r.ok) {
+      // 도름스 허용이 끊겼거나 로그인 시간이 지났으면 방을 떠나 안내 화면·로그인으로. 도름스가 잠깐 안 되면 다시 보내 달라고 한다
+      const reason = (await r.json().catch(() => null))?.reason;
+      if (reason !== "temporarily_unavailable" && leaveForDorms(reason)) return;
+      throw new Error(reason === "temporarily_unavailable" ? "503" : String(r.status));
+    }
     add([await r.json()]);
   }
   const send = (message: string) =>
@@ -63,6 +69,7 @@ export function useMessages(token: string) {
       alert(
         e.message === "429" ? "음성은 5초에 한 번만 보낼 수 있어요."
         : e.message === "413" ? `음성은 ${TTS_MAX}자까지만 보낼 수 있어요.`
+        : e.message === "503" ? DORMS_DOWN
         : "메시지를 보내지 못했어요.",
       ),
     );
@@ -70,7 +77,7 @@ export function useMessages(token: string) {
     if (!IMAGE_TYPES.includes(file.type)) return alert("PNG, JPG, GIF, WEBP 사진만 보낼 수 있어요.");
     const img = await shrink(file);
     if (img.size > IMAGE_MAX) return alert("10MB보다 큰 사진은 보낼 수 없어요.");
-    post(img, img.type).catch(() => alert("사진을 보내지 못했어요."));
+    post(img, img.type).catch((e) => alert(e.message === "503" ? DORMS_DOWN : "사진을 보내지 못했어요."));
   }
 
   return { messages, send, sendImage };
@@ -215,6 +222,7 @@ export const ChatLog = memo(function ChatLog({ messages, className }: { messages
         const el = e.currentTarget;
         atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
       }}
+      data-chat-log // 입력칸의 "맨 아래로" 버튼이 이 목록을 찾는다 (ChatInput)
       className={`overflow-y-auto p-3 text-sm ${className}`}
     >
       {messages.map((m, i) => {
@@ -366,6 +374,18 @@ export function ChatInput({
     return () => vv.removeEventListener("resize", onResize);
   }, []);
 
+  // 채팅 목록을 위로 올려 보고 있으면 보내기 버튼 바로 위에 "맨 아래로" 버튼 (카카오톡처럼).
+  // 목록은 같은 문서(채팅분리 창이면 그 창)에 하나뿐이라 찾아서 쓴다
+  const log = useRef<HTMLElement | null>(null);
+  const [away, setAway] = useState(false);
+  useEffect(() => {
+    const el = (log.current = box.current!.ownerDocument.querySelector<HTMLElement>("[data-chat-log]"));
+    if (!el) return;
+    const onScroll = () => setAway(el.scrollHeight - el.scrollTop - el.clientHeight >= 60);
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
   // 하트 버튼을 누르면 헐·ㅋ·하트 버튼이 위로 펼쳐지고, 다시 누르면 접힌다
   const [picking, setPicking] = useState(false);
   const picker = useRef<HTMLDivElement>(null);
@@ -406,7 +426,8 @@ export function ChatInput({
         submit();
       }}
       // 아래 여백: 브라우저 맨 아래에 붙지 않게 (아이폰 홈 바 자리도 비움)
-      className={`${className} flex shrink-0 items-end gap-2 border-t border-zinc-800 px-3 pt-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))]`}
+      // --down-gap: "맨 아래로" 버튼과 경계선 사이. 휴대폰은 경계선(위 테두리 1px)을 사이에 두고 보내기 버튼과 위아래 대칭 (위 여백 12px + 선 1px)
+      className={`${className} relative flex shrink-0 items-end gap-2 border-t border-zinc-800 px-3 pt-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))]`}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         {pending && (
@@ -515,6 +536,21 @@ export function ChatInput({
           </div>
         </div>
       </div>
+      {away && (
+        <button
+          type="button"
+          onPointerDown={(e) => e.preventDefault()} // 눌러도 입력칸에서 손이 안 떨어지게 (휴대폰 자판이 닫히지 않게)
+          onClick={() => log.current?.scrollTo({ top: log.current.scrollHeight, behavior: "smooth" })}
+          aria-label="맨 아래로"
+          data-tip="맨 아래로"
+          // 보내기 버튼과 같은 크기·같은 세로줄(right-3 = 입력줄 오른쪽 여백)
+          className="absolute right-3 bottom-[calc(100%+var(--down-gap,13px))] flex size-12 items-center justify-center rounded-full bg-zinc-700 shadow-lg shadow-black/40 ring-1 ring-zinc-600 hover:bg-zinc-600"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+      )}
       <button
         type="submit"
         disabled={!text.trim() && !pending}

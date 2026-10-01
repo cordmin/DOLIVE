@@ -17,7 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
 import { Switch } from "@/components/Switch";
 import { Tooltips } from "@/components/Tooltips";
-import { VOICE_BOT, isPhone, savedAvatar } from "@/lib/dolive";
+import { VOICE_BOT, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
 import { ChatInput, ChatLog, useMessages } from "./chat";
 import { useReactions } from "./reactions";
 import { MediaControls, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
@@ -95,9 +95,10 @@ export default function RoomPage() {
     // 개발 중엔 이 부분이 두 번 돌아서, 마지막에 받은 입장권만 쓴다 (채팅이 방과 같은 입장권을 써야 해서)
     let alive = true;
     fetch("/api/token", { method: "POST", body: JSON.stringify({ name, avatar: savedAvatar(), photo: sessionStorage.getItem("photo") }) })
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then(async (r) => (r.ok ? r.json() : Promise.reject((await r.json().catch(() => null))?.reason)))
       .then((c) => alive && setConn(c))
-      .catch(() => alive && router.replace("/"));
+      // 도름스 확인에 막히면 다시 로그인하거나 안내 화면으로, 그 밖의 실패는 첫 화면으로
+      .catch((reason) => alive && !leaveForDorms(reason) && router.replace("/"));
     return () => {
       alive = false;
     };
@@ -329,7 +330,7 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
           </svg>
         </button>
         <div className="ml-auto flex items-center gap-2">
-          {/* 서버 PC에서 들어온 사람도, 다른 컴퓨터에서 관리자 로그인한 사람도 "관리자" (입장 화면 오른쪽 위 표시와 같은 모양) */}
+          {/* 서버 PC에서 들어온 사람도, 운영진 목록(서버 켜기 창 톱니바퀴)에 있는 도름스 회원도 "관리자" (입장 화면 오른쪽 위 표시와 같은 모양) */}
           {isAdmin && (
             <span className="rounded bg-amber-500 px-2 py-0.5 text-xs font-bold text-black">관리자</span>
           )}
@@ -383,7 +384,9 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
           send={sendChat}
           sendImage={sendImage}
           react={react}
-          className={`md:col-start-2 md:row-start-2 md:mr-2 md:mb-2 md:rounded-b-xl md:border md:border-t-0 md:bg-zinc-800/40 md:pb-3 ${hideOnLand}`}
+          // PC: 아래 줄 높이는 왼쪽 참여자 줄이 정해서 입력줄보다 높다. 남는 높이를 위아래 똑같이 나눠 입력줄을 가운데에 (flex-wrap 이어야 content-center 가 먹는다).
+          // 경계선이 없어서 "맨 아래로" 버튼은 이 칸 위쪽 끝을 사이에 두고 보내기 버튼과 대칭 = (칸 높이 - 버튼 48px) / 2
+          className={`md:col-start-2 md:row-start-2 md:mr-2 md:mb-2 md:flex-wrap md:content-center md:rounded-b-xl md:border md:border-t-0 md:bg-zinc-800/40 md:pb-3 md:[--down-gap:calc(50%-24px)] ${hideOnLand}`}
         />
       </div>
 

@@ -1,6 +1,6 @@
 import { DataPacket_Kind, TokenVerifier } from "livekit-server-sdk";
 import { CHAT_TOPIC, ROOM, type ChatMsg } from "@/lib/dolive";
-import { rooms } from "@/lib/server";
+import { dormsCheck, rooms } from "@/lib/server";
 
 // 서버가 켜진 뒤의 채팅 전부. 서버 메모리에만 두고 파일로는 저장하지 않아서, 서버를 끄면 사라진다.
 // (개발 중 코드를 고쳐 다시 읽혀도 안 사라지게 globalThis 에 둔다)
@@ -20,16 +20,18 @@ export function keepImage(id: string, type: string, data: Uint8Array) {
   }
 }
 
-// 방에 들어올 때 받은 입장권(토큰)으로 누가 보냈는지 확인한다 (이름·사진을 속일 수 없게)
+// 방에 들어올 때 받은 입장권(토큰)으로 누가 보냈는지 확인한다 (이름·사진을 속일 수 없게).
+// 그리고 지금도 도름스가 허용하는지, 입장권을 받은 그 도름스 회원(sub)인지 매번 확인한다. 막히면 deny 를 그대로 돌려준다
 export async function whoSent(req: Request) {
   const token = req.headers.get("authorization")?.replace(/^Bearer /, "");
-  if (!token) return null;
-  try {
-    const c = await new TokenVerifier(process.env.LIVEKIT_API_KEY!, process.env.LIVEKIT_API_SECRET!).verify(token);
-    return c.sub ? { identity: c.sub, name: c.name ?? "", avatar: c.attributes?.avatar ?? "" } : null;
-  } catch {
-    return null;
-  }
+  const c = token
+    ? await new TokenVerifier(process.env.LIVEKIT_API_KEY!, process.env.LIVEKIT_API_SECRET!).verify(token).catch(() => null)
+    : null;
+  if (!c?.sub) return { deny: new Response(null, { status: 401 }) };
+  const { user, deny } = await dormsCheck(req, c.sub);
+  if (deny) return { deny };
+  if ((user?.id ?? "") !== (c.attributes?.dorms ?? "")) return { deny: new Response(null, { status: 403 }) };
+  return { who: { identity: c.sub, name: c.name ?? "", avatar: c.attributes?.avatar ?? "" } };
 }
 
 // 기록에 쌓고 방 안 모두에게 보낸다 (보낸 사람 = 서버라서, 받는 쪽은 사람이 보낸 가짜 채팅을 걸러 낼 수 있다)
