@@ -1,6 +1,6 @@
 import { useDataChannel, useRoomContext } from "@livekit/components-react";
 import { RoomEvent } from "livekit-client";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
 import { CHAT_MAX, CHAT_TOPIC, IMAGE_MAX, IMAGE_TYPES, TTS_MAX, avatarOf, isPhone, leaveForDorms, type ChatMsg } from "@/lib/dolive";
 import { Heart, STICKER_TEXT, type Reaction } from "./reactions";
@@ -32,11 +32,17 @@ export function useMessages(token: string) {
       }),
     [],
   );
-  // 서버가 보낸 것만 받는다 (사람이 같은 이름표로 보낸 가짜 채팅은 무시). { deleted: id } 는 누가 지운 메시지
+  // 고친 메시지로 바꿔 끼운다 (mine 은 기록을 받을 때만 오는 표시라 그대로 둔다)
+  const replace = useCallback(
+    (m: ChatMsg) => setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...m, mine: x.mine } : x))),
+    [],
+  );
+  // 서버가 보낸 것만 받는다 (사람이 같은 이름표로 보낸 가짜 채팅은 무시). { deleted: id } 는 누가 지운 메시지, { edit: 메시지 } 는 고친 메시지
   useDataChannel(CHAT_TOPIC, (msg) => {
     if (msg.from) return;
     const data = JSON.parse(new TextDecoder().decode(msg.payload));
     if (data.deleted) setMessages((prev) => prev.filter((m) => m.id !== data.deleted));
+    else if (data.edit) replace(data.edit);
     else add([data]);
   });
 
@@ -93,7 +99,21 @@ export function useMessages(token: string) {
     [token],
   );
 
-  return { messages, send, sendImage, remove };
+  // 글 고치기 (서버가 내 것인지 다시 확인한다)
+  const edit = useCallback(
+    async (id: string, message: string) => {
+      const r = await fetch(`/api/chat/${id}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      }).catch(() => null);
+      if (r?.ok) replace(await r.json());
+      else alert(r?.status === 503 ? DORMS_DOWN.replace("보내", "고쳐") : "메시지를 고치지 못했어요.");
+    },
+    [token, replace],
+  );
+
+  return { messages, send, sendImage, remove, edit };
 }
 
 // 사진은 보내기 전에 이 브라우저에서 줄인다 (긴 쪽 1600px, webp. webp 를 못 만드는 브라우저는 jpg).
@@ -130,6 +150,8 @@ async function shrink(file: File): Promise<Blob> {
 // 글마다 시각을 여러 번 쓰므로 바꾸는 틀은 한 번만 만든다 (toLocaleTimeString 은 부를 때마다 새로 만들어서 느리다)
 const TIME = new Intl.DateTimeFormat("ko-KR", { hour: "numeric", minute: "2-digit" });
 const chatTime = (t: number) => TIME.format(t);
+
+const MENU_ITEM = "block w-full rounded px-3 py-2 text-left outline-none hover:bg-zinc-700 focus-visible:bg-zinc-700";
 
 // 채팅 글 속 링크 (http:// 또는 https:// 로 시작). 끝에 붙은 마침표·괄호 같은 것은 링크에서 뺀다
 const LINK = /(https?:\/\/[^\s<]+[^\s<.,:;"')\]!?])/g;
@@ -208,37 +230,78 @@ export const ChatLog = memo(function ChatLog({
   className,
   isAdmin,
   remove,
+  edit,
 }: {
   messages: ChatMsg[];
   className: string;
   isAdmin: boolean; // 관리자는 누구 메시지든 지울 수 있다
   remove: (id: string) => void;
+  edit: (id: string, message: string) => void;
 }) {
   const list = useRef<HTMLDivElement>(null);
   const mineIds = myIds();
 
-  // 메시지 지우기: PC 는 메시지에 마우스를 올리면 시간 옆 휴지통, 휴대폰은 메시지를 꾹(0.5초) 누르면 확인 창.
-  // 지울 수 있는 것: 내가 보낸 것(이 탭 이름표, 또는 같은 도름스 계정 = mine), 관리자는 전부. 서버가 다시 확인한다
+  // 메시지 메뉴 (복사·수정·삭제): PC 는 메시지에 오른쪽 클릭, 휴대폰은 꾹(0.5초) 누르기. 누른 자리 오른쪽 아래에 작은 메뉴가 뜬다.
+  // 휴대폰은 꾹 누를 때 브라우저의 글자 선택·복사 메뉴가 같이 떠서, 말풍선 글자는 선택되지 않게 막고(noSelect) 복사는 이 메뉴로 한다.
+  // 지울 수 있는 것: 내가 보낸 것(이 탭 이름표, 또는 같은 도름스 계정 = mine), 관리자는 전부. 고칠 수 있는 것: 내가 보낸 글만 (사진·음성 글 빼고). 서버가 다시 확인한다
   const askDel = useRef<HTMLDialogElement>(null);
   const [delTarget, setDelTarget] = useState<string | null>(null);
   const canDelete = (m: ChatMsg) => isAdmin || !!m.mine || mineIds.includes(m.identity);
+  const canEdit = (m: ChatMsg) => (!!m.mine || mineIds.includes(m.identity)) && !m.image && !m.tts;
+  const hasMenu = (m: ChatMsg) => !m.image || canDelete(m); // 남의 사진은 메뉴가 없어서 브라우저 메뉴(사진 저장 등) 그대로
   function ask(id: string) {
     setDelTarget(id);
     askDel.current?.showModal();
   }
+  const menu = useRef<HTMLDialogElement>(null);
+  const [menuAt, setMenuAt] = useState<{ m: ChatMsg; x: number; y: number } | null>(null);
+  // 메뉴를 띄운 뒤 크기를 재서, 창 밖으로 나가면 왼쪽·위로 접어 넣는다 (윈도우 오른쪽 클릭 메뉴처럼)
+  useLayoutEffect(() => {
+    const d = menu.current;
+    if (!d || !menuAt) return;
+    d.showModal();
+    d.focus(); // 첫 줄에 불이 들어온 채로 뜨지 않게 (키보드는 Tab 으로 고른다)
+    const win = d.ownerDocument.defaultView!;
+    const r = d.getBoundingClientRect();
+    d.style.left = `${Math.max(4, Math.min(menuAt.x, win.innerWidth - r.width - 4))}px`;
+    d.style.top = `${menuAt.y + r.height > win.innerHeight - 4 ? Math.max(4, menuAt.y - r.height) : menuAt.y}px`;
+  }, [menuAt]);
+  function copy(m: ChatMsg) {
+    const win = list.current!.ownerDocument.defaultView!; // 채팅분리 창이면 그 창의 클립보드
+    const picked = win.getSelection()?.toString(); // PC 에서 글자 일부를 골라 둔 채 오른쪽 클릭했으면 고른 부분만
+    win.navigator.clipboard?.writeText(picked || m.message).catch(() => alert("복사하지 못했어요."));
+  }
+  function pick(label: "복사" | "수정" | "삭제") {
+    const m = menuAt!.m;
+    menu.current?.close();
+    if (label === "복사") copy(m);
+    else if (label === "수정") setEditing(m);
+    else ask(m.id);
+  }
+  const editBox = useRef<HTMLDialogElement>(null);
+  const [editing, setEditing] = useState<ChatMsg | null>(null);
+  useLayoutEffect(() => {
+    if (editing) editBox.current?.showModal();
+  }, [editing]);
+  function saveEdit(text: string) {
+    if (editing && text.trim() && text.trim() !== editing.message) edit(editing.id, text.trim());
+    editBox.current?.close();
+  }
+
   const pressTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const touching = useRef(false); // 손가락으로 누르는 중 (마우스 오른쪽 클릭 메뉴는 그대로 두려고)
-  const held = useRef(false); // 꾹 눌러서 확인 창을 띄웠다 → 손을 뗄 때 따라오는 클릭(사진 크게 보기·링크 열기)은 무시
-  const holdToDelete = (m: ChatMsg) =>
-    canDelete(m)
+  const touching = useRef(false); // 손가락으로 누르는 중 (마우스는 오른쪽 클릭으로 연다)
+  const held = useRef(false); // 꾹 눌러서 메뉴를 띄웠다 → 손을 뗄 때 따라오는 클릭(사진 크게 보기·링크 열기)은 무시
+  const openMenu = (m: ChatMsg) =>
+    hasMenu(m)
       ? {
           onPointerDown: (e: React.PointerEvent) => {
             touching.current = e.pointerType !== "mouse";
             held.current = false;
+            const { clientX: x, clientY: y } = e;
             if (touching.current)
               pressTimer.current = setTimeout(() => {
                 held.current = true;
-                ask(m.id);
+                setMenuAt({ m, x, y });
               }, 500);
           },
           // 손을 떼거나, 밀어서 목록을 움직이면(브라우저가 가져가면 cancel) 취소
@@ -251,9 +314,15 @@ export const ChatLog = memo(function ChatLog({
             e.preventDefault();
             e.stopPropagation();
           },
-          onContextMenu: (e: React.MouseEvent) => touching.current && e.preventDefault(), // 꾹 누를 때 뜨는 휴대폰 메뉴 대신
+          // 브라우저 메뉴 대신 이 메뉴 (휴대폰은 위의 꾹 누르기가 띄운다)
+          onContextMenu: (e: React.MouseEvent) => {
+            e.preventDefault();
+            if (!touching.current) setMenuAt({ m, x: e.clientX, y: e.clientY });
+          },
         }
       : {};
+  // 휴대폰에서 꾹 누를 때 글자 선택·아이폰 길게 누르기 창이 뜨지 않게
+  const noSelect = "pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]";
 
   // 사진 크게 보기: 브라우저 기본 모달(dialog). ESC로 닫히는 것도 브라우저가 해 준다. 바깥 어두운 곳을 눌러도 닫힌다
   const viewer = useRef<HTMLDialogElement>(null);
@@ -293,7 +362,7 @@ export const ChatLog = memo(function ChatLog({
         const mine = mineIds.includes(m.identity);
         const link = m.message.match(LINK)?.[0];
         return (
-          <div key={m.id} className={`group/msg flex gap-2 ${mine ? "justify-end" : ""} ${first ? "mt-3" : "mt-1"}`}>
+          <div key={m.id} className={`flex gap-2 ${mine ? "justify-end" : ""} ${first ? "mt-3" : "mt-1"}`}>
             {!mine &&
               (first ? (
                 <Avatar id={avatarOf(m.avatar)} px={52} className="size-10 shrink-0 md:size-13" />
@@ -306,14 +375,14 @@ export const ChatLog = memo(function ChatLog({
                 {m.image ? (
                   // 사진 폭은 늘 240px (옆에 시간이 붙어도 사진이 줄지 않게 shrink-0). 아주 긴 사진은 위아래를 잘라 보여 준다.
                   // loading="lazy": 화면 가까이 왔을 때만 받는다 (늦게 들어온 사람이 지난 사진을 한꺼번에 다 받지 않게)
-                  <button type="button" onClick={() => openImage(m)} {...holdToDelete(m)} className="shrink-0 cursor-zoom-in">
+                  <button type="button" onClick={() => openImage(m)} {...openMenu(m)} className={`shrink-0 cursor-zoom-in ${hasMenu(m) ? noSelect : ""}`}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={m.image} alt="보낸 사진" loading="lazy" onLoad={toBottom} className="max-h-72 w-60 rounded-2xl bg-zinc-800 object-cover" />
                   </button>
                 ) : (
                   <p
-                    {...holdToDelete(m)}
-                    className={`min-w-0 rounded-2xl px-3 py-2 break-words whitespace-pre-wrap ${
+                    {...openMenu(m)}
+                    className={`${noSelect} min-w-0 rounded-2xl px-3 py-2 break-words whitespace-pre-wrap ${
                       mine ? "bg-indigo-600" : "bg-zinc-800"
                     } ${first ? (mine ? "rounded-tr-sm" : "rounded-tl-sm") : ""}`}
                   >
@@ -334,27 +403,86 @@ export const ChatLog = memo(function ChatLog({
                     <Linkified text={m.message} />
                   </p>
                 )}
+                {m.edited && <span className="shrink-0 text-[11px] text-zinc-500">수정됨</span>}
                 {last && <span className="shrink-0 text-[11px] text-zinc-500">{chatTime(m.timestamp)}</span>}
-                {/* PC: 마우스를 올린 메시지에만 보이는 작은 휴지통 (휴대폰은 꾹 누르기) */}
-                {canDelete(m) && (
-                  <button
-                    type="button"
-                    onClick={() => ask(m.id)}
-                    aria-label="메시지 삭제"
-                    data-tip="삭제"
-                    className="hidden shrink-0 self-center text-zinc-500 opacity-0 group-hover/msg:opacity-100 hover:text-red-400 md:block"
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-3.5">
-                      <path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />
-                    </svg>
-                  </button>
-                )}
               </div>
               {link && <LinkPreview url={link} onLoad={toBottom} />}
             </div>
           </div>
         );
       })}
+
+      {/* 메시지 메뉴. 바깥을 누르거나(오른쪽 클릭도) Esc 면 닫힌다. 바탕은 투명 */}
+      <dialog
+        ref={menu}
+        tabIndex={-1}
+        onClose={() => setMenuAt(null)}
+        onPointerDown={(e) => e.target === e.currentTarget && e.currentTarget.close()}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.currentTarget.close();
+        }}
+        className="m-0 w-36 rounded-lg outline-none bg-zinc-800 p-1 text-sm text-zinc-100 shadow-xl shadow-black/50 ring-1 ring-zinc-700 backdrop:bg-transparent"
+      >
+        {menuAt && (
+          <>
+            {!menuAt.m.image && (
+              <button type="button" onClick={() => pick("복사")} className={MENU_ITEM}>
+                복사
+              </button>
+            )}
+            {canEdit(menuAt.m) && (
+              <button type="button" onClick={() => pick("수정")} className={MENU_ITEM}>
+                수정
+              </button>
+            )}
+            {canDelete(menuAt.m) && (
+              <button type="button" onClick={() => pick("삭제")} className={`${MENU_ITEM} text-red-400`}>
+                삭제
+              </button>
+            )}
+          </>
+        )}
+      </dialog>
+
+      {/* 글 고치기 (지우기 확인 창과 같은 모양). PC 는 Enter 로 저장, Shift+Enter 는 줄바꿈 */}
+      <dialog
+        ref={editBox}
+        onClose={() => setEditing(null)}
+        className="m-auto w-80 max-w-[calc(100%-2rem)] rounded-xl bg-zinc-800 p-5 text-zinc-100 ring-1 ring-zinc-700 backdrop:bg-black/60"
+      >
+        {editing && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              saveEdit(new FormData(e.currentTarget).get("text") as string);
+            }}
+          >
+            <p className="mb-3 text-center font-semibold">메시지 수정</p>
+            <textarea
+              name="text"
+              defaultValue={editing.message}
+              maxLength={CHAT_MAX}
+              rows={4}
+              autoFocus
+              onFocus={(e) => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)} // 커서는 글 끝에
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+                if (matchMedia("(pointer: coarse)").matches) return; // 휴대폰: 줄바꿈
+                e.preventDefault();
+                e.currentTarget.form?.requestSubmit();
+              }}
+              className="mb-4 block w-full resize-none rounded-xl bg-zinc-900 p-3 text-base outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <div className="flex gap-2">
+              <button className="flex-1 rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500">저장</button>
+              <button type="button" onClick={() => editBox.current?.close()} className="flex-1 rounded-lg bg-zinc-700 py-2 text-sm hover:bg-zinc-600">
+                취소
+              </button>
+            </div>
+          </form>
+        )}
+      </dialog>
 
       {/* 지우기 확인 (채팅방 나가기 창과 같은 모양, 화면 가운데) */}
       <dialog

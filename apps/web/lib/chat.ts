@@ -71,3 +71,14 @@ export async function remove(id: string) {
     .catch(() => {}); // 못 보내도 기록에선 빠져서, 다시 들어오면 안 보인다
   return true;
 }
+
+// 글 고치기 (보낸 사람만, 글 메시지만. 사진·음성 글은 못 고친다): 기록을 바꾸고 방 안 모두에게 { edit: 고친 메시지 } 를 보낸다
+export async function edit(id: string, message: string) {
+  const m = store.messages.find((x) => x.id === id);
+  if (!m || m.image || m.tts) return null;
+  Object.assign(m, { message, edited: true });
+  await rooms
+    .sendData(ROOM, new TextEncoder().encode(JSON.stringify({ edit: m })), DataPacket_Kind.RELIABLE, { topic: CHAT_TOPIC })
+    .catch(() => {}); // 못 보내도 기록은 바뀌어서, 다시 들어오면 고친 글이 보인다
+  return m;
+}

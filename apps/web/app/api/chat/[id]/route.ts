@@ -1,4 +1,5 @@
-import { isOwner, remove, store, whoSent } from "@/lib/chat";
+import { edit, isOwner, remove, store, whoSent } from "@/lib/chat";
+import { CHAT_MAX } from "@/lib/dolive";
 import { dormsCheck } from "@/lib/server";
 
 // 채팅 사진(+ 내 사진 프로필). 주소(id)는 아무도 짐작할 수 없는 긴 번호라서, 채팅을 본 사람만 안다.
@@ -22,4 +23,17 @@ export async function DELETE(req: Request, ctx: RouteContext<"/api/chat/[id]">) 
   const id = (await ctx.params).id;
   if (!admin && !isOwner(id, owner)) return new Response(null, { status: 403 });
   return new Response(null, { status: (await remove(id)) ? 204 : 404 });
+}
+
+// 글 고치기 { message }. 내가 보낸 것만 (관리자도 남의 글은 못 고친다)
+export async function PATCH(req: Request, ctx: RouteContext<"/api/chat/[id]">) {
+  const { owner, deny } = await whoSent(req);
+  if (deny) return deny;
+  const id = (await ctx.params).id;
+  if (!isOwner(id, owner)) return new Response(null, { status: 403 });
+  const { message } = await req.json().catch(() => ({}));
+  const text = typeof message === "string" ? message.trim() : "";
+  if (!text || text.length > CHAT_MAX) return new Response(null, { status: 400 });
+  const m = await edit(id, text);
+  return m ? Response.json(m) : new Response(null, { status: 404 });
 }

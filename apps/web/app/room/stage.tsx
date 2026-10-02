@@ -181,11 +181,23 @@ function ScreenView({ screen, floats }: { screen: TrackReference; floats: Float[
   // 손가락으로 위아래로 쓸었는지 (50px 넘게, 옆보다 위아래로 더 많이). 쓸었으면 뒤따라오는 '누름'은 무시한다
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const swiped = useRef(false);
+  // 쓰는 동안 공유 화면이 손가락을 따라 움직인다 (유튜브처럼): 평소엔 위로만 들려 올라가며 살짝 커지고, 전체화면에선 아래로만 밀려 내려온다.
+  // 전체화면이 켜지고 꺼지는 순간은 브라우저가 해서 그 사이를 움직이게 할 수는 없다. 덜 쓸고 손을 떼면 제자리로 스르륵
+  const [drag, setDrag] = useState({ d: 0, smooth: false });
+  const follow = (dy: number) => setDrag({ d: full ? Math.max(0, dy) : Math.min(0, dy), smooth: false });
+  const settle = (smooth: boolean) => setDrag({ d: 0, smooth });
 
   return (
     <div
       ref={box}
-      onPointerMove={wake}
+      onPointerMove={(e) => {
+        wake();
+        if (touchStart.current) follow(e.clientY - touchStart.current.y);
+      }}
+      onPointerCancel={() => {
+        touchStart.current = null;
+        settle(true);
+      }}
       onPointerDown={(e) => {
         wake();
         swiped.current = false;
@@ -197,16 +209,25 @@ function ScreenView({ screen, floats }: { screen: TrackReference; floats: Float[
         if (!s) return;
         const dx = e.clientX - s.x;
         const dy = e.clientY - s.y;
-        if (Math.abs(dy) < 50 || Math.abs(dy) < Math.abs(dx)) return;
+        if (Math.abs(dy) < 50 || Math.abs(dy) < Math.abs(dx)) return settle(true);
         swiped.current = true;
-        if (dy < 0 !== full) toggleFull(); // 위로 = 켜기, 아래로 = 끄기
+        const toggle = dy < 0 !== full; // 위로 = 켜기, 아래로 = 끄기
+        settle(!toggle); // 켜고 끌 때는 바로 제자리에 두고 브라우저에 넘긴다
+        if (toggle) toggleFull();
       }}
       onClick={() => {
         if (!swiped.current && document.documentElement.hasAttribute("data-phone-land")) toggleFull();
       }}
       // PC: 공유된 화면 비율 그대로(검은 띠 없이) 왼쪽 칸 안에서 가장 크게, 가운데에. 보통 PC 화면은 옆으로 넓어서 높이가 칸 바닥(= 채팅 카드 바닥)까지 닿는다.
       // 휴대폰 가로는 전처럼 꽉 채운다 (넓은 휴대폰은 md 도 걸려서 ! 로 이긴다)
-      style={{ "--ratio": ratio } as React.CSSProperties}
+      style={
+        {
+          "--ratio": ratio,
+          translate: drag.d ? `0 ${drag.d}px` : undefined,
+          scale: drag.d && !full ? 1 - drag.d / 1500 : undefined,
+          transition: drag.smooth ? "translate 200ms ease-out, scale 200ms ease-out" : undefined,
+        } as React.CSSProperties
+      }
       // 모서리는 채팅 카드와 같은 둥글기(rounded-xl). overflow-hidden: 영상 모서리도 같이 둥글게 잘리도록
       className="relative aspect-video min-h-0 w-full touch-none overflow-hidden rounded-xl bg-black [&:fullscreen]:rounded-none md:m-auto md:aspect-(--ratio) md:w-[min(100cqw,calc(100cqh*var(--ratio)))] phone-land:m-0! phone-land:aspect-auto! phone-land:w-full! phone-land:flex-1 phone-land:rounded-none"
     >

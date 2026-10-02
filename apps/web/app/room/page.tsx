@@ -174,7 +174,7 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
   const [showPeople, setShowPeople] = useState(false); // 휴대폰에서 참여자 목록 열기
   const [peopleAt, setPeopleAt] = useState({ left: 0, top: 0 }); // 목록 카드가 내려올 자리 (배지 가로 가운데, 배지 바로 아래)
   // 채팅 글·사진 (들어올 때 서버 기록을 받고, 그 뒤엔 새로 온 것을 더한다)
-  const { messages, send: sendChat, sendImage, remove: removeChat } = useMessages(token);
+  const { messages, send: sendChat, sendImage, remove: removeChat, edit: editChat } = useMessages(token);
   // 공유가 여럿이면 멈추지 않은(보내는 중인) 것 하나만 보여 준다
   const screen = useTracks([Track.Source.ScreenShare])
     .filter((t) => !t.publication.isMuted)
@@ -307,9 +307,19 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
         // PC 는 아래로 펼치는 참여자 목록이 잘리지 않게 overflow 를 풀어 둔다 (휴대폰은 좁아서 옆으로 밀어 본다)
         className={`${hideOnLand} flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b border-zinc-800 px-3 md:overflow-visible md:border-b-0 text-sm whitespace-nowrap`}
       >
-        <b className="text-base">
+        {/* 로고를 누르면 전체화면 켜기·끄기 (아이폰은 브라우저가 막아 둬서 안 된다) */}
+        <button
+          type="button"
+          onClick={() =>
+            document.fullscreenElement
+              ? document.exitFullscreen().catch(() => {})
+              : document.documentElement.requestFullscreen?.().catch(() => {})
+          }
+          data-tip="전체화면"
+          className="text-base font-bold"
+        >
           DO<span className="text-red-500">LIVE</span>
-        </b>
+        </button>
         {/* 휴대폰: 눌러서 참여자 목록을 여는 배지. 넓은 화면은 목록이 늘 보여서 그냥 글자 */}
         <button
           onClick={(e) => {
@@ -393,7 +403,7 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
           <ChatLog
             messages={messages}
             isAdmin={isAdmin}
-            remove={removeChat}
+            remove={removeChat} edit={editChat}
             // PC: 채팅 내용 + 아래 입력칸이 둥근 카드 하나로 이어진다 (구분선 없이 카드로 나눔)
             className={`${screen ? "min-h-24 flex-1" : "min-h-0 flex-1"} border-t border-zinc-800 md:col-start-2 md:row-start-1 md:mt-2 md:mr-2 md:min-h-0 md:rounded-t-xl md:border md:border-b-0 md:bg-zinc-800/40 ${hideOnLand}`}
           />
@@ -411,7 +421,7 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
       {pip &&
         createPortal(
           <div className="flex h-dvh flex-col">
-            <ChatLog messages={messages} isAdmin={isAdmin} remove={removeChat} className="min-h-0 flex-1" />
+            <ChatLog messages={messages} isAdmin={isAdmin} remove={removeChat} edit={editChat} className="min-h-0 flex-1" />
             <ChatInput send={sendChat} sendImage={sendImage} react={react} className="" />
             <Tooltips doc={pip.document} />
           </div>,
