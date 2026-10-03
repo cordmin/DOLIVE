@@ -2,7 +2,7 @@ import { useDataChannel, useRoomContext } from "@livekit/components-react";
 import { RoomEvent } from "livekit-client";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
-import { CHAT_MAX, CHAT_TOPIC, IMAGE_MAX, IMAGE_TYPES, TTS_MAX, avatarOf, isPhone, leaveForDorms, savedTts, type ChatMsg } from "@/lib/dolive";
+import { CHAT_MAX, CHAT_TOPIC, IMAGE_MAX, IMAGE_TYPES, TTS_MAX, avatarOf, isPhone, leaveForDorms, playOnly, savedTts, type ChatMsg } from "@/lib/dolive";
 import { Heart, STICKER_TEXT, type Reaction } from "./reactions";
 
 // 이 탭에서 내가 썼던 identity 들. 나갔다가 다시 들어오면 identity 가 새로 바뀌어서, 예전 내 글도 내 글로 보이게 모아 둔다
@@ -152,7 +152,9 @@ async function shrink(file: File): Promise<Blob> {
 const TIME = new Intl.DateTimeFormat("ko-KR", { hour: "numeric", minute: "2-digit" });
 const chatTime = (t: number) => TIME.format(t);
 
-const MENU_ITEM = "rounded px-3 py-2 whitespace-nowrap outline-none hover:bg-zinc-700 focus-visible:bg-zinc-700";
+// 말풍선 메뉴 한 칸. 칸 사이(9px)의 한가운데에 짧은 세로선 (첫 칸 빼고 왼쪽에 before 로 그린다)
+const MENU_ITEM =
+  "relative rounded-md px-4 py-2 whitespace-nowrap outline-none hover:bg-zinc-700 focus-visible:bg-zinc-700 not-first:before:absolute not-first:before:top-1/2 not-first:before:-left-[5px] not-first:before:h-4 not-first:before:w-px not-first:before:-translate-y-1/2 not-first:before:bg-zinc-600";
 
 // 채팅 글 속 링크 (http:// 또는 https:// 로 시작). 끝에 붙은 마침표·괄호 같은 것은 링크에서 뺀다
 const LINK = /(https?:\/\/[^\s<]+[^\s<.,:;"')\]!?])/g;
@@ -400,7 +402,7 @@ export const ChatLog = memo(function ChatLog({
                       // "/글" 음성 글: 앞의 작은 스피커를 누르면 다시 듣는다 (보낸 사람도). 처음엔 서버가 다시 읽느라 1초쯤 걸린다
                       <button
                         type="button"
-                        onClick={() => new Audio(`/api/voice/${m.id}`).play().catch(() => {})}
+                        onClick={() => playOnly(`/api/voice/${m.id}`).catch(() => {})}
                         aria-label="음성 다시 듣기"
                         data-tip="다시 듣기"
                         className="mr-1 inline-flex align-[-2px] opacity-70 hover:opacity-100"
@@ -437,7 +439,7 @@ export const ChatLog = memo(function ChatLog({
         {/* 꼬리: 아래에 뜨면 위를, 위로 뒤집히면 아래를 가리킨다 */}
         <span className="absolute -bottom-1.5 left-(--tail) size-2.5 -translate-x-1/2 rotate-[225deg] border-t border-l border-zinc-700 bg-zinc-800 group-data-[below=true]:-top-1.5 group-data-[below=true]:bottom-auto group-data-[below=true]:rotate-45" />
         {menuAt && (
-          <div className="relative flex divide-x divide-zinc-700">
+          <div className="relative flex gap-[9px]">
             {!menuAt.m.image && (
               <button type="button" onClick={() => pick("복사")} className={MENU_ITEM}>
                 복사

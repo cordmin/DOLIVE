@@ -1,13 +1,10 @@
 import { useRef, useState } from "react";
-import { TTS_MODES, VOICES, saveTts, savedTts, type TtsSettings } from "@/lib/dolive";
+import { TTS_MODES, VOICES, playOnly, saveTts, savedTts, type TtsSettings } from "@/lib/dolive";
 
 const ROW = "flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-zinc-700/60";
 const RADIO = "size-4 accent-indigo-500";
-const MODE_TEXT: Record<TtsSettings["mode"], [string, string]> = {
-  off: ["끄기", "음성으로 읽지 않아요"],
-  always: ["항상", "내 채팅을 모두 읽어요"],
-  slash: ["/입력", "/ 로 시작하는 글만 읽어요"],
-};
+// 끄기: 안 읽음, 항상: 내 채팅을 모두 읽음, /입력: "/" 로 시작하는 글만 읽음
+const MODE_TEXT: Record<TtsSettings["mode"], string> = { off: "끄기", always: "항상", slash: "/입력" };
 
 // 위 줄 마이크 스위치 왼쪽의 TTS 버튼. 누르면 내 음성 설정 창 (입력 방식, 목소리). 관리자도 똑같다.
 // 이 브라우저에만 기억하고, 글을 보낼 때마다 같이 보내서(chat.tsx) 저장하자마자 다음 글부터 적용된다
@@ -25,7 +22,7 @@ export function TtsButton() {
       <span className="flex-1">{v.name}</span>
       <button
         type="button"
-        onClick={() => new Audio(`/api/tts?listen=${v.id}`).play().catch(() => alert("미리 듣기를 하지 못했어요."))}
+        onClick={() => playOnly(`/api/tts?listen=${v.id}`).catch((e) => e.name !== "AbortError" && alert("미리 듣기를 하지 못했어요."))}
         aria-label={`${v.name} 미리 듣기`}
         className="rounded p-1 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-100"
       >
@@ -64,24 +61,21 @@ export function TtsButton() {
           >
             <p className="mb-4 text-center text-base font-semibold">음성 설정</p>
 
-            <p className="mb-1 font-semibold text-zinc-300">TTS 입력 방식</p>
-            {TTS_MODES.map((m) => (
-              <label key={m} className={ROW}>
-                <input type="radio" name="mode" value={m} defaultChecked={now.mode === m} className={RADIO} />
-                {MODE_TEXT[m][0]} <span className="text-zinc-400">{MODE_TEXT[m][1]}</span>
-              </label>
-            ))}
+            <p className="mb-1 font-semibold text-zinc-300">TTS 입력</p>
+            <div className="grid grid-cols-3 gap-x-2">
+              {TTS_MODES.map((m) => (
+                <label key={m} className={ROW}>
+                  <input type="radio" name="mode" value={m} defaultChecked={now.mode === m} className={RADIO} />
+                  {MODE_TEXT[m]}
+                </label>
+              ))}
+            </div>
 
             <p className="mt-4 mb-1 font-semibold text-zinc-300">TTS 음성 종류</p>
             <div className="grid grid-cols-2 gap-x-2">
-              <div>
-                <p className="px-2 pb-1 text-xs text-zinc-500">여자 목소리</p>
-                {VOICES.filter((v) => v.woman).map(voiceRow)}
-              </div>
-              <div>
-                <p className="px-2 pb-1 text-xs text-zinc-500">남자 목소리</p>
-                {VOICES.filter((v) => !v.woman).map(voiceRow)}
-              </div>
+              {/* 왼쪽 줄은 여자, 오른쪽 줄은 남자 목소리 */}
+              <div>{VOICES.filter((v) => v.woman).map(voiceRow)}</div>
+              <div>{VOICES.filter((v) => !v.woman).map(voiceRow)}</div>
             </div>
 
             <div className="mt-5 flex gap-2">

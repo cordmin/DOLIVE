@@ -56,6 +56,13 @@ export const VOICES: VoiceDef[] = [
   { id: "demon", name: "마왕", woman: false, base: "M1", pitch: 0.72, speed: 0.88 },
 ];
 export const isVoice = (id: unknown) => VOICES.some((v) => v.id === id);
+// 목소리 미리 듣기·글 다시 듣기는 한 번에 하나만: 듣던 소리가 있으면 멈추고 새로 튼다 (여러 번 눌러도 겹치지 않게)
+let playing: HTMLAudioElement | undefined;
+export function playOnly(url: string) {
+  playing?.pause();
+  playing = new Audio(url);
+  return playing.play();
+}
 // 내 음성 설정 (각자 위 줄 TTS 버튼으로 고른다). 이 브라우저(localStorage)에 남기고, 글을 보낼 때마다 같이 보내서 바로 적용된다.
 // mode: "off" = 안 읽기("/글" 도 그냥 글), "always" = 내 글을 모두 읽기, "slash" = "/글" 만 읽기. voice: VOICES id
 export const TTS_MODES = ["off", "always", "slash"] as const;
