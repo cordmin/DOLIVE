@@ -3,6 +3,7 @@ import { ScreenSharePresets, RoomEvent, Track, type Participant, type RemotePart
 import { useEffect, useState } from "react";
 import { Switch } from "@/components/Switch";
 import { VOICE_BOT, VOICE_ON } from "@/lib/dolive";
+import { TtsButton } from "./tts";
 
 // 공유하는 사람이 고르는 화질. 공유는 고른 화질과 한 단계 낮은 화질을 같이 보내고,
 // 보는 사람 인터넷이 느려서 끊기면 서버가 그 사람에게만 낮은 쪽으로 자동으로 바꿔 보낸다.
@@ -214,6 +215,7 @@ export function MediaControls({ asked, requestShare }: { asked: boolean; request
                 : "화면공유"}
         </button>
       )}
+      <TtsButton />
       <Switch label="마이크" on={isMicrophoneEnabled} onChange={(on) => run(() => me.setMicrophoneEnabled(on), "마이크")} />
     </>
   );

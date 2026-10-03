@@ -1,7 +1,7 @@
 import path from "node:path";
 import { AudioFrame, AudioSource, LocalAudioTrack, Room, RoomEvent, TrackPublishOptions, TrackSource } from "@livekit/rtc-node";
 import { AccessToken } from "livekit-server-sdk";
-import { ROOM, VOICE_BOT, VOICE_ON, VOICES, type TtsSettings, type VoiceDef } from "@/lib/dolive";
+import { ROOM, VOICE_BOT, VOICE_ON, VOICES, type VoiceDef } from "@/lib/dolive";
 import { loadTextToSpeech, loadVoiceStyle } from "@/lib/supertonic";
 
 // "/글" 음성: 서버가 Supertonic 3 으로 읽고, 방에 "음성"이라는 참여자로 들어가 마이크처럼 흘려보낸다.
@@ -18,7 +18,6 @@ type Voice = {
   line: Promise<void>; // 방에 말하기 줄
   replays: Promise<unknown>; // 다시 듣기 줄
   room?: Promise<{ room: Room; source: AudioSource }>;
-  settings?: TtsSettings;
 };
 
 // 개발 중 코드를 고쳐 다시 읽혀도 모델을 또 올리거나 방에 두 번 들어가지 않게 globalThis 에 둔다
@@ -29,13 +28,8 @@ const voice: Voice = (g.doliveVoice ??= {
   replays: Promise.resolve(),
 });
 
-// 관리자가 고른 음성 설정 (서버 메모리에만. 서버를 다시 켜면 "/글" 읽기, 서연 목소리로 돌아간다)
-export const ttsSettings: TtsSettings = (voice.settings ??= { mode: "slash", voice: "F2" });
-export const isVoice = (id: unknown) => VOICES.some((v) => v.id === id);
 // 목록에 없는 목소리(예전에 지운 목소리로 읽은 글 다시 듣기 등)는 첫 목소리로
 const voiceOf = (id: string) => VOICES.find((v) => v.id === id) ?? VOICES[0];
-// 이번 글을 읽을 목소리
-export const pickVoice = () => voiceOf(ttsSettings.voice).id;
 
 // 목소리 파일. 처음 쓸 때 읽어 둔다
 function styleOf(v: VoiceDef) {

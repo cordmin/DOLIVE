@@ -55,8 +55,24 @@ export const VOICES: VoiceDef[] = [
   { id: "M1", name: "민준", woman: false, base: "M1" },
   { id: "demon", name: "마왕", woman: false, base: "M1", pitch: 0.72, speed: 0.88 },
 ];
-// 관리자가 고르는 음성 설정. mode: "off" = 안 읽기("/글" 도 그냥 글), "slash" = "/글" 만 읽기. voice: VOICES id
-export type TtsSettings = { mode: "off" | "slash"; voice: string };
+export const isVoice = (id: unknown) => VOICES.some((v) => v.id === id);
+// 내 음성 설정 (각자 위 줄 TTS 버튼으로 고른다). 이 브라우저(localStorage)에 남기고, 글을 보낼 때마다 같이 보내서 바로 적용된다.
+// mode: "off" = 안 읽기("/글" 도 그냥 글), "always" = 내 글을 모두 읽기, "slash" = "/글" 만 읽기. voice: VOICES id
+export const TTS_MODES = ["off", "always", "slash"] as const;
+export type TtsSettings = { mode: (typeof TTS_MODES)[number]; voice: string };
+const TTS_KEY = "dolive-tts";
+export function savedTts(): TtsSettings {
+  let s: Partial<TtsSettings> = {};
+  try {
+    s = JSON.parse(localStorage.getItem(TTS_KEY) ?? "{}");
+  } catch {}
+  return { mode: TTS_MODES.includes(s.mode!) ? s.mode! : "slash", voice: isVoice(s.voice) ? s.voice! : VOICES[0].id };
+}
+export function saveTts(s: TtsSettings) {
+  try {
+    localStorage.setItem(TTS_KEY, JSON.stringify(s));
+  } catch {}
+}
 export const CHAT_TOPIC = "dolive-chat";
 export const CHAT_MAX = 2000; // 글자 수
 export const TTS_MAX = 200; // "/" 로 읽어 주는 글은 이 글자 수까지 (30초쯤)

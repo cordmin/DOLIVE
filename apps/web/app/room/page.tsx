@@ -18,7 +18,6 @@ import { Avatar } from "@/components/Avatar";
 import { Switch } from "@/components/Switch";
 import { Tooltips } from "@/components/Tooltips";
 import { VOICE_BOT, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
-import { AdminButton } from "./admin";
 import { ChatInput, ChatLog, useMessages } from "./chat";
 import { useReactions } from "./reactions";
 import { MediaControls, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
@@ -346,7 +345,7 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
         <div
           // 펼친 목록을 아래로 내려 본 채 마우스가 나가도, 접히면서 맨 위(나 → 마이크 켠 사람 → 나머지 순서의 첫 줄)로 돌아오게
           onPointerLeave={(e) => e.currentTarget.firstElementChild?.scrollTo({ top: 0, behavior: "smooth" })}
-          className="group relative ml-6 hidden h-10 min-w-0 flex-1 md:block"
+          className="group relative mr-6 ml-6 hidden h-10 min-w-0 flex-1 md:block"
         >
           <div className="absolute inset-x-0 top-0 z-30 h-10 max-h-[60vh] overflow-hidden rounded-xl transition-[height,background-color,box-shadow] duration-300 ease-out [interpolate-size:allow-keywords] group-hover:h-auto group-hover:-inset-x-2 group-hover:overflow-y-auto group-hover:bg-zinc-900 group-hover:px-2 group-hover:pb-2 group-hover:shadow-xl group-hover:shadow-black/50 group-hover:ring-1 group-hover:ring-zinc-700">
             <div className="flex flex-wrap gap-x-2 gap-y-1">
@@ -357,8 +356,10 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {/* 서버 PC에서 들어온 사람도, 운영진 목록(서버 켜기 창 톱니바퀴)에 있는 도름스 회원도 "관리자" (입장 화면 오른쪽 위 표시와 같은 모양). 누르면 음성 설정 */}
-          {isAdmin && <AdminButton />}
+          {/* 서버 PC에서 들어온 사람도, 운영진 목록(서버 켜기 창 톱니바퀴)에 있는 도름스 회원도 "관리자" (입장 화면 오른쪽 위 표시와 같은 모양) */}
+          {isAdmin && (
+            <span className="rounded bg-amber-500 px-2 py-0.5 text-xs font-bold text-black">관리자</span>
+          )}
           <MediaControls asked={asked} requestShare={requestShare} />
           {docPip && sharing && (
             <div className="hidden sm:block">

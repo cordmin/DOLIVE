@@ -2,7 +2,7 @@ import { useDataChannel, useRoomContext } from "@livekit/components-react";
 import { RoomEvent } from "livekit-client";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
-import { CHAT_MAX, CHAT_TOPIC, IMAGE_MAX, IMAGE_TYPES, TTS_MAX, avatarOf, isPhone, leaveForDorms, type ChatMsg } from "@/lib/dolive";
+import { CHAT_MAX, CHAT_TOPIC, IMAGE_MAX, IMAGE_TYPES, TTS_MAX, avatarOf, isPhone, leaveForDorms, savedTts, type ChatMsg } from "@/lib/dolive";
 import { Heart, STICKER_TEXT, type Reaction } from "./reactions";
 
 // 이 탭에서 내가 썼던 identity 들. 나갔다가 다시 들어오면 identity 가 새로 바뀌어서, 예전 내 글도 내 글로 보이게 모아 둔다
@@ -73,8 +73,9 @@ export function useMessages(token: string) {
     }
     add([await r.json()]);
   }
+  // 내 음성 설정(TTS 버튼)도 같이 보낸다
   const send = (message: string) =>
-    post(JSON.stringify({ message }), "application/json").catch((e) =>
+    post(JSON.stringify({ message, ...savedTts() }), "application/json").catch((e) =>
       alert(
         e.message === "429" ? "음성은 5초에 한 번만 보낼 수 있어요."
         : e.message === "413" ? `음성은 ${TTS_MAX}자까지만 보낼 수 있어요.`

@@ -1,6 +1,6 @@
 import { isOwner, keepImage, post, store, whoSent } from "@/lib/chat";
-import { CHAT_MAX, IMAGE_MAX, IMAGE_TYPES, TTS_MAX } from "@/lib/dolive";
-import { pickVoice, say, ttsSettings } from "@/lib/voice";
+import { CHAT_MAX, IMAGE_MAX, IMAGE_TYPES, TTS_MAX, TTS_MODES, VOICES, isVoice } from "@/lib/dolive";
+import { say } from "@/lib/voice";
 
 // 음성은 한 사람당 5초에 한 번만 (장난으로 계속 보내서 서버가 바빠지지 않게)
 const lastSpoke = new Map<string, number>();
@@ -12,7 +12,7 @@ export async function GET(req: Request) {
   return Response.json(store.messages.map((m) => (isOwner(m.id, owner) ? { ...m, mine: true } : m)));
 }
 
-// 채팅 보내기. 글은 JSON { message }, 사진은 사진 파일 그대로 (Content-Type 이 사진 종류)
+// 채팅 보내기. 글은 JSON { message, mode, voice } (mode·voice = 보낸 사람이 고른 음성 설정, lib/dolive.ts savedTts), 사진은 사진 파일 그대로 (Content-Type 이 사진 종류)
 export async function POST(req: Request) {
   const { who, owner, deny } = await whoSent(req);
   if (deny) return deny;
@@ -27,20 +27,27 @@ export async function POST(req: Request) {
     return Response.json(await post({ ...who, message: "", image: `/api/chat/${id}`, imageType: type }, owner, id));
   }
 
-  const { message } = await req.json().catch(() => ({}));
+  const { message, mode: m, voice: v } = await req.json().catch(() => ({}));
   const text = typeof message === "string" ? message.trim() : "";
   if (!text || text.length > CHAT_MAX) return new Response(null, { status: 400 });
 
   // "/글" 은 서버가 읽어서 방 모두에게 들려준다 (lib/voice.ts). 말풍선에는 "/" 를 뺀 글이 보인다.
-  // 관리자가 "끄기" 로 해 두면 "/글" 도 보낸 그대로 글로만 올린다
-  const said = ttsSettings.mode === "slash" && text.startsWith("/") ? text.slice(1).trim() : "";
+  // 보낸 사람이 "항상" 으로 해 두면 보통 글도 읽는다. 다만 그때 너무 길거나 5초 안에 또 보낸 글은 막지 않고 글로만 올린다.
+  // "끄기" 면 "/글" 도 보낸 그대로 글로만 올린다
+  const mode = TTS_MODES.includes(m) ? m : "slash";
+  const voice = isVoice(v) ? (v as string) : VOICES[0].id;
+  const slash = mode !== "off" && text.startsWith("/");
+  const said = slash ? text.slice(1).trim() : mode === "always" ? text : "";
   if (said) {
-    if (said.length > TTS_MAX) return new Response(null, { status: 413 });
-    if (Date.now() - (lastSpoke.get(who.identity) ?? 0) < 5000) return new Response(null, { status: 429 });
-    lastSpoke.set(who.identity, Date.now());
-    const voice = pickVoice();
-    say(said, voice).catch((e) => console.error("음성 실패", e));
-    return Response.json(await post({ ...who, message: said, tts: true, voice }, owner));
+    const tooLong = said.length > TTS_MAX;
+    const tooSoon = Date.now() - (lastSpoke.get(who.identity) ?? 0) < 5000;
+    if (slash && tooLong) return new Response(null, { status: 413 });
+    if (slash && tooSoon) return new Response(null, { status: 429 });
+    if (!tooLong && !tooSoon) {
+      lastSpoke.set(who.identity, Date.now());
+      say(said, voice).catch((e) => console.error("음성 실패", e));
+      return Response.json(await post({ ...who, message: said, tts: true, voice }, owner));
+    }
   }
   return Response.json(await post({ ...who, message: text }, owner));
 }
