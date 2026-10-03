@@ -151,7 +151,7 @@ async function shrink(file: File): Promise<Blob> {
 const TIME = new Intl.DateTimeFormat("ko-KR", { hour: "numeric", minute: "2-digit" });
 const chatTime = (t: number) => TIME.format(t);
 
-const MENU_ITEM = "block w-full rounded px-3 py-2 text-left outline-none hover:bg-zinc-700 focus-visible:bg-zinc-700";
+const MENU_ITEM = "rounded px-3 py-2 whitespace-nowrap outline-none hover:bg-zinc-700 focus-visible:bg-zinc-700";
 
 // 채팅 글 속 링크 (http:// 또는 https:// 로 시작). 끝에 붙은 마침표·괄호 같은 것은 링크에서 뺀다
 const LINK = /(https?:\/\/[^\s<]+[^\s<.,:;"')\]!?])/g;
@@ -241,7 +241,7 @@ export const ChatLog = memo(function ChatLog({
   const list = useRef<HTMLDivElement>(null);
   const mineIds = myIds();
 
-  // 메시지 메뉴 (복사·수정·삭제): PC 는 메시지에 오른쪽 클릭, 휴대폰은 꾹(0.5초) 누르기. 누른 자리 오른쪽 아래에 작은 메뉴가 뜬다.
+  // 메시지 메뉴 (복사·수정·삭제): PC 는 메시지에 오른쪽 클릭, 휴대폰은 꾹(0.5초) 누르기. 누른 말풍선 바로 아래에 뜨고, 꼬리가 말풍선 가운데를 가리킨다.
   // 휴대폰은 꾹 누를 때 브라우저의 글자 선택·복사 메뉴가 같이 떠서, 말풍선 글자는 선택되지 않게 막고(noSelect) 복사는 이 메뉴로 한다.
   // 지울 수 있는 것: 내가 보낸 것(이 탭 이름표, 또는 같은 도름스 계정 = mine), 관리자는 전부. 고칠 수 있는 것: 내가 보낸 글만 (사진·음성 글 빼고). 서버가 다시 확인한다
   const askDel = useRef<HTMLDialogElement>(null);
@@ -254,17 +254,26 @@ export const ChatLog = memo(function ChatLog({
     askDel.current?.showModal();
   }
   const menu = useRef<HTMLDialogElement>(null);
-  const [menuAt, setMenuAt] = useState<{ m: ChatMsg; x: number; y: number } | null>(null);
-  // 메뉴를 띄운 뒤 크기를 재서, 창 밖으로 나가면 왼쪽·위로 접어 넣는다 (윈도우 오른쪽 클릭 메뉴처럼)
+  const [menuAt, setMenuAt] = useState<{ m: ChatMsg; el: Element } | null>(null);
+  // 메뉴를 띄운 뒤 크기를 재서 말풍선 아래 가운데에 놓는다. 아래에 자리가 없으면 위로 뒤집고(꼬리도 아래를 향함),
+  // 창 가장자리에 걸리면 메뉴 몸통만 옆으로 밀고 꼬리는 그대로 말풍선 가운데를 가리킨다
   useLayoutEffect(() => {
     const d = menu.current;
     if (!d || !menuAt) return;
     d.showModal();
     d.focus(); // 첫 줄에 불이 들어온 채로 뜨지 않게 (키보드는 Tab 으로 고른다)
     const win = d.ownerDocument.defaultView!;
-    const r = d.getBoundingClientRect();
-    d.style.left = `${Math.max(4, Math.min(menuAt.x, win.innerWidth - r.width - 4))}px`;
-    d.style.top = `${menuAt.y + r.height > win.innerHeight - 4 ? Math.max(4, menuAt.y - r.height) : menuAt.y}px`;
+    const r = menuAt.el.getBoundingClientRect();
+    const { offsetWidth: w, offsetHeight: h } = d;
+    const gap = 10;
+    const below = r.bottom + gap + h <= win.innerHeight - 4 || r.top - gap - h < 4;
+    const x = r.left + r.width / 2;
+    const left = Math.max(4, Math.min(x - w / 2, win.innerWidth - w - 4));
+    const top = below ? r.bottom + gap : r.top - gap - h;
+    d.style.left = `${left}px`;
+    d.style.top = `${Math.max(4, Math.min(top, win.innerHeight - h - 4))}px`; // 화면보다 긴 말풍선이면 메뉴가 말풍선 위에 겹쳐도 화면 안에
+    d.style.setProperty("--tail", `${Math.max(12, Math.min(x - left, w - 12))}px`);
+    d.dataset.below = String(below);
   }, [menuAt]);
   function copy(m: ChatMsg) {
     const win = list.current!.ownerDocument.defaultView!; // 채팅분리 창이면 그 창의 클립보드
@@ -297,11 +306,11 @@ export const ChatLog = memo(function ChatLog({
           onPointerDown: (e: React.PointerEvent) => {
             touching.current = e.pointerType !== "mouse";
             held.current = false;
-            const { clientX: x, clientY: y } = e;
+            const el = e.currentTarget;
             if (touching.current)
               pressTimer.current = setTimeout(() => {
                 held.current = true;
-                setMenuAt({ m, x, y });
+                setMenuAt({ m, el });
               }, 500);
           },
           // 손을 떼거나, 밀어서 목록을 움직이면(브라우저가 가져가면 cancel) 취소
@@ -317,7 +326,7 @@ export const ChatLog = memo(function ChatLog({
           // 브라우저 메뉴 대신 이 메뉴 (휴대폰은 위의 꾹 누르기가 띄운다)
           onContextMenu: (e: React.MouseEvent) => {
             e.preventDefault();
-            if (!touching.current) setMenuAt({ m, x: e.clientX, y: e.clientY });
+            if (!touching.current) setMenuAt({ m, el: e.currentTarget });
           },
         }
       : {};
@@ -422,10 +431,12 @@ export const ChatLog = memo(function ChatLog({
           e.preventDefault();
           e.currentTarget.close();
         }}
-        className="m-0 w-36 rounded-lg outline-none bg-zinc-800 p-1 text-sm text-zinc-100 shadow-xl shadow-black/50 ring-1 ring-zinc-700 backdrop:bg-transparent"
+        className="group m-0 overflow-visible rounded-lg outline-none bg-zinc-800 p-1 text-sm text-zinc-100 shadow-xl shadow-black/50 ring-1 ring-zinc-700 backdrop:bg-transparent"
       >
+        {/* 꼬리: 아래에 뜨면 위를, 위로 뒤집히면 아래를 가리킨다 */}
+        <span className="absolute -bottom-1.5 left-(--tail) size-2.5 -translate-x-1/2 rotate-[225deg] border-t border-l border-zinc-700 bg-zinc-800 group-data-[below=true]:-top-1.5 group-data-[below=true]:bottom-auto group-data-[below=true]:rotate-45" />
         {menuAt && (
-          <>
+          <div className="relative flex divide-x divide-zinc-700">
             {!menuAt.m.image && (
               <button type="button" onClick={() => pick("복사")} className={MENU_ITEM}>
                 복사
@@ -441,7 +452,7 @@ export const ChatLog = memo(function ChatLog({
                 삭제
               </button>
             )}
-          </>
+          </div>
         )}
       </dialog>
 

@@ -18,6 +18,7 @@ import { Avatar } from "@/components/Avatar";
 import { Switch } from "@/components/Switch";
 import { Tooltips } from "@/components/Tooltips";
 import { VOICE_BOT, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
+import { AdminButton } from "./admin";
 import { ChatInput, ChatLog, useMessages } from "./chat";
 import { useReactions } from "./reactions";
 import { MediaControls, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
@@ -356,10 +357,8 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {/* 서버 PC에서 들어온 사람도, 운영진 목록(서버 켜기 창 톱니바퀴)에 있는 도름스 회원도 "관리자" (입장 화면 오른쪽 위 표시와 같은 모양) */}
-          {isAdmin && (
-            <span className="rounded bg-amber-500 px-2 py-0.5 text-xs font-bold text-black">관리자</span>
-          )}
+          {/* 서버 PC에서 들어온 사람도, 운영진 목록(서버 켜기 창 톱니바퀴)에 있는 도름스 회원도 "관리자" (입장 화면 오른쪽 위 표시와 같은 모양). 누르면 음성 설정 */}
+          {isAdmin && <AdminButton />}
           <MediaControls asked={asked} requestShare={requestShare} />
           {docPip && sharing && (
             <div className="hidden sm:block">
@@ -385,7 +384,8 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
           data-tip="드래그 너비 조절"
           className={`z-10 hidden w-3 -translate-x-1.5 cursor-col-resize md:my-2 justify-self-start rounded-full hover:bg-indigo-500/40 md:col-start-2 md:row-span-2 md:row-start-1 md:block ${hideOnLand}`}
         />
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:contents">
+        {/* 공유 화면을 쓸어 올려 커지는 동안(data-grow)은 위로 삐져나와도 잘리지 않게 */}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:contents [&:has([data-grow])]:overflow-visible">
           {/* 휴대폰: 목록이 열려 있을 때 바깥을 누르면 닫힌다 */}
           {showPeople && <div onClick={() => setShowPeople(false)} className="fixed inset-0 z-20 md:hidden" />}
           {/* 휴대폰: 배지 아래로 스르륵 내려오는 둥근 카드 (가로 가운데를 배지와 맞춤). PC 는 맨 위 줄에 따로 있어서 숨긴다 */}

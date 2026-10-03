@@ -3,13 +3,6 @@
 /* 휴대폰을 가로로 눕혔을 때. room/page.tsx 의 usePhoneLandscape 가 <html data-phone-land> 를 붙인다 */
 @custom-variant phone-land (&:where([data-phone-land] *));
 
-/* 안내 글씨가 스르륵 사라지기 */
-@keyframes fade-out {
-  to {
-    opacity: 0;
-  }
-}
-
 /* 말풍선 툴팁이 살짝 나타나기 (components/Tooltips.tsx) */
 @keyframes tip-in {
   from {

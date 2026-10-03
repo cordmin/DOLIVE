@@ -1,6 +1,6 @@
 import { isOwner, keepImage, post, store, whoSent } from "@/lib/chat";
 import { CHAT_MAX, IMAGE_MAX, IMAGE_TYPES, TTS_MAX } from "@/lib/dolive";
-import { say } from "@/lib/voice";
+import { pickVoice, say, ttsSettings } from "@/lib/voice";
 
 // 음성은 한 사람당 5초에 한 번만 (장난으로 계속 보내서 서버가 바빠지지 않게)
 const lastSpoke = new Map<string, number>();
@@ -31,14 +31,16 @@ export async function POST(req: Request) {
   const text = typeof message === "string" ? message.trim() : "";
   if (!text || text.length > CHAT_MAX) return new Response(null, { status: 400 });
 
-  // "/글" 은 서버가 읽어서 방 모두에게 들려준다 (lib/voice.ts). 말풍선에는 "/" 를 뺀 글이 보인다
-  const said = text.startsWith("/") ? text.slice(1).trim() : "";
+  // "/글" 은 서버가 읽어서 방 모두에게 들려준다 (lib/voice.ts). 말풍선에는 "/" 를 뺀 글이 보인다.
+  // 관리자가 "끄기" 로 해 두면 "/글" 도 보낸 그대로 글로만 올린다
+  const said = ttsSettings.mode === "slash" && text.startsWith("/") ? text.slice(1).trim() : "";
   if (said) {
     if (said.length > TTS_MAX) return new Response(null, { status: 413 });
     if (Date.now() - (lastSpoke.get(who.identity) ?? 0) < 5000) return new Response(null, { status: 429 });
     lastSpoke.set(who.identity, Date.now());
-    say(said).catch((e) => console.error("음성 실패", e));
-    return Response.json(await post({ ...who, message: said, tts: true }, owner));
+    const voice = pickVoice();
+    say(said, voice).catch((e) => console.error("음성 실패", e));
+    return Response.json(await post({ ...who, message: said, tts: true, voice }, owner));
   }
   return Response.json(await post({ ...who, message: text }, owner));
 }

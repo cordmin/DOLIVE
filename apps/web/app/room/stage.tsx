@@ -181,7 +181,7 @@ function ScreenView({ screen, floats }: { screen: TrackReference; floats: Float[
   // 손가락으로 위아래로 쓸었는지 (50px 넘게, 옆보다 위아래로 더 많이). 쓸었으면 뒤따라오는 '누름'은 무시한다
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const swiped = useRef(false);
-  // 쓰는 동안 공유 화면이 손가락을 따라 움직인다 (유튜브처럼): 평소엔 위로만 들려 올라가며 살짝 커지고, 전체화면에선 아래로만 밀려 내려온다.
+  // 쓰는 동안 공유 화면이 손가락을 따라 움직인다 (유튜브처럼): 평소엔 아래 가운데를 붙박고 위·양옆으로 커지고(최대 1.5배), 전체화면에선 아래로만 밀려 내려온다.
   // 전체화면이 켜지고 꺼지는 순간은 브라우저가 해서 그 사이를 움직이게 할 수는 없다. 덜 쓸고 손을 떼면 제자리로 스르륵
   const [drag, setDrag] = useState({ d: 0, smooth: false });
   const follow = (dy: number) => setDrag({ d: full ? Math.max(0, dy) : Math.min(0, dy), smooth: false });
@@ -190,6 +190,7 @@ function ScreenView({ screen, floats }: { screen: TrackReference; floats: Float[
   return (
     <div
       ref={box}
+      data-grow={drag.d < 0 || undefined} // 커지는 동안 바깥 칸이 잘라 내지 않게 (page.tsx)
       onPointerMove={(e) => {
         wake();
         if (touchStart.current) follow(e.clientY - touchStart.current.y);
@@ -223,8 +224,9 @@ function ScreenView({ screen, floats }: { screen: TrackReference; floats: Float[
       style={
         {
           "--ratio": ratio,
-          translate: drag.d ? `0 ${drag.d}px` : undefined,
-          scale: drag.d && !full ? 1 - drag.d / 1500 : undefined,
+          translate: drag.d && full ? `0 ${drag.d}px` : undefined,
+          scale: drag.d && !full ? Math.min(1.5, 1 - drag.d / 400) : undefined,
+          transformOrigin: "50% 100%",
           transition: drag.smooth ? "translate 200ms ease-out, scale 200ms ease-out" : undefined,
         } as React.CSSProperties
       }
@@ -297,12 +299,6 @@ function ScreenView({ screen, floats }: { screen: TrackReference; floats: Float[
       {slow && (
         <span className="pointer-events-none absolute inset-x-0 bottom-2 mx-auto w-fit max-w-[calc(100%-6rem)] rounded bg-black/70 px-2 py-0.5 text-center text-xs text-amber-300 phone-land:top-2 phone-land:bottom-auto">
           {slow}
-        </span>
-      )}
-      {/* 4초 뒤 스르륵 사라짐. 가로로 다시 눕히거나 전체화면이 풀리면 다시 나타난다 */}
-      {!full && (
-        <span className="absolute inset-x-0 bottom-6 mx-auto hidden w-fit rounded-2xl bg-black/70 px-8 py-4 text-3xl font-bold whitespace-nowrap text-white phone-land:block animate-[fade-out_0.8s_ease_4s_forwards]">
-          화면을 누르면 전체화면
         </span>
       )}
     </div>

@@ -14,7 +14,7 @@ export async function GET(req: Request, ctx: RouteContext<"/api/voice/[id]">) {
   const etag = `"${id}"`;
   const headers = { etag, "cache-control": "private, no-cache", "x-content-type-options": "nosniff" };
   if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
-  const wav = await replay(m.message).catch(() => null);
+  const wav = await replay(m.message, m.voice ?? "F2").catch(() => null);
   if (!wav) return new Response(null, { status: 500 });
   return new Response(new Uint8Array(wav), { headers: { ...headers, "content-type": "audio/wav" } });
 }

@@ -41,8 +41,22 @@ export type ChatMsg = {
   imageType?: string;
   mine?: boolean; // 기록을 받을 때만: 내(같은 도름스 계정)가 보낸 것 → 지우기 버튼 (api/chat GET)
   tts?: boolean; // "/글" 로 보낸 음성 글 (말풍선 앞 스피커를 누르면 /api/voice/<id> 로 다시 듣는다)
+  voice?: string; // 읽은 목소리 (VOICES id). 다시 듣기도 같은 목소리로
   edited?: boolean; // 보낸 뒤 고친 글 (말풍선 옆에 "수정됨")
 };
+
+// 음성 목소리 (lib/voice.ts). 바탕은 Supertonic 3 의 무료 목소리 (models/supertonic/<base>.json). 여자 2, 남자 2.
+// 마왕은 민준을 바꿔서 만든다: pitch = 높낮이(0.72 = 낮게, 말 빠르기는 그대로), speed = 말 빠르기(1 = 보통).
+// (2026-10-04 다른 무료 목소리 8개와 꼬마 요정·햄찌·거인 등 캐릭터 목소리도 들어 봤는데 이 넷만 남김)
+export type VoiceDef = { id: string; name: string; woman: boolean; base: string; pitch?: number; speed?: number };
+export const VOICES: VoiceDef[] = [
+  { id: "F2", name: "서연", woman: true, base: "F2" }, // 처음부터 쓰던 목소리
+  { id: "F1", name: "하은", woman: true, base: "F1" },
+  { id: "M1", name: "민준", woman: false, base: "M1" },
+  { id: "demon", name: "마왕", woman: false, base: "M1", pitch: 0.72, speed: 0.88 },
+];
+// 관리자가 고르는 음성 설정. mode: "off" = 안 읽기("/글" 도 그냥 글), "slash" = "/글" 만 읽기. voice: VOICES id
+export type TtsSettings = { mode: "off" | "slash"; voice: string };
 export const CHAT_TOPIC = "dolive-chat";
 export const CHAT_MAX = 2000; // 글자 수
 export const TTS_MAX = 200; // "/" 로 읽어 주는 글은 이 글자 수까지 (30초쯤)
