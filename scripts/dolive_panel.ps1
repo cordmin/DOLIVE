@@ -112,12 +112,25 @@ $line = New-Object Windows.Forms.Label
 $line.Location = "24,174"; $line.Size = "260,1"; $line.BackColor = Color "#3f3f46"
 $form.Controls.Add($line)
 
-# 운영진 = 채팅방에서 방장 권한(화면공유·마이크 끄기·화면공유 허락)을 받는 도름스 회원.
-# 톱니바퀴 창에서 닉네임을 한 줄 칸에 적고 [+](또는 Enter), 배지의 X 로 지운다. 바꿀 때마다 바로 파일에 저장하고,
-# 웹 서버(apps/web/lib/server.ts isStaff)가 요청마다 이 파일을 다시 읽어서 다음 입장부터 적용된다
+# DOLIVE 설정 창 (관리자(방장) 줄 톱니바퀴). 왼쪽 메뉴 [방송 관리자] [채팅방 관리], 오른쪽에 고른 쪽 내용.
+# 바꿀 때마다 바로 파일에 저장하고, 웹 서버(apps/web/lib/server.ts)가 요청마다 파일을 다시 읽어서 바로 적용된다
+
+# 방송 관리자(운영진) = 채팅방에서 방장 권한(화면공유·마이크 끄기·화면공유 허락)을 받는 도름스 회원 (isStaff, 다음 입장부터).
+# 닉네임을 한 줄 칸에 적고 [+](또는 Enter), 배지의 X 로 지운다
 $staffFile = "$root\server\config\staff.txt"
-$staff = @{ names = New-Object Collections.Generic.List[string]; flow = $null; box = $null; wrap = $null }
+$staff = @{ names = New-Object Collections.Generic.List[string]; flow = $null; box = $null }
 function Save-Staff { [IO.File]::WriteAllLines($staffFile, [string[]]$staff.names, (New-Object Text.UTF8Encoding $false)) }
+
+# 채팅방 관리 = 입장 화면 방송 목록에 나오는 방들 (roomList). 한 줄에 "방 이름<탭>비밀번호" (비밀번호는 비워도 된다).
+# 파일이 없으면(처음) 웹 서버처럼 비밀번호 없는 DOLIVE 방 하나로 본다. 방을 지우면 그 방에 있던 사람은 모두 나가진다 (api/end)
+$roomsFile = "$root\server\config\rooms.txt"
+$roomCfg = @{ list = New-Object Collections.Generic.List[object]; flow = $null; name = $null; pw = $null }
+function Save-Rooms {
+    [IO.File]::WriteAllLines($roomsFile, [string[]]@($roomCfg.list | ForEach-Object { "$($_.name)`t$($_.pw)" }), (New-Object Text.UTF8Encoding $false))
+}
+
+# 설정 창 왼쪽 메뉴와 오른쪽 내용 (같은 순서)
+$settings = @{ navs = $null; pages = $null }
 
 # 다 그린 뒤 한 번에 보여 준다 (직접 그리는 칸이 지웠다 그리는 순간이 보여 깜빡이지 않게. 윈도우가 숨겨 둔 설정이라 꺼내서 켠다)
 function NoFlicker($c) { [Windows.Forms.Control].GetProperty("DoubleBuffered", [Reflection.BindingFlags]"NonPublic, Instance").SetValue($c, $true) }
@@ -129,12 +142,14 @@ function RoundRect($x, $y, $w, $h, $r) {
     $p.AddArc($x + $w - $d, $y + $h - $d, $d, $d, 0, 90); $p.AddArc($x, $y + $h - $d, $d, $d, 90, 90); $p.CloseFigure(); $p
 }
 
-# 닉네임 배지: 살짝 둥근 알약 모양 + 오른쪽 X (누르면 지운다). 마우스가 X 위에 있으면 X 를 밝게 (그때 손가락 커서)
-function Add-Badge($name) {
+# 배지: 살짝 둥근 알약 모양 + 오른쪽 X (누르면 $onRemove 에 이름을 넘기고 배지를 없앤다). -Lock 이면 이름 뒤에 자물쇠(비밀번호 방).
+# 마우스가 X 위에 있으면 빨간 동그라미 위에 흰 X (그때 손가락 커서). $tipText 는 배지에 마우스를 올리면 뜨는 글
+function Add-Badge($flow, $name, $onRemove, $tipText, [switch]$Lock) {
     $font = Font 10
     $tw = [Windows.Forms.TextRenderer]::MeasureText($name, $font, [Drawing.Size]::Empty, [Windows.Forms.TextFormatFlags]::NoPadding).Width
     $b = New-Object Windows.Forms.Panel
-    $b.Size = "$($tw + 44),30"; $b.Margin = "0,0,8,8"; $b.Tag = $name; $b.Font = $font
+    $b.Size = "$($tw + 44 + $(if ($Lock) { 18 } else { 0 })),30"; $b.Margin = "0,0,8,8"; $b.Font = $font
+    $b.Tag = @{ name = $name; remove = $onRemove; lock = [bool]$Lock }
     NoFlicker $b
     $b.Add_Paint({
         param($s, $e)
@@ -142,12 +157,21 @@ function Add-Badge($name) {
         $p = RoundRect 0 0 ($s.Width - 1) ($s.Height - 1) 9
         $brush = New-Object Drawing.SolidBrush (Color "#3f3f46"); $g.FillPath($brush, $p); $brush.Dispose(); $p.Dispose()
         $flags = [Windows.Forms.TextFormatFlags]"VerticalCenter, NoPadding"
-        [Windows.Forms.TextRenderer]::DrawText($g, $s.Tag, $s.Font, (New-Object Drawing.Rectangle 12, 0, ($s.Width - 40), $s.Height), (Color "#f4f4f5"), $flags)
+        [Windows.Forms.TextRenderer]::DrawText($g, $s.Tag.name, $s.Font, (New-Object Drawing.Rectangle 12, 0, ($s.Width - 40), $s.Height), (Color "#f4f4f5"), $flags)
+        if ($s.Tag.lock) {
+            $lockFont = New-Object Drawing.Font("Segoe MDL2 Assets", 8)
+            [Windows.Forms.TextRenderer]::DrawText($g, [string][char]0xE72E, $lockFont, (New-Object Drawing.Rectangle ($s.Width - 48), 0, 18, $s.Height),
+                (Color "#a1a1aa"), [Windows.Forms.TextFormatFlags]"HorizontalCenter, VerticalCenter")
+            $lockFont.Dispose()
+        }
         $hot = $s.Cursor -eq [Windows.Forms.Cursors]::Hand  # X 위에 있는지는 커서 모양으로 기억한다 (MouseMove)
-        $xFont = New-Object Drawing.Font("Segoe MDL2 Assets", 7)
-        [Windows.Forms.TextRenderer]::DrawText($g, [string][char]0xE711, $xFont, (New-Object Drawing.Rectangle ($s.Width - 30), 0, 26, $s.Height),
-            $(if ($hot) { Color "#ffffff" } else { Color "#a1a1aa" }), [Windows.Forms.TextFormatFlags]"HorizontalCenter, VerticalCenter")
-        $xFont.Dispose()
+        # X 는 선 두 개로 직접 그린다 (글꼴 글자는 칸 가운데에서 살짝 비껴 나와서 동그라미 한가운데에 안 맞는다)
+        $cx = $s.Width - 17; $cy = $s.Height / 2
+        if ($hot) {  # 지우는 버튼이라는 걸 알게 X 뒤에 빨간 동그라미
+            $red = New-Object Drawing.SolidBrush (Color "#ef4444"); $g.FillEllipse($red, ($cx - 10), ($cy - 10), 20, 20); $red.Dispose()
+        }
+        $pen = New-Object Drawing.Pen((Color $(if ($hot) { "#ffffff" } else { "#a1a1aa" })), 1.5)
+        $g.DrawLine($pen, ($cx - 4), ($cy - 4), ($cx + 4), ($cy + 4)); $g.DrawLine($pen, ($cx - 4), ($cy + 4), ($cx + 4), ($cy - 4)); $pen.Dispose()
     })
     # X 안팎을 넘나들 때만 다시 그린다 (움직일 때마다 그리면 깜빡인다)
     $b.Add_MouseMove({
@@ -161,10 +185,23 @@ function Add-Badge($name) {
     $b.Add_MouseClick({
         param($s, $e)
         if ($e.X -lt $s.Width - 30) { return }
-        [void]$staff.names.Remove($s.Tag); Save-Staff
-        $staff.flow.Controls.Remove($s); $s.Dispose()
+        & $s.Tag.remove $s.Tag.name
+        $s.Parent.Controls.Remove($s); $s.Dispose()
     })
-    $staff.flow.Controls.Add($b)
+    if ($tipText) { $tip.SetToolTip($b, $tipText) }
+    $flow.Controls.Add($b)
+}
+
+$removeStaff = { param($n) [void]$staff.names.Remove($n); Save-Staff }
+$removeRoom = {
+    param($n)
+    [void]$roomCfg.list.Remove(($roomCfg.list | Where-Object { $_.name -eq $n } | Select-Object -First 1)); Save-Rooms
+    # 서버가 켜져 있으면 그 방을 바로 닫는다 (안에 있던 사람은 "방송이 끝났어요"). 꺼져 있으면 바로 실패해서 넘어간다
+    $body = [Text.Encoding]::UTF8.GetBytes((ConvertTo-Json @{ room = $n } -Compress))
+    try { Invoke-RestMethod -Method Post "http://127.0.0.1:3000/api/end" -Body $body -ContentType "application/json" -TimeoutSec 3 | Out-Null } catch {}
+}
+function Add-RoomBadge($r) {
+    Add-Badge $roomCfg.flow $r.name $removeRoom $(if ($r.pw) { "비밀번호: $($r.pw)" } else { "비밀번호 없음" }) -Lock:([bool]$r.pw)
 }
 
 # 칸에 적은 닉네임 추가 (빈칸·이미 있는 이름은 넘어간다. 대소문자는 같은 이름으로 본다)
@@ -172,41 +209,48 @@ function Add-Staff {
     $name = $staff.box.Text.Trim()
     $staff.box.Text = ""; [void]$staff.box.Focus()
     if (-not $name -or ($staff.names | Where-Object { $_ -ieq $name })) { return }
-    $staff.names.Add($name); Save-Staff; Add-Badge $name
+    $staff.names.Add($name); Save-Staff; Add-Badge $staff.flow $name $removeStaff
 }
 
-function Show-Staff {
-    $dlg = New-Object Windows.Forms.Form
-    $dlg.Text = "운영진"; $dlg.Icon = $form.Icon
-    $dlg.ClientSize = "308,300"; $dlg.FormBorderStyle = "FixedSingle"; $dlg.MaximizeBox = $false; $dlg.MinimizeBox = $false
-    $dlg.StartPosition = "CenterParent"; $dlg.BackColor = $form.BackColor
-    $dlg.Add_HandleCreated({ param($s) $on = 1; [void][Win.Dwm]::DwmSetWindowAttribute($s.Handle, 20, [ref]$on, 4) })
+# 방 추가 (방 이름이 비었거나 이미 있으면 넘어간다. 탭은 파일 칸 나누기라 뺀다)
+function Add-Room {
+    $name = ($roomCfg.name.Text -replace "`t", " ").Trim()
+    $pw = ($roomCfg.pw.Text -replace "`t", "").Trim()
+    if (-not $name) { [void]$roomCfg.name.Focus(); return }
+    $roomCfg.name.Text = ""; $roomCfg.pw.Text = ""; [void]$roomCfg.name.Focus()
+    if ($roomCfg.list | Where-Object { $_.name -ieq $name }) { return }
+    $r = [pscustomobject]@{ name = $name; pw = $pw }
+    $roomCfg.list.Add($r); Save-Rooms; Add-RoomBadge $r
+}
 
-    # 한 줄 입력칸: 둥근 테두리 칸 안에 테두리 없는 글자칸 (글자칸에 있으면 테두리가 보라색)
+# 한 줄 입력칸: 둥근 테두리 칸 안에 테두리 없는 글자칸 (글자칸에 있으면 테두리가 보라색). 빈칸일 때 흐린 $hint, Enter 는 $onEnter
+function New-Input($parent, $x, $y, $w, $hint, $onEnter) {
     $wrap = New-Object Windows.Forms.Panel
-    $wrap.Location = "24,24"; $wrap.Size = "216,38"; NoFlicker $wrap
+    $wrap.Location = "$x,$y"; $wrap.Size = "$w,38"; NoFlicker $wrap
     $wrap.Add_Paint({
         param($s, $e)
         $g = $e.Graphics; $g.SmoothingMode = "AntiAlias"; $g.Clear($s.Parent.BackColor)
         $p = RoundRect 0 0 ($s.Width - 1) ($s.Height - 1) 9
         $brush = New-Object Drawing.SolidBrush (Color "#27272a"); $g.FillPath($brush, $p); $brush.Dispose()
-        $pen = New-Object Drawing.Pen((Color $(if ($staff.box.Focused) { "#6366f1" } else { "#3f3f46" })), 1)
+        $pen = New-Object Drawing.Pen((Color $(if ($s.Controls[0].Focused) { "#6366f1" } else { "#3f3f46" })), 1)
         $g.DrawPath($pen, $p); $pen.Dispose(); $p.Dispose()
     })
     $box = New-Object Windows.Forms.TextBox
     $box.BorderStyle = "None"; $box.Font = Font 11; $box.BackColor = Color "#27272a"; $box.ForeColor = Color "#f4f4f5"
-    $box.Location = "12,9"; $box.Width = 192; $box.MaxLength = 40
-    $box.Add_HandleCreated({ param($s) [void][Win.Dwm]::SendMessage($s.Handle, 0x1501, [IntPtr]1, "도름스 닉네임") })  # 빈칸일 때 흐린 안내 글
-    $box.Add_GotFocus({ $staff.wrap.Invalidate() }); $box.Add_LostFocus({ $staff.wrap.Invalidate() })
-    $box.Add_KeyDown({ param($s, $e) if ($e.KeyCode -eq "Enter") { $e.SuppressKeyPress = $true; Add-Staff } })
-    $wrap.Controls.Add($box)
-    $dlg.Controls.Add($wrap)
-    $staff.box = $box; $staff.wrap = $wrap
+    $box.Location = "12,9"; $box.Width = $w - 24; $box.MaxLength = 40
+    $box.Tag = @{ hint = $hint; enter = $onEnter }
+    $box.Add_HandleCreated({ param($s) [void][Win.Dwm]::SendMessage($s.Handle, 0x1501, [IntPtr]1, $s.Tag.hint) })
+    $box.Add_GotFocus({ param($s) $s.Parent.Invalidate() }); $box.Add_LostFocus({ param($s) $s.Parent.Invalidate() })
+    $box.Add_KeyDown({ param($s, $e) if ($e.KeyCode -eq "Enter") { $e.SuppressKeyPress = $true; & $s.Tag.enter } })
+    $wrap.Controls.Add($box); $parent.Controls.Add($wrap)
+    $box
+}
 
-    # 동그란 [+] 버튼
+# 동그란 [+] 버튼 (누르면 $onClick)
+function New-Plus($parent, $x, $y, $onClick) {
     $plus = New-Object Windows.Forms.Button
-    $plus.Location = "248,24"; $plus.Size = "38,38"; $plus.FlatStyle = "Flat"; $plus.FlatAppearance.BorderSize = 0
-    $plus.Cursor = [Windows.Forms.Cursors]::Hand; NoFlicker $plus
+    $plus.Location = "$x,$y"; $plus.Size = "38,38"; $plus.FlatStyle = "Flat"; $plus.FlatAppearance.BorderSize = 0
+    $plus.Cursor = [Windows.Forms.Cursors]::Hand; $plus.Tag = $onClick; NoFlicker $plus
     $plus.Add_Paint({
         param($s, $e)
         $g = $e.Graphics; $g.SmoothingMode = "AntiAlias"; $g.Clear($s.Parent.BackColor)
@@ -218,28 +262,89 @@ function Show-Staff {
         $f.Dispose()
     })
     $plus.Add_MouseEnter({ param($s) $s.Invalidate() }); $plus.Add_MouseLeave({ param($s) $s.Invalidate() })
-    $plus.Add_Click({ Add-Staff })
+    $plus.Add_Click({ param($s) & $s.Tag })
     $tip.SetToolTip($plus, "추가")
-    $dlg.Controls.Add($plus)
+    $parent.Controls.Add($plus)
+}
 
-    # 배지들이 왼쪽부터 차례로 쌓이는 자리 (넘치면 아랫줄로, 더 넘치면 스크롤)
+# 오른쪽 내용 한 쪽: 제목 + 흐린 설명 + 배지들이 왼쪽부터 차례로 쌓이는 자리(넘치면 아랫줄로, 더 넘치면 스크롤). 입력칸은 92 줄에 둔다
+function New-Page($dlg, $title, $desc) {
+    $page = New-Object Windows.Forms.Panel
+    $page.Location = "168,0"; $page.Size = "448,600"; $page.BackColor = $dlg.BackColor
+    $page.Controls.Add((Label $title 24 24 14 "#f4f4f5" -Bold))
+    $page.Controls.Add((Label $desc 26 60 9 "#a1a1aa"))
     $flow = New-Object Windows.Forms.FlowLayoutPanel
-    $flow.Location = "24,78"; $flow.Size = "268,206"; $flow.AutoScroll = $true; $flow.BackColor = $dlg.BackColor
-    $dlg.Controls.Add($flow)
-    $staff.flow = $flow
+    $flow.Location = "24,148"; $flow.Size = "404,432"; $flow.AutoScroll = $true; $flow.BackColor = $page.BackColor
+    $page.Controls.Add($flow)
+    $dlg.Controls.Add($page)
+    @{ page = $page; flow = $flow }
+}
+
+# 왼쪽 메뉴에서 i 번째를 고른다: 그 쪽만 보이고, 메뉴 버튼은 고른 것만 밝은 바탕, 첫 입력칸에 글자 커서
+function Select-Page($i) {
+    for ($j = 0; $j -lt $settings.pages.Count; $j++) {
+        $settings.pages[$j].Visible = $j -eq $i
+        $settings.navs[$j].BackColor = Color $(if ($j -eq $i) { "#3f3f46" } else { "#111113" }); $settings.navs[$j].Invalidate()
+    }
+    [void]$(if ($i -eq 0) { $staff.box } else { $roomCfg.name }).Focus()
+}
+
+function Show-Settings {
+    $dlg = New-Object Windows.Forms.Form
+    $dlg.Text = "DOLIVE 설정"; $dlg.Icon = $form.Icon
+    $dlg.ClientSize = "616,600"  # 예전 운영진 창(308x300)의 2배
+    $dlg.FormBorderStyle = "FixedSingle"; $dlg.MaximizeBox = $false; $dlg.MinimizeBox = $false
+    $dlg.StartPosition = "CenterParent"; $dlg.BackColor = $form.BackColor
+    $dlg.Add_HandleCreated({ param($s) $on = 1; [void][Win.Dwm]::DwmSetWindowAttribute($s.Handle, 20, [ref]$on, 4) })
+
+    # 방송 관리자: 닉네임 칸 + [+]
+    $a = New-Page $dlg "방송 관리자" "도름스 닉네임을 적으면 그 사람은 방송에서 방장 권한을 받아요"
+    $staff.box = New-Input $a.page 24 92 346 "도름스 닉네임" { Add-Staff }
+    New-Plus $a.page 386 92 { Add-Staff }
+    $staff.flow = $a.flow
+
+    # 채팅방 관리: 방 이름 칸 + 비밀번호 칸 + [+]. 자물쇠 = 비밀번호 방 (배지에 마우스를 올리면 비밀번호가 보인다)
+    $b = New-Page $dlg "채팅방 관리" "만든 방은 입장 화면 방송 목록에 나와요. 비밀번호는 비워도 돼요"
+    $roomCfg.name = New-Input $b.page 24 92 200 "방 이름" { Add-Room }
+    $roomCfg.pw = New-Input $b.page 232 92 138 "비밀번호" { Add-Room }
+    New-Plus $b.page 386 92 { Add-Room }
+    $roomCfg.flow = $b.flow
+
+    # 왼쪽 메뉴 (창보다 살짝 어두운 바탕)
+    $side = New-Object Windows.Forms.Panel
+    $side.Location = "0,0"; $side.Size = "168,600"; $side.BackColor = Color "#111113"
+    $dlg.Controls.Add($side)
+    $settings.pages = @($a.page, $b.page)
+    $settings.navs = @(
+        foreach ($i in 0, 1) {
+            $nb = Button @("방송 관리자", "채팅방 관리")[$i] 12 (24 + $i * 48) 144 40 10
+            $nb.Tag = $i; $nb.Add_Click({ param($s) Select-Page $s.Tag })
+            $side.Controls.Add($nb); $nb
+        }
+    )
 
     $staff.names.Clear()
     foreach ($n in (Get-Content $staffFile -Encoding UTF8 -ErrorAction SilentlyContinue)) {
         $n = $n.Trim()
-        if ($n -and -not ($staff.names | Where-Object { $_ -ieq $n })) { $staff.names.Add($n); Add-Badge $n }
+        if ($n -and -not ($staff.names | Where-Object { $_ -ieq $n })) { $staff.names.Add($n); Add-Badge $staff.flow $n $removeStaff }
     }
-    $dlg.Add_Shown({ [void]$staff.box.Focus() })
+    $roomCfg.list.Clear()
+    $lines = if (Test-Path $roomsFile) { Get-Content $roomsFile -Encoding UTF8 } else { "DOLIVE`t" }
+    foreach ($line in $lines) {
+        $name, $pw = "$line" -split "`t", 2
+        $name = $name.Trim()
+        if ($name -and -not ($roomCfg.list | Where-Object { $_.name -ieq $name })) {
+            $r = [pscustomobject]@{ name = $name; pw = "$pw" }
+            $roomCfg.list.Add($r); Add-RoomBadge $r
+        }
+    }
+    $dlg.Add_Shown({ Select-Page 0 })
     [void]$dlg.ShowDialog($form)
     $dlg.Dispose()
 }
 
 # 한 줄에 이름(왼쪽, LIVE OFF 글자색) + [접속하기](그 주소를 연다) + 오른쪽 작은 아이콘 버튼. 두 줄 모두 같은 자리·같은 크기
-# 아이콘은 윈도우에 들어 있는 기호 글꼴(Segoe MDL2 Assets)의 모양: 관리자 줄은 톱니바퀴(운영진 창), 클라이언트 줄은 복사(누르면 체크 표시로)
+# 아이콘은 윈도우에 들어 있는 기호 글꼴(Segoe MDL2 Assets)의 모양: 관리자 줄은 톱니바퀴(DOLIVE 설정 창), 클라이언트 줄은 복사(누르면 체크 표시로)
 function LinkRow($title, $url, $y, [switch]$Staff) {
     [void](Label $title 24 ($y + 4) 11 "#a1a1aa")
     $go = Button "접속하기" 166 $y 80 30 9
@@ -249,14 +354,14 @@ function LinkRow($title, $url, $y, [switch]$Staff) {
     $icon.Font = New-Object Drawing.Font("Segoe MDL2 Assets", 11)
     $icon.BackColor = Color "#3f3f46"; $icon.Tag = $url
     if ($Staff) {
-        $icon.Add_Click({ Show-Staff })
-        $tip.SetToolTip($icon, "운영진 (관리자 권한 주기)")
+        $icon.Add_Click({ Show-Settings })
+        $tip.SetToolTip($icon, "DOLIVE 설정 (방송 관리자, 채팅방 관리)")
     } else {
         $icon.Add_Click({ param($s) [Windows.Forms.Clipboard]::SetText($s.Tag); $s.Text = [string][char]0xE73E })
         $tip.SetToolTip($icon, "주소 복사")
     }
 }
-# 관리자(방장) = 이 PC / 클라이언트 = 친구들 주소 (도름스 로그인해야 들어간다. 운영진은 톱니바퀴에서 정한다)
+# 관리자(방장) = 이 PC / 클라이언트 = 친구들 주소 (도름스 로그인해야 들어간다. 방송 관리자(운영진)와 채팅방은 톱니바퀴에서 정한다)
 LinkRow "관리자(방장)" $hostUrl 194 -Staff
 LinkRow "클라이언트" $friendsUrl 238
 

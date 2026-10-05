@@ -16,7 +16,7 @@ type Quality = keyof typeof QUALITY;
 
 // 화면공유 요청("request")과 거부("denied")를 주고받는 채널
 const SHARE_TOPIC = "dolive-share";
-const SCREEN_SHARE_SOURCE = 3; // LiveKit 권한 목록에서 화면공유를 뜻하는 번호 (TrackSource.SCREEN_SHARE)
+export const SCREEN_SHARE_SOURCE = 3; // LiveKit 권한 목록에서 화면공유를 뜻하는 번호 (TrackSource.SCREEN_SHARE)
 const text = (s: string) => new TextEncoder().encode(s);
 
 // 라디오 DJ처럼: 누가 마이크로 말하거나 "/글" 음성이 나오는 동안 화면공유 소리(배경음악 등)를
@@ -108,7 +108,7 @@ export function useShareRequests(isAdmin: boolean, participants: Participant[]) 
   async function answer(req: { identity: string }, allow: boolean) {
     setRequests((r) => r.filter((x) => x.identity !== req.identity));
     if (!allow) return send(text("denied"), { reliable: true, destinationIdentities: [req.identity] });
-    const r = await fetch("/api/share", { method: "POST", body: JSON.stringify({ identity: req.identity, allow: true }) });
+    const r = await fetch("/api/share", { method: "POST", body: JSON.stringify({ room: room.name, identity: req.identity, allow: true }) });
     if (!r.ok) alert("승인하지 못했어요. 그 사람이 방을 나갔을 수 있어요.");
   }
 
@@ -117,7 +117,7 @@ export function useShareRequests(isAdmin: boolean, participants: Participant[]) 
     if (!isAdmin) return;
     const onUnpublished = (pub: RemoteTrackPublication, p: RemoteParticipant) => {
       if (pub.source !== Track.Source.ScreenShare || p.attributes.admin === "1") return;
-      fetch("/api/share", { method: "POST", body: JSON.stringify({ identity: p.identity, allow: false }) });
+      fetch("/api/share", { method: "POST", body: JSON.stringify({ room: room.name, identity: p.identity, allow: false }) });
     };
     room.on(RoomEvent.TrackUnpublished, onUnpublished);
     return () => {

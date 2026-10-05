@@ -28,7 +28,7 @@
 | 주소 | `server/config/duckdns.env` | `dolive.duckdns.org`. 스크립트 실행 때 IP 갱신 |
 | 실행 | `scripts/start_dolive.ps1` | `-Local`(내 PC만), `-Build`(코드 바꾼 뒤), `-Stop`, UTF-8(BOM)으로 저장해야 한글이 안 깨짐. 프로젝트 폴더의 `DOLIVE.lnk`(아이콘 `scripts/icons/dolive.ico`)는 검은 창 없이(`conhost --headless`) 켜기/끄기 창 `scripts/dolive_panel.ps1`(WinForms)을 띄우고, 그 창이 이 스크립트를 뒤에서 부름 |
 
-* 채팅방은 하나 (`ROOM = "dolive"`, 주소 `/room`). 입장 화면(`app/page.tsx`)은 사진 + 닉네임만. 마이크는 꺼진 채로 입장. 카메라 기능은 없음 (사용자 결정으로 삭제).
+* 채팅방(방송)은 서버 켜기 창 톱니바퀴 [채팅방 관리]에서 만든다 (`server/config/rooms.txt`, 한 줄에 "방 이름<탭>비밀번호", 없으면 DOLIVE 하나. `lib/server.ts` `roomList`). 방 이름이 LiveKit 방 이름이고 채팅 기록·음성도 방마다 따로. 주소는 늘 `/room`. 입장 화면(`app/page.tsx`)은 사진 + 닉네임 + 방송 목록(비밀번호 방은 비밀번호 창, 방장·운영진은 안 물음, 방장·운영진이 있으면 ON AIR). 방을 지우면 `/api/end {room}` 로 바로 닫는다. 마이크는 꺼진 채로 입장. 카메라 기능은 없음 (사용자 결정으로 삭제).
 * 방 화면 코드는 `app/room/`에 나눠 둠: `page.tsx`(방 전체 배치), `chat.tsx`(채팅), `stage.tsx`(공유 화면·사진 칸), `share.tsx`(화면공유·마이크), `reactions.tsx`(하트·ㅋ·헐).
 * 채팅: `/api/chat`을 거침. 서버 메모리(`lib/chat.ts`)에 글·사진을 쌓고(파일 저장 안 함) 토픽 `dolive-chat`으로 방 안에 보냄. 들어올 때 기록을 통째로 받음. 카카오톡 모양 말풍선 (남: 왼쪽 사진·이름·회색, 나: 오른쪽 보라색, 같은 사람이 같은 분에 보낸 말은 묶음).
 * 개발 모드: 미리보기(`.claude/launch.json`)는 `autoPort`로 3001번 이후의 빈 번호를 써서, 3000번 완성품 웹과 같이 켜 둘 수 있다.

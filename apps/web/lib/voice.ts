@@ -1,7 +1,7 @@
 import path from "node:path";
 import { AudioFrame, AudioSource, LocalAudioTrack, Room, RoomEvent, TrackPublishOptions, TrackSource } from "@livekit/rtc-node";
 import { AccessToken } from "livekit-server-sdk";
-import { ROOM, VOICE_BOT, VOICE_ON, VOICES, type VoiceDef } from "@/lib/dolive";
+import { VOICE_BOT, VOICE_ON, VOICES, type VoiceDef } from "@/lib/dolive";
 import { loadTextToSpeech, loadVoiceStyle } from "@/lib/supertonic";
 
 // "/글" 음성: 서버가 Supertonic 3 으로 읽고, 방에 "음성"이라는 참여자로 들어가 마이크처럼 흘려보낸다.
@@ -15,9 +15,9 @@ type Tts = { sampleRate: number; call(text: string, lang: string, style: unknown
 type Voice = {
   tts: Promise<{ tts: Tts }>;
   styles?: Map<string, unknown>; // 목소리 파일. 처음 쓸 때 읽어 둔다
-  line: Promise<void>; // 방에 말하기 줄
+  line: Promise<void>; // 방에 말하기 줄 (ponytail: 모든 방송이 한 줄. 두 방송에서 같이 말하면 차례를 기다린다. 막히면 방마다 줄을 따로)
   replays: Promise<unknown>; // 다시 듣기 줄
-  room?: Promise<{ room: Room; source: AudioSource }>;
+  rooms: Map<string, Promise<{ room: Room; source: AudioSource }>>; // 방 이름 → 그 방에 들어간 "음성" 참여자
 };
 
 // 개발 중 코드를 고쳐 다시 읽혀도 모델을 또 올리거나 방에 두 번 들어가지 않게 globalThis 에 둔다
@@ -26,6 +26,7 @@ const voice: Voice = (g.doliveVoice ??= {
   tts: (async () => ({ tts: (await loadTextToSpeech(DIR)) as Tts }))(),
   line: Promise.resolve(),
   replays: Promise.resolve(),
+  rooms: new Map(),
 });
 
 // 목록에 없는 목소리(예전에 지운 목소리로 읽은 글 다시 듣기 등)는 첫 목소리로
@@ -98,13 +99,15 @@ async function push(source: AudioSource, pcm: Int16Array, rate: number) {
   }
 }
 
-// 처음 말할 때 방에 들어가서 계속 머문다. 방 서버가 꺼졌다 켜지면 다음에 말할 때 다시 들어간다.
-function join(sampleRate: number) {
-  return (voice.room ??= (async () => {
+// 그 방에서 처음 말할 때 들어가서 계속 머문다. 방 서버가 꺼졌다 켜지거나 방송이 닫히면 다음에 말할 때 다시 들어간다.
+function join(name: string, sampleRate: number) {
+  const joined = voice.rooms.get(name);
+  if (joined) return joined;
+  const joining = (async () => {
     const at = new AccessToken(process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET, { identity: VOICE_BOT, name: "음성" });
-    at.addGrant({ roomJoin: true, room: ROOM, canPublish: true, canSubscribe: false, canPublishData: false, canUpdateOwnMetadata: true });
+    at.addGrant({ roomJoin: true, room: name, canPublish: true, canSubscribe: false, canPublishData: false, canUpdateOwnMetadata: true });
     const room = new Room();
-    room.on(RoomEvent.Disconnected, () => (voice.room = undefined));
+    room.on(RoomEvent.Disconnected, () => voice.rooms.delete(name));
     await room.connect("ws://localhost:7880", await at.toJwt(), { autoSubscribe: false, dynacast: false });
     const source = new AudioSource(sampleRate, 1);
     const opts = new TrackPublishOptions();
@@ -112,20 +115,22 @@ function join(sampleRate: number) {
     await room.localParticipant!.publishTrack(LocalAudioTrack.createAudioTrack("voice", source), opts);
     return { room, source };
   })().catch((e) => {
-    voice.room = undefined;
+    voice.rooms.delete(name);
     throw e;
-  }));
+  });
+  voice.rooms.set(name, joining);
+  return joining;
 }
 
 // 한 줄로 서서 차례대로 말한다 (두 사람이 같이 보내도 소리가 겹치지 않게).
 // 빨리 들리게: 읽는다는 신호(VOICE_ON)는 소리를 만들기 전에 먼저 보내서 배경음악 줄이기가 만드는 시간과 겹치게 하고,
 // 문장이 여럿이면 첫 문장을 흘려보내는 동안 다음 문장을 만든다
-export function say(text: string, id: string) {
+export function say(name: string, text: string, id: string) {
   const turn = voice.line.then(async () => {
     const { tts } = await voice.tts;
     const rate = tts.sampleRate;
-    const fresh = !voice.room;
-    const { room, source } = await join(rate);
+    const fresh = !voice.rooms.has(name);
+    const { room, source } = await join(name, rate);
     const me = room.localParticipant!;
     // 방에 막 들어왔으면 사람들이 새 소리를 받기 시작할 때까지 첫 소리를 기다린다
     // ponytail: 1초는 어림값. 서버를 켜고 첫 음성의 첫 마디가 잘리면 늘리기

@@ -9,5 +9,6 @@ server/logs/
 node_modules/
 
 
-# 운영진 도름스 닉네임 목록 (서버 켜기 창 톱니바퀴에서 고친다)
+# 운영진 도름스 닉네임 목록, 방송(채팅방) 목록과 비밀번호 (서버 켜기 창 톱니바퀴에서 고친다)
 server/config/staff.txt
+server/config/rooms.txt

@@ -1,20 +1,20 @@
-import { isOwner, keepImage, post, store, whoSent } from "@/lib/chat";
+import { chatOf, isOwner, keepImage, post, whoSent } from "@/lib/chat";
 import { CHAT_MAX, IMAGE_MAX, IMAGE_TYPES, TTS_MAX, TTS_MODES, VOICES, isVoice } from "@/lib/dolive";
 import { say } from "@/lib/voice";
 
 // 음성은 한 사람당 5초에 한 번만 (장난으로 계속 보내서 서버가 바빠지지 않게)
 const lastSpoke = new Map<string, number>();
 
-// 방에 들어온 도름스 회원만: 서버가 켜진 뒤의 채팅 기록 전부 (내가 보낸 것엔 mine 표시 → 지우기 버튼)
+// 방에 들어온 도름스 회원만: 서버가 켜진 뒤 그 방의 채팅 기록 전부 (내가 보낸 것엔 mine 표시 → 지우기 버튼)
 export async function GET(req: Request) {
-  const { owner, deny } = await whoSent(req);
+  const { room, owner, deny } = await whoSent(req);
   if (deny) return deny;
-  return Response.json(store.messages.map((m) => (isOwner(m.id, owner) ? { ...m, mine: true } : m)));
+  return Response.json(chatOf(room).map((m) => (isOwner(m.id, owner) ? { ...m, mine: true } : m)));
 }
 
 // 채팅 보내기. 글은 JSON { message, mode, voice } (mode·voice = 보낸 사람이 고른 음성 설정, lib/dolive.ts savedTts), 사진은 사진 파일 그대로 (Content-Type 이 사진 종류)
 export async function POST(req: Request) {
-  const { who, owner, deny } = await whoSent(req);
+  const { room, who, owner, deny } = await whoSent(req);
   if (deny) return deny;
   const type = req.headers.get("content-type") ?? "";
 
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     if (!data.length || data.length > IMAGE_MAX) return new Response(null, { status: 413 });
     const id = crypto.randomUUID();
     keepImage(id, type, data);
-    return Response.json(await post({ ...who, message: "", image: `/api/chat/${id}`, imageType: type }, owner, id));
+    return Response.json(await post(room, { ...who, message: "", image: `/api/chat/${id}`, imageType: type }, owner, id));
   }
 
   const { message, mode: m, voice: v } = await req.json().catch(() => ({}));
@@ -45,9 +45,9 @@ export async function POST(req: Request) {
     if (slash && tooSoon) return new Response(null, { status: 429 });
     if (!tooLong && !tooSoon) {
       lastSpoke.set(who.identity, Date.now());
-      say(said, voice).catch((e) => console.error("음성 실패", e));
-      return Response.json(await post({ ...who, message: said, tts: true, voice }, owner));
+      say(room, said, voice).catch((e) => console.error("음성 실패", e));
+      return Response.json(await post(room, { ...who, message: said, tts: true, voice }, owner));
     }
   }
-  return Response.json(await post({ ...who, message: text }, owner));
+  return Response.json(await post(room, { ...who, message: text }, owner));
 }

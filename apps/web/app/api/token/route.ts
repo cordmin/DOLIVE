@@ -1,7 +1,7 @@
 import { AccessToken } from "livekit-server-sdk";
 import { keepImage } from "@/lib/chat";
-import { AVATARS, CUSTOM, DORMS, ROOM, isAvatar } from "@/lib/dolive";
-import { MIC_ONLY, dormsCheck, isLocal, isStaff } from "@/lib/server";
+import { AVATARS, CUSTOM, DORMS, isAvatar } from "@/lib/dolive";
+import { MIC_ONLY, dormsCheck, isLocal, isStaff, roomDeny } from "@/lib/server";
 
 const JPEG = "data:image/jpeg;base64,";
 
@@ -9,11 +9,16 @@ export async function POST(req: Request) {
   // 도름스 회원만 입장권을 받는다 (서버 PC는 빼고)
   const { user, deny } = await dormsCheck(req);
   if (deny) return deny;
-  const { name, avatar, photo } = await req.json().catch(() => ({}));
+  const { name, avatar, photo, room, password } = await req.json().catch(() => ({}));
   const nickname = typeof name === "string" ? name.trim() : "";
   if (!isAvatar(avatar) || nickname.length < 1 || nickname.length > 20) {
     return Response.json({ error: "잘못된 입장 정보" }, { status: 400 });
   }
+  const local = isLocal(req);
+  const admin = local || isStaff(user); // 서버 PC, 또는 운영진 목록에 있는 도름스 회원
+  // 방송 목록에 있는 방만. 비밀번호 방은 비밀번호가 맞아야 한다 (방장·운영진은 안 묻는다)
+  const no = roomDeny(room, password, admin);
+  if (no) return no;
 
   // 내 사진은 서버 메모리에 두고(채팅 사진과 같은 곳) 그 주소를 입장권에 적는다. 서버를 끄면 사라진다.
   // 방을 나가도 남아 있어서, 나중에 들어온 사람도 지난 채팅에서 그 사람 사진을 본다
@@ -30,8 +35,6 @@ export async function POST(req: Request) {
     }
   }
 
-  const local = isLocal(req);
-  const admin = local || isStaff(user); // 서버 PC, 또는 운영진 목록에 있는 도름스 회원
   const identity = `${nickname}#${crypto.randomUUID().slice(0, 4)}`;
   const at = new AccessToken(process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET, {
     identity,
@@ -42,7 +45,7 @@ export async function POST(req: Request) {
   });
   at.addGrant({
     roomJoin: true,
-    room: ROOM,
+    room,
     canPublish: true,
     canSubscribe: true,
     canPublishData: true,

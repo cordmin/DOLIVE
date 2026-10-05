@@ -3,6 +3,7 @@ import { RoomEvent } from "livekit-client";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
 import { CHAT_MAX, CHAT_TOPIC, IMAGE_MAX, IMAGE_TYPES, TTS_MAX, avatarOf, isPhone, leaveForDorms, playOnly, savedTts, type ChatMsg } from "@/lib/dolive";
+import { MENU_ITEM, NO_SELECT, PopMenu, useHoldMenu } from "./menu";
 import { Heart, STICKER_TEXT, type Reaction } from "./reactions";
 
 // 이 탭에서 내가 썼던 identity 들. 나갔다가 다시 들어오면 identity 가 새로 바뀌어서, 예전 내 글도 내 글로 보이게 모아 둔다
@@ -152,10 +153,6 @@ async function shrink(file: File): Promise<Blob> {
 const TIME = new Intl.DateTimeFormat("ko-KR", { hour: "numeric", minute: "2-digit" });
 const chatTime = (t: number) => TIME.format(t);
 
-// 말풍선 메뉴 한 칸. 칸 사이(9px)의 한가운데에 짧은 세로선 (첫 칸 빼고 왼쪽에 before 로 그린다)
-const MENU_ITEM =
-  "relative rounded-md px-4 py-2 whitespace-nowrap outline-none hover:bg-zinc-700 focus-visible:bg-zinc-700 not-first:before:absolute not-first:before:top-1/2 not-first:before:-left-[5px] not-first:before:h-4 not-first:before:w-px not-first:before:-translate-y-1/2 not-first:before:bg-zinc-600";
-
 // 채팅 글 속 링크 (http:// 또는 https:// 로 시작). 끝에 붙은 마침표·괄호 같은 것은 링크에서 뺀다
 const LINK = /(https?:\/\/[^\s<]+[^\s<.,:;"')\]!?])/g;
 
@@ -256,28 +253,7 @@ export const ChatLog = memo(function ChatLog({
     setDelTarget(id);
     askDel.current?.showModal();
   }
-  const menu = useRef<HTMLDialogElement>(null);
   const [menuAt, setMenuAt] = useState<{ m: ChatMsg; el: Element } | null>(null);
-  // 메뉴를 띄운 뒤 크기를 재서 말풍선 아래 가운데에 놓는다. 아래에 자리가 없으면 위로 뒤집고(꼬리도 아래를 향함),
-  // 창 가장자리에 걸리면 메뉴 몸통만 옆으로 밀고 꼬리는 그대로 말풍선 가운데를 가리킨다
-  useLayoutEffect(() => {
-    const d = menu.current;
-    if (!d || !menuAt) return;
-    d.showModal();
-    d.focus(); // 첫 줄에 불이 들어온 채로 뜨지 않게 (키보드는 Tab 으로 고른다)
-    const win = d.ownerDocument.defaultView!;
-    const r = menuAt.el.getBoundingClientRect();
-    const { offsetWidth: w, offsetHeight: h } = d;
-    const gap = 10;
-    const below = r.bottom + gap + h <= win.innerHeight - 4 || r.top - gap - h < 4;
-    const x = r.left + r.width / 2;
-    const left = Math.max(4, Math.min(x - w / 2, win.innerWidth - w - 4));
-    const top = below ? r.bottom + gap : r.top - gap - h;
-    d.style.left = `${left}px`;
-    d.style.top = `${Math.max(4, Math.min(top, win.innerHeight - h - 4))}px`; // 화면보다 긴 말풍선이면 메뉴가 말풍선 위에 겹쳐도 화면 안에
-    d.style.setProperty("--tail", `${Math.max(12, Math.min(x - left, w - 12))}px`);
-    d.dataset.below = String(below);
-  }, [menuAt]);
   function copy(m: ChatMsg) {
     const win = list.current!.ownerDocument.defaultView!; // 채팅분리 창이면 그 창의 클립보드
     const picked = win.getSelection()?.toString(); // PC 에서 글자 일부를 골라 둔 채 오른쪽 클릭했으면 고른 부분만
@@ -285,7 +261,7 @@ export const ChatLog = memo(function ChatLog({
   }
   function pick(label: "복사" | "수정" | "삭제") {
     const m = menuAt!.m;
-    menu.current?.close();
+    setMenuAt(null);
     if (label === "복사") copy(m);
     else if (label === "수정") setEditing(m);
     else ask(m.id);
@@ -300,41 +276,8 @@ export const ChatLog = memo(function ChatLog({
     editBox.current?.close();
   }
 
-  const pressTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const touching = useRef(false); // 손가락으로 누르는 중 (마우스는 오른쪽 클릭으로 연다)
-  const held = useRef(false); // 꾹 눌러서 메뉴를 띄웠다 → 손을 뗄 때 따라오는 클릭(사진 크게 보기·링크 열기)은 무시
-  const openMenu = (m: ChatMsg) =>
-    hasMenu(m)
-      ? {
-          onPointerDown: (e: React.PointerEvent) => {
-            touching.current = e.pointerType !== "mouse";
-            held.current = false;
-            const el = e.currentTarget;
-            if (touching.current)
-              pressTimer.current = setTimeout(() => {
-                held.current = true;
-                setMenuAt({ m, el });
-              }, 500);
-          },
-          // 손을 떼거나, 밀어서 목록을 움직이면(브라우저가 가져가면 cancel) 취소
-          onPointerUp: () => clearTimeout(pressTimer.current),
-          onPointerCancel: () => clearTimeout(pressTimer.current),
-          onPointerLeave: () => clearTimeout(pressTimer.current),
-          onClickCapture: (e: React.MouseEvent) => {
-            if (!held.current) return;
-            held.current = false;
-            e.preventDefault();
-            e.stopPropagation();
-          },
-          // 브라우저 메뉴 대신 이 메뉴 (휴대폰은 위의 꾹 누르기가 띄운다)
-          onContextMenu: (e: React.MouseEvent) => {
-            e.preventDefault();
-            if (!touching.current) setMenuAt({ m, el: e.currentTarget });
-          },
-        }
-      : {};
-  // 휴대폰에서 꾹 누를 때 글자 선택·아이폰 길게 누르기 창이 뜨지 않게
-  const noSelect = "pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]";
+  const hold = useHoldMenu();
+  const openMenu = (m: ChatMsg) => (hasMenu(m) ? hold((el) => setMenuAt({ m, el })) : {});
 
   // 사진 크게 보기: 브라우저 기본 모달(dialog). ESC로 닫히는 것도 브라우저가 해 준다. 바깥 어두운 곳을 눌러도 닫힌다
   const viewer = useRef<HTMLDialogElement>(null);
@@ -387,14 +330,14 @@ export const ChatLog = memo(function ChatLog({
                 {m.image ? (
                   // 사진 폭은 늘 240px (옆에 시간이 붙어도 사진이 줄지 않게 shrink-0). 아주 긴 사진은 위아래를 잘라 보여 준다.
                   // loading="lazy": 화면 가까이 왔을 때만 받는다 (늦게 들어온 사람이 지난 사진을 한꺼번에 다 받지 않게)
-                  <button type="button" onClick={() => openImage(m)} {...openMenu(m)} className={`shrink-0 cursor-zoom-in ${hasMenu(m) ? noSelect : ""}`}>
+                  <button type="button" onClick={() => openImage(m)} {...openMenu(m)} className={`shrink-0 cursor-zoom-in ${hasMenu(m) ? NO_SELECT : ""}`}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={m.image} alt="보낸 사진" loading="lazy" onLoad={toBottom} className="max-h-72 w-60 rounded-2xl bg-zinc-800 object-cover" />
                   </button>
                 ) : (
                   <p
                     {...openMenu(m)}
-                    className={`${noSelect} min-w-0 rounded-2xl px-3 py-2 break-words whitespace-pre-wrap ${
+                    className={`${NO_SELECT} min-w-0 rounded-2xl px-3 py-2 break-words whitespace-pre-wrap ${
                       mine ? "bg-indigo-600" : "bg-zinc-800"
                     } ${first ? (mine ? "rounded-tr-sm" : "rounded-tl-sm") : ""}`}
                   >
@@ -424,22 +367,10 @@ export const ChatLog = memo(function ChatLog({
         );
       })}
 
-      {/* 메시지 메뉴. 바깥을 누르거나(오른쪽 클릭도) Esc 면 닫힌다. 바탕은 투명 */}
-      <dialog
-        ref={menu}
-        tabIndex={-1}
-        onClose={() => setMenuAt(null)}
-        onPointerDown={(e) => e.target === e.currentTarget && e.currentTarget.close()}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          e.currentTarget.close();
-        }}
-        className="group m-0 overflow-visible rounded-lg outline-none bg-zinc-800 p-1 text-sm text-zinc-100 shadow-xl shadow-black/50 ring-1 ring-zinc-700 backdrop:bg-transparent"
-      >
-        {/* 꼬리: 아래에 뜨면 위를, 위로 뒤집히면 아래를 가리킨다 */}
-        <span className="absolute -bottom-1.5 left-(--tail) size-2.5 -translate-x-1/2 rotate-[225deg] border-t border-l border-zinc-700 bg-zinc-800 group-data-[below=true]:-top-1.5 group-data-[below=true]:bottom-auto group-data-[below=true]:rotate-45" />
+      {/* 메시지 메뉴 */}
+      <PopMenu at={menuAt?.el ?? null} onClose={() => setMenuAt(null)}>
         {menuAt && (
-          <div className="relative flex gap-[9px]">
+          <>
             {!menuAt.m.image && (
               <button type="button" onClick={() => pick("복사")} className={MENU_ITEM}>
                 복사
@@ -455,9 +386,9 @@ export const ChatLog = memo(function ChatLog({
                 삭제
               </button>
             )}
-          </div>
+          </>
         )}
-      </dialog>
+      </PopMenu>
 
       {/* 글 고치기 (지우기 확인 창과 같은 모양). PC 는 Enter 로 저장, Shift+Enter 는 줄바꿈 */}
       <dialog

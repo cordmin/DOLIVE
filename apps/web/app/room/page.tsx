@@ -19,8 +19,9 @@ import { Switch } from "@/components/Switch";
 import { Tooltips } from "@/components/Tooltips";
 import { VOICE_BOT, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
 import { ChatInput, ChatLog, useMessages } from "./chat";
+import { MENU_ITEM, NO_SELECT, PopMenu, useHoldMenu } from "./menu";
 import { useReactions } from "./reactions";
-import { MediaControls, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
+import { MediaControls, SCREEN_SHARE_SOURCE, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
 import { Stage, useAvatarOf } from "./stage";
 
 // 방 화면은 여러 파일로 나눠 둔다: chat.tsx(채팅), stage.tsx(공유 화면·프로필 사진 칸), share.tsx(화면공유·마이크), reactions.tsx(하트·ㅋ·헐)
@@ -94,10 +95,12 @@ export default function RoomPage() {
     }
     // 개발 중엔 이 부분이 두 번 돌아서, 마지막에 받은 입장권만 쓴다 (채팅이 방과 같은 입장권을 써야 해서)
     let alive = true;
-    fetch("/api/token", { method: "POST", body: JSON.stringify({ name, avatar: savedAvatar(), photo: sessionStorage.getItem("photo") }) })
+    // room·password: 입장 화면에서 고른 방송과 그 비밀번호 (비밀번호 방이 아니면 빈칸)
+    const body = { name, avatar: savedAvatar(), photo: sessionStorage.getItem("photo"), room: sessionStorage.getItem("room"), password: sessionStorage.getItem("password") };
+    fetch("/api/token", { method: "POST", body: JSON.stringify(body) })
       .then(async (r) => (r.ok ? r.json() : Promise.reject((await r.json().catch(() => null))?.reason)))
       .then((c) => alive && setConn(c))
-      // 도름스 확인에 막히면 다시 로그인하거나 안내 화면으로, 그 밖의 실패는 첫 화면으로
+      // 도름스 확인에 막히면 다시 로그인하거나 안내 화면으로, 그 밖의 실패(방송이 닫혔거나 비밀번호가 바뀜 등)는 첫 화면으로
       .catch((reason) => alive && !leaveForDorms(reason) && router.replace("/"));
     return () => {
       alive = false;
@@ -106,15 +109,15 @@ export default function RoomPage() {
 
   // 방에서 나오면 첫 화면으로. 서버가 꺼져 있으면 첫 화면을 받아 올 수 없어서 멈춘 것처럼 보이니,
   // 먼저 서버에 물어보고 답이 없으면 이 자리에서 "방송이 끝났어요"를 보여 준다
-  const [ended, setEnded] = useState(false);
+  const [ended, setEnded] = useState<"" | "end" | "kick">(""); // end = 방송이 끝남, kick = 방장이 내보냄(api/kick)
   function goHome() {
     fetch("/", { method: "HEAD", cache: "no-store", signal: AbortSignal.timeout(3000) }).then(
       (r) => {
-        if (!r.ok) return setEnded(true);
+        if (!r.ok) return setEnded("end");
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); // 입장할 때 켠 전체화면도 끝낸다
         router.push("/");
       },
-      () => setEnded(true),
+      () => setEnded("end"),
     );
   }
 
@@ -125,7 +128,7 @@ export default function RoomPage() {
           DO<span className="text-red-500">LIVE</span>
         </b>
         <p>
-          방송이 끝났어요.
+          {ended === "kick" ? "방에서 내보내졌어요." : "방송이 끝났어요."}
           <br />
           다음에 다시 만나요.
         </p>
@@ -141,7 +144,10 @@ export default function RoomPage() {
       audio={false} // 마이크는 꺼진 채로 들어간다 (위쪽 스위치로 켠다)
       options={ROOM_OPTIONS}
       // 방장이 서버를 끄면서 방을 닫았으면(api/end) 물어볼 것 없이 바로 "방송이 끝났어요"
-      onDisconnected={(reason) => (reason === DisconnectReason.ROOM_DELETED ? setEnded(true) : goHome())}
+      // 방장이 내보냈으면(api/kick) "방에서 내보내졌어요"
+      onDisconnected={(reason) =>
+        reason === DisconnectReason.ROOM_DELETED ? setEnded("end") : reason === DisconnectReason.PARTICIPANT_REMOVED ? setEnded("kick") : goHome()
+      }
       onError={(e) => {
         // 다시 붙는 중에 [예]로 내가 끊은 건 오류가 아니다 (바로 "방송이 끝났어요" 화면이 뜬다)
         if (e instanceof ConnectionError && e.reason === ConnectionErrorReason.Cancelled) return;
@@ -455,21 +461,40 @@ function copyStyles(w: Window) {
 }
 
 
-// 방장은 다른 사람 사진 구석의 초록 점(마이크 켜짐)을 누르면 그 사람 마이크를 끈다 (/api/mute 가 방장인지 다시 확인한다)
+// 방장은 다른 사람 줄을 오른쪽 클릭(휴대폰은 꾹 누르기)하면 메뉴가 뜬다 (말풍선 메뉴와 같은 모양):
+// [공유 권한 주기](요청 없이 바로. 이미 있으면 [공유 권한 거두기], 다른 방장은 원래 있어서 안 보임) [마이크 끄기](켜져 있을 때만) [강퇴하기].
+// 서버(api/share·mute·kick)가 방장인지 다시 확인한다. 바로 받은 공유 권한도 승인받은 것과 같아서, 공유를 끝내면 도로 거둔다 (share.tsx)
+const PERSON_ACTIONS = {
+  share: { url: "/api/share", fail: "공유 권한을 바꾸지 못했어요." },
+  mute: { url: "/api/mute", fail: "마이크를 끄지 못했어요." },
+  kick: { url: "/api/kick", fail: "내보내지 못했어요." },
+};
 function PersonRow({ p, isAdmin }: { p: Participant; isAdmin: boolean }) {
   const speaking = useIsSpeaking(p);
   const muted = useIsMuted({ participant: p, source: Track.Source.Microphone });
+  const room = useRoomContext();
+  const [menuAt, setMenuAt] = useState<Element | null>(null);
+  const hold = useHoldMenu();
+  const hasMenu = isAdmin && !p.isLocal;
+  const otherAdmin = p.attributes?.admin === "1";
+  const canShare = !!p.permissions?.canPublishSources.includes(SCREEN_SHARE_SOURCE);
 
-  async function forceMute() {
-    const r = await fetch("/api/mute", { method: "POST", body: JSON.stringify({ identity: p.identity }) });
-    if (!r.ok) alert("마이크를 끄지 못했어요.");
+  async function act(what: keyof typeof PERSON_ACTIONS) {
+    setMenuAt(null);
+    const { url, fail } = PERSON_ACTIONS[what];
+    const body = { room: room.name, identity: p.identity, ...(what === "share" ? { allow: !canShare } : {}) };
+    const r = await fetch(url, { method: "POST", body: JSON.stringify(body) });
+    if (!r.ok) alert(fail);
   }
 
   return (
     // 사진 + 이름. 마이크는 사진 구석 점, 말하는 중은 초록 테두리.
     // PC 맨 위 줄: 접혀 있으면 32px 사진 옆에 이름(높이 40px), 줄에 마우스를 올리면(group-hover) 47px 사진 아래 이름으로 커진다 (사진은 스르륵)
     // 휴대폰 목록: 나는 사진 아래에 걸친 ME (이름 옆에 붙이면 이름이 잘려서). PC 는 사진을 가려서 ME 를 안 보인다
-    <div className="flex items-center gap-2 rounded p-1 hover:bg-zinc-800 md:shrink-0 md:pr-2 md:group-hover:w-[4.5rem] md:group-hover:flex-col md:group-hover:pr-1">
+    <div
+      {...(hasMenu ? hold(setMenuAt) : {})}
+      className={`${hasMenu ? NO_SELECT : ""} flex items-center gap-2 rounded p-1 hover:bg-zinc-800 md:shrink-0 md:pr-2 md:group-hover:w-[4.5rem] md:group-hover:flex-col md:group-hover:pr-1`}
+    >
       <div className="relative shrink-0">
         <Avatar
           id={useAvatarOf(p)}
@@ -483,17 +508,25 @@ function PersonRow({ p, isAdmin }: { p: Participant; isAdmin: boolean }) {
             ME
           </span>
         )}
-        {/* 점이 작아서 누르기 쉽게 점 둘레까지 누르는 자리로 */}
-        {isAdmin && !p.isLocal && !muted && (
-          <button
-            onClick={forceMute}
-            data-tip="마이크 끄기"
-            aria-label={`${p.name} 마이크 끄기`}
-            className="absolute -right-1.5 -bottom-1.5 size-6 rounded-full hover:bg-red-500/40"
-          />
-        )}
       </div>
       <div className="min-w-0 truncate text-sm md:max-w-32 md:group-hover:w-full md:group-hover:text-center">{p.name}</div>
+      {hasMenu && (
+        <PopMenu at={menuAt} onClose={() => setMenuAt(null)}>
+          {!otherAdmin && (
+            <button type="button" onClick={() => act("share")} className={MENU_ITEM}>
+              {canShare ? "공유 권한 거두기" : "공유 권한 주기"}
+            </button>
+          )}
+          {!muted && (
+            <button type="button" onClick={() => act("mute")} className={MENU_ITEM}>
+              마이크 끄기
+            </button>
+          )}
+          <button type="button" onClick={() => act("kick")} className={`${MENU_ITEM} text-red-400`}>
+            강퇴하기
+          </button>
+        </PopMenu>
+      )}
     </div>
   );
 }

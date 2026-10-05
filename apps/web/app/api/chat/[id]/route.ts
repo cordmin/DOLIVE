@@ -18,22 +18,22 @@ export async function GET(req: Request, ctx: RouteContext<"/api/chat/[id]">) {
 
 // 메시지 지우기 (id = 메시지 id. 사진 메시지는 사진 id 와 같다). 내가 보낸 것, 또는 관리자(방장·운영진)는 누구 것이든
 export async function DELETE(req: Request, ctx: RouteContext<"/api/chat/[id]">) {
-  const { owner, admin, deny } = await whoSent(req);
+  const { room, owner, admin, deny } = await whoSent(req);
   if (deny) return deny;
   const id = (await ctx.params).id;
   if (!admin && !isOwner(id, owner)) return new Response(null, { status: 403 });
-  return new Response(null, { status: (await remove(id)) ? 204 : 404 });
+  return new Response(null, { status: (await remove(room, id)) ? 204 : 404 });
 }
 
 // 글 고치기 { message }. 내가 보낸 것만 (관리자도 남의 글은 못 고친다)
 export async function PATCH(req: Request, ctx: RouteContext<"/api/chat/[id]">) {
-  const { owner, deny } = await whoSent(req);
+  const { room, owner, deny } = await whoSent(req);
   if (deny) return deny;
   const id = (await ctx.params).id;
   if (!isOwner(id, owner)) return new Response(null, { status: 403 });
   const { message } = await req.json().catch(() => ({}));
   const text = typeof message === "string" ? message.trim() : "";
   if (!text || text.length > CHAT_MAX) return new Response(null, { status: 400 });
-  const m = await edit(id, text);
+  const m = await edit(room, id, text);
   return m ? Response.json(m) : new Response(null, { status: 404 });
 }

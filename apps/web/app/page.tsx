@@ -4,9 +4,13 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
 import { PhotoCrop } from "@/components/PhotoCrop";
-import { AVATARS, CUSTOM, DORMS, isPhone, savedAvatar } from "@/lib/dolive";
+import { AVATARS, CUSTOM, DORMS, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
 
-// 입장 화면: 프로필 사진(기본 9장 + 도름스 사진 + 내 사진) + 닉네임 → 채팅방 입장 (도름스 회원만. 서버 PC는 빼고)
+// 방송 목록 한 줄 (api/rooms GET)
+type Broadcast = { name: string; locked: boolean; onAir: boolean };
+
+// 입장 화면: 프로필 사진(기본 9장 + 도름스 사진 + 내 사진) + 닉네임 + 방송 고르기 → LIVE 입장 (도름스 회원만. 서버 PC는 빼고)
+// 방송 목록은 서버 켜기 창 톱니바퀴 [채팅방 관리]에서 만든 방들 (api/rooms). 비밀번호 방은 [LIVE 입장]을 누르면 비밀번호 창이 뜬다 (방장·운영진은 안 묻는다)
 // 내 사진은 이 브라우저(localStorage "photo")에 남겨 두어 다음에 와도 그대로고, 입장할 때 서버 메모리에 올린다 (서버를 끄면 서버에선 사라진다).
 // (마이크는 꺼진 채로 들어가고, 방 안 위쪽 스위치로 켠다)
 export default function Home() {
@@ -17,9 +21,29 @@ export default function Home() {
   const [picked, setPicked] = useState<File>(); // 자리 맞추기 중인 사진
   const picker = useRef<HTMLInputElement>(null);
   const needLogin = useRef<HTMLDialogElement>(null); // "로그인을 먼저 해주세요" 창 (채팅방의 나가기 창과 같은 모양, 화면 가운데)
+  const askPw = useRef<HTMLDialogElement>(null); // 비밀번호 방 비밀번호 묻는 창 (모양은 위 창과 같게)
+  const [pw, setPw] = useState("");
+  const [pwError, setPwError] = useState("");
+  // 방송 목록과 고른 방송. ON AIR(방장·운영진이 들어가 있음)가 바뀌는 걸 보여 주려고 10초마다 다시 묻는다
+  const [rooms, setRooms] = useState<Broadcast[]>(); // 받아 오기 전엔 비워 둔다 ("열린 방송이 없어요"가 잠깐 보이지 않게)
+  const [room, setRoom] = useState("");
+  useEffect(() => {
+    const load = () =>
+      fetch("/api/rooms", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((list: Broadcast[]) => {
+          setRooms(list);
+          // 고른 방이 목록에서 사라졌으면 이 탭에서 전에 고른 방, 그것도 없으면 첫 방
+          setRoom((cur) => [cur, sessionStorage.getItem("room")].find((n) => list.some((x) => x.name === n)) ?? list[0]?.name ?? "");
+        })
+        .catch(() => {});
+    load();
+    const t = setInterval(load, 10_000);
+    return () => clearInterval(t);
+  }, []);
   // 오른쪽 위: 서버 PC(방장)면 아무것도 없고, 나머지는 도름스 칸 (로그인했으면 도름스 프로필 사진(없으면 이름) + [로그아웃], 아니면 [로그인]).
   // 도름스 회원만 채팅방에 들어간다. 운영진(서버 켜기 창 톱니바퀴에 적은 도름스 닉네임)은 방에서 방장 권한을 받는다 (lib/server.ts isStaff)
-  const [me, setMe] = useState<{ local: boolean; dorms: string | null; picture: string | null; dormsReason: string | null }>();
+  const [me, setMe] = useState<{ local: boolean; admin: boolean; dorms: string | null; picture: string | null; dormsReason: string | null }>();
   // 도름스로 로그인돼 있으면 입장 화면을 열 때마다 닉네임 칸에 도름스 닉네임을 넣어 둔다 (이 탭에서 전에 쓴 닉네임보다 우선. 고쳐 쓸 수는 있다)
   useEffect(() => {
     fetch("/api/me", { cache: "no-store" })
@@ -61,7 +85,7 @@ export default function Home() {
   }
 
   function enter() {
-    if (!name.trim()) return;
+    if (!name.trim() || !room) return;
     sessionStorage.setItem("name", name.trim());
     sessionStorage.setItem("avatar", avatar);
     if (avatar === CUSTOM && custom) sessionStorage.setItem("photo", custom);
@@ -74,6 +98,28 @@ export default function Home() {
       else needLogin.current?.showModal();
       return;
     }
+    if (rooms?.find((r) => r.name === room)?.locked && !me?.admin) {
+      setPw("");
+      setPwError("");
+      askPw.current?.showModal();
+      return;
+    }
+    go("");
+  }
+
+  // 비밀번호 창 [입장]: 서버에 맞는지 먼저 물어보고, 틀리면 창에 그대로 두고 알려 준다
+  async function checkPw() {
+    const r = await fetch("/api/rooms", { method: "POST", body: JSON.stringify({ room, password: pw }) }).catch(() => null);
+    if (r?.ok) return go(pw);
+    const reason = (await r?.json().catch(() => null))?.reason;
+    if (leaveForDorms(reason)) return;
+    setPwError(reason === "password" ? "비밀번호가 틀렸어요" : reason === "no_room" ? "닫힌 방송이에요" : "들어가지 못했어요. 다시 해 주세요");
+  }
+
+  // 고른 방송과 비밀번호를 채팅방(app/room)에 넘겨주고 들어간다 (채팅방이 입장권을 받을 때 같이 보낸다)
+  function go(password: string) {
+    sessionStorage.setItem("room", room);
+    sessionStorage.setItem("password", password);
     // 휴대폰은 입장하면서 주소창·아래 버튼 줄·시계 줄을 모두 숨긴다 (누른 순간에만 허락돼서 여기서. 아이폰은 막혀 있어 그냥 넘어간다).
     // 시계 줄만 남기는 설정(navigationUI "show")은 시계 줄은 그대로 숨기고 아래 버튼 줄만 화면 위에 덮어 입력칸을 가려서 안 쓴다
     if (isPhone()) document.documentElement.requestFullscreen?.().catch(() => {});
@@ -110,8 +156,8 @@ export default function Home() {
 
       <section className="flex flex-col gap-2">
         <span className="text-sm text-zinc-400">프로필 사진 선택</span>
-        {/* 3줄 x 4칸 (PC, 휴대폰 같음): 기본 사진 9장, 도름스 사진, 내 사진, [+] 사진 올리기 */}
-        <div className="grid grid-cols-4 gap-3">
+        {/* 2줄 x 6칸 (PC, 휴대폰 같음): 기본 사진 9장, 도름스 사진, 내 사진, [+] 사진 올리기 */}
+        <div className="grid grid-cols-6 gap-2">
           {AVATARS.map((id) => (
             <button
               key={id}
@@ -193,12 +239,46 @@ export default function Home() {
         />
       </label>
 
+      <section className="flex flex-col gap-2">
+        <span className="text-sm text-zinc-400">방송 목록</span>
+        {!rooms ? null : rooms.length ? (
+          // 여러 개 중 하나를 고르는 칸이라는 게 보이게, 바탕 없이 테두리만 + 왼쪽 동그라미 (아래 [LIVE 입장] 버튼과 다르게). 고른 줄만 보라 테두리.
+          // (보라 테두리는 안쪽으로 그려서 스크롤 칸 가장자리에 잘리지 않는다) 많으면 이 칸 안에서 스크롤.
+          // 이름 옆 ON AIR = 방장·운영진이 들어가 있음, 오른쪽 자물쇠 = 비밀번호 방
+          <div role="radiogroup" aria-label="방송 목록" className="flex max-h-60 flex-col gap-1.5 overflow-y-auto">
+            {rooms.map((r) => (
+              <button
+                key={r.name}
+                role="radio"
+                aria-checked={room === r.name}
+                onClick={() => setRoom(r.name)}
+                className={`flex items-center gap-2 rounded-lg border px-4 py-3 text-left ${room === r.name ? "border-indigo-500 bg-indigo-500/10 text-white ring-1 ring-indigo-500 ring-inset" : "border-zinc-700 text-zinc-300 hover:border-zinc-500"}`}
+              >
+                <span
+                  className={`mr-1 size-[18px] shrink-0 rounded-full border-2 ${room === r.name ? "border-indigo-400 bg-indigo-400 shadow-[inset_0_0_0_3px_#18181b]" : "border-zinc-500"}`}
+                />
+                <span className="truncate">{r.name}</span>
+                {r.onAir && <span className="shrink-0 rounded bg-red-600 px-1.5 py-0.5 text-[11px] font-bold tracking-wider">ON AIR</span>}
+                {r.locked && (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-label="비밀번호" className="ml-auto size-4 shrink-0 text-zinc-400">
+                    <rect x="5" y="11" width="14" height="10" rx="2" />
+                    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                  </svg>
+                )}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-lg border border-zinc-700 px-4 py-3 text-zinc-400">열린 방송이 없어요</p>
+        )}
+      </section>
+
       <button
         onClick={enter}
-        disabled={!name.trim()}
+        disabled={!name.trim() || !room}
         className="rounded-lg bg-indigo-600 px-4 py-4 text-xl font-semibold hover:bg-indigo-500 disabled:opacity-40"
       >
-        채팅방 입장
+        LIVE 입장
       </button>
       {/* Esc 나 [확인]으로 닫힌다 */}
       <dialog
@@ -212,6 +292,41 @@ export default function Home() {
         >
           확인
         </button>
+      </dialog>
+      {/* 비밀번호 방: Esc 나 [취소]로 닫힌다. Enter 는 [입장] */}
+      <dialog
+        ref={askPw}
+        className="m-auto w-72 rounded-xl bg-zinc-800 p-5 text-zinc-100 ring-1 ring-zinc-700 backdrop:bg-black/60"
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            checkPw();
+          }}
+          className="flex flex-col gap-3"
+        >
+          <p className="truncate text-center font-semibold">{room}</p>
+          <input
+            type="password"
+            value={pw}
+            onChange={(e) => {
+              setPw(e.target.value);
+              setPwError("");
+            }}
+            autoFocus
+            placeholder="비밀번호"
+            className="rounded-lg bg-zinc-900 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <p className="h-4 text-center text-xs text-red-400">{pwError}</p>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => askPw.current?.close()} className="flex-1 rounded-lg bg-zinc-700 py-2 text-sm font-semibold hover:bg-zinc-600">
+              취소
+            </button>
+            <button disabled={!pw} className="flex-1 rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500 disabled:opacity-40">
+              입장
+            </button>
+          </div>
+        </form>
       </dialog>
     </main>
   );

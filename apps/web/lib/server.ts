@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { RoomServiceClient, TrackSource } from "livekit-server-sdk";
-import { ROOM } from "@/lib/dolive";
 import { DormsAuthError, getDormsUser, type DormsUser } from "@/lib/dormsLogin";
 
 // 서버에서만 쓰는 것들 (방장·운영진 확인, 도름스 확인, 통화 서버에 시키기, 화면공유 권한)
@@ -43,6 +42,37 @@ export function isStaff(user?: DormsUser) {
   return [user.name, user.handle].some((n) => n && names.includes(norm(n)));
 }
 
+// 방송 목록 = 서버 켜기 창 톱니바퀴 [채팅방 관리]에서 만든 방들 (server/config/rooms.txt, 한 줄에 "방 이름<탭>비밀번호". 비밀번호는 비워도 된다).
+// 운영진 목록처럼 요청마다 다시 읽는다. 방 이름이 통화 서버(LiveKit)의 방 이름이고, 채팅 기록·음성도 방마다 따로다.
+// 파일이 아직 없으면(처음 켠 때) 예전처럼 비밀번호 없는 DOLIVE 방 하나
+const ROOMS_FILE = path.join(process.cwd(), "..", "..", "server", "config", "rooms.txt");
+export type RoomDef = { name: string; password: string };
+export function roomList(): RoomDef[] {
+  let text: string;
+  try {
+    text = readFileSync(ROOMS_FILE, "utf8");
+  } catch {
+    return [{ name: "DOLIVE", password: "" }];
+  }
+  return text
+    .split(/\r?\n/)
+    .map((line) => {
+      const [name, password = ""] = line.split("\t");
+      return { name: name.trim(), password };
+    })
+    .filter((r) => r.name);
+}
+export const findRoom = (name: unknown) => roomList().find((r) => r.name === name);
+
+// 그 방에 들어가도 되는지: 목록에 있는 방이고, 비밀번호 방이면 비밀번호가 맞아야 한다 (방장·운영진은 안 묻는다). 안 되면 거절 응답
+export function roomDeny(name: unknown, password: unknown, admin: boolean) {
+  const r = findRoom(name);
+  if (!r) return Response.json({ error: "없는 방송이에요", reason: "no_room" }, { status: 404 });
+  if (r.password && !admin && password !== r.password)
+    return Response.json({ error: "비밀번호가 틀렸어요", reason: "password" }, { status: 403 });
+  return null;
+}
+
 // 방장 기능(마이크 끄기·화면공유 허락·방 닫기)을 써도 되는지: 서버 PC, 또는 운영진 도름스 회원. 안 되면 거절 응답을 준다
 export async function adminDeny(req: Request) {
   const { user, deny } = await dormsCheck(req);
@@ -52,8 +82,8 @@ export async function adminDeny(req: Request) {
 
 // 도름스 회원 확인. 자료를 읽고 쓰는 서버 요청마다 처음에 부른다 (도름스에 매번 새로 물어본다. 지난 결과를 기억해 두지 않는다).
 // 서버 PC는 늘 통과(user 없음). 막히면 deny 를 그대로 돌려준다: 401 로그인 필요, 403 허용 안 됨(연결 끊김·조건 안 맞음), 503 도름스 연결 안 됨.
-// 방 안 사람(identity)이 허용 끊김으로 막히면 통화 방에서도 내보낸다 (이미 받은 입장권으로 계속 듣고 말하지 못하게)
-export async function dormsCheck(req: Request, identity?: string): Promise<{ user?: DormsUser; deny?: Response }> {
+// 방 안 사람(kick: 방 이름 + identity)이 허용 끊김으로 막히면 통화 방에서도 내보낸다 (이미 받은 입장권으로 계속 듣고 말하지 못하게)
+export async function dormsCheck(req: Request, kick?: { room: string; identity: string }): Promise<{ user?: DormsUser; deny?: Response }> {
   if (isLocal(req)) return {};
   let deny: Response;
   try {
@@ -66,7 +96,7 @@ export async function dormsCheck(req: Request, identity?: string): Promise<{ use
   }
   // 허용이 끊긴 사람(403)만 내보낸다. 로그인 시간이 지난 사람(401)은 방 화면이 다시 로그인시키고,
   // 도름스가 잠깐 안 될 때(503)는 그동안 자료만 막혀 있다가 되살아나면 다시 쓸 수 있다
-  if (identity && deny.status === 403) await rooms.removeParticipant(ROOM, identity).catch(() => {});
+  if (kick && deny.status === 403) await rooms.removeParticipant(kick.room, kick.identity).catch(() => {});
   return { deny };
 }
 

@@ -9,7 +9,7 @@ export async function GET(req: Request, ctx: RouteContext<"/api/voice/[id]">) {
   const { deny } = await dormsCheck(req);
   if (deny) return deny;
   const id = (await ctx.params).id;
-  const m = store.messages.find((x) => x.id === id && x.tts);
+  const m = [...store.messages.values()].flat().find((x) => x.id === id && x.tts);
   if (!m) return new Response(null, { status: 404 });
   const etag = `"${id}"`;
   const headers = { etag, "cache-control": "private, no-cache", "x-content-type-options": "nosniff" };
