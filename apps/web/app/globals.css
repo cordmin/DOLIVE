@@ -3,6 +3,19 @@
 /* 휴대폰을 가로로 눕혔을 때. room/page.tsx 의 usePhoneLandscape 가 <html data-phone-land> 를 붙인다 */
 @custom-variant phone-land (&:where([data-phone-land] *));
 
+/* PC 맨 위 참여자 줄 펼치기 (room/page.tsx). group-hover 와 같은데, 오른쪽 클릭 메뉴가 떠 있는 동안에도 펼친 채로 둔다
+   (메뉴 창이 화면 전체를 덮어서 마우스가 줄에서 빠진 것으로 쳐지면, 줄이 접히고 메뉴만 허공에 남는다) */
+@custom-variant strip-open {
+  @media (hover: hover) {
+    &:is(:where(.group):hover *) {
+      @slot;
+    }
+  }
+  &:is(:where(.group):has(dialog[open]) *) {
+    @slot;
+  }
+}
+
 /* 말풍선 툴팁이 살짝 나타나기 (components/Tooltips.tsx) */
 @keyframes tip-in {
   from {

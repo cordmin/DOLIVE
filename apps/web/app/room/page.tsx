@@ -351,9 +351,11 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
         <div
           // 펼친 목록을 아래로 내려 본 채 마우스가 나가도, 접히면서 맨 위(나 → 마이크 켠 사람 → 나머지 순서의 첫 줄)로 돌아오게
           onPointerLeave={(e) => e.currentTarget.firstElementChild?.scrollTo({ top: 0, behavior: "smooth" })}
+          // 빈 곳을 오른쪽 클릭해도 브라우저 메뉴가 뜨지 않게 (사람 위는 PersonRow 가 자기 메뉴를 띄운다)
+          onContextMenu={(e) => e.preventDefault()}
           className="group relative mr-6 ml-6 hidden h-10 min-w-0 flex-1 md:block"
         >
-          <div className="absolute inset-x-0 top-0 z-30 h-10 max-h-[60vh] overflow-hidden rounded-xl transition-[height,background-color,box-shadow] duration-300 ease-out [interpolate-size:allow-keywords] group-hover:h-auto group-hover:-inset-x-2 group-hover:overflow-y-auto group-hover:bg-zinc-900 group-hover:px-2 group-hover:pb-2 group-hover:shadow-xl group-hover:shadow-black/50 group-hover:ring-1 group-hover:ring-zinc-700">
+          <div className="absolute inset-x-0 top-0 z-30 h-10 max-h-[60vh] overflow-hidden rounded-xl transition-[height,background-color,box-shadow] duration-300 ease-out [interpolate-size:allow-keywords] strip-open:h-auto strip-open:-inset-x-2 strip-open:overflow-y-auto strip-open:bg-zinc-900 strip-open:px-2 strip-open:pb-2 strip-open:shadow-xl strip-open:shadow-black/50 strip-open:ring-1 strip-open:ring-zinc-700">
             <div className="flex flex-wrap gap-x-2 gap-y-1">
               {participants.map((p) => (
                 <PersonRow key={p.identity} p={p} isAdmin={isAdmin} />
@@ -489,11 +491,11 @@ function PersonRow({ p, isAdmin }: { p: Participant; isAdmin: boolean }) {
 
   return (
     // 사진 + 이름. 마이크는 사진 구석 점, 말하는 중은 초록 테두리.
-    // PC 맨 위 줄: 접혀 있으면 32px 사진 옆에 이름(높이 40px), 줄에 마우스를 올리면(group-hover) 47px 사진 아래 이름으로 커진다 (사진은 스르륵)
+    // PC 맨 위 줄: 접혀 있으면 32px 사진 옆에 이름(높이 40px), 줄에 마우스를 올리면(strip-open) 47px 사진 아래 이름으로 커진다 (사진은 스르륵)
     // 휴대폰 목록: 나는 사진 아래에 걸친 ME (이름 옆에 붙이면 이름이 잘려서). PC 는 사진을 가려서 ME 를 안 보인다
     <div
       {...(hasMenu ? hold(setMenuAt) : {})}
-      className={`${hasMenu ? NO_SELECT : ""} flex items-center gap-2 rounded p-1 hover:bg-zinc-800 md:shrink-0 md:pr-2 md:group-hover:w-[4.5rem] md:group-hover:flex-col md:group-hover:pr-1`}
+      className={`${hasMenu ? NO_SELECT : ""} flex items-center gap-2 rounded p-1 hover:bg-zinc-800 md:shrink-0 md:pr-2 md:strip-open:w-[4.5rem] md:strip-open:flex-col md:strip-open:pr-1`}
     >
       <div className="relative shrink-0">
         <Avatar
@@ -501,7 +503,7 @@ function PersonRow({ p, isAdmin }: { p: Participant; isAdmin: boolean }) {
           talking={speaking && !muted}
           mic={!muted}
           px={47}
-          className="w-10 md:w-8 md:transition-[width] md:duration-300 md:ease-out md:group-hover:w-[47px]"
+          className="w-10 md:w-8 md:transition-[width] md:duration-300 md:ease-out md:strip-open:w-[47px]"
         />
         {p.isLocal && (
           <span className="absolute -bottom-1.5 left-1/2 md:hidden -translate-x-1/2 rounded-full bg-indigo-600 px-1 text-[10px] leading-[14px] font-bold ring-2 ring-zinc-900">
@@ -509,7 +511,7 @@ function PersonRow({ p, isAdmin }: { p: Participant; isAdmin: boolean }) {
           </span>
         )}
       </div>
-      <div className="min-w-0 truncate text-sm md:max-w-32 md:group-hover:w-full md:group-hover:text-center">{p.name}</div>
+      <div className="min-w-0 truncate text-sm md:max-w-32 md:strip-open:w-full md:strip-open:text-center">{p.name}</div>
       {hasMenu && (
         <PopMenu at={menuAt} onClose={() => setMenuAt(null)}>
           {!otherAdmin && (
