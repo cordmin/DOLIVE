@@ -38,8 +38,8 @@ export function TtsButton() {
       <button
         type="button"
         onClick={open}
-        aria-label="음성 설정"
-        data-tip="음성 설정"
+        aria-label="TTS 설정"
+        data-tip="TTS 설정"
         className="grid size-8 shrink-0 place-items-center rounded-full bg-zinc-800 text-[11px] md:size-9 font-extrabold tracking-wide hover:bg-zinc-700"
       >
         TTS
@@ -59,9 +59,9 @@ export function TtsButton() {
               box.current?.close();
             }}
           >
-            <p className="mb-4 text-center text-base font-semibold">음성 설정</p>
+            <p className="mb-4 text-center text-base font-semibold">TTS 설정</p>
 
-            <p className="mb-1 font-semibold text-zinc-300">TTS 입력</p>
+            <p className="mb-1 font-semibold text-zinc-300">TTS 입력 방식</p>
             <div className="grid grid-cols-3 gap-x-2">
               {TTS_MODES.map((m) => (
                 <label key={m} className={ROW}>

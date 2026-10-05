@@ -259,7 +259,7 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
     return () => document.removeEventListener("pointerdown", unlock);
   }, [room]);
 
-  // 뒤로가기를 누르면 바로 나가지 않고 "DOLIVE를 나가시겠습니까?" 창을 먼저 띄운다.
+  // 뒤로가기를 누르면 바로 나가지 않고 "메인으로 나가시겠습니까?" 창을 먼저 띄운다.
   // 같은 주소를 한 칸 더 쌓아 두고, 뒤로가기로 그 칸이 빠지면 창을 연다
   const leave = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -283,7 +283,7 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
         }}
         className="m-auto w-72 rounded-xl bg-zinc-800 p-5 text-zinc-100 ring-1 ring-zinc-700 backdrop:bg-black/60"
       >
-        <p className="mb-10 text-center font-semibold">DOLIVE를 나가시겠습니까?</p>
+        <p className="mb-10 text-center font-semibold">메인으로 나가시겠습니까?</p>
         <div className="flex gap-2">
           <button onClick={() => room.disconnect()} className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold hover:bg-red-500">
             예
@@ -355,7 +355,7 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
           onContextMenu={(e) => e.preventDefault()}
           className="group relative mr-6 ml-6 hidden h-10 min-w-0 flex-1 md:block"
         >
-          <div className="absolute inset-x-0 top-0 z-30 h-10 max-h-[60vh] overflow-hidden rounded-xl transition-[height,background-color,box-shadow] duration-300 ease-out [interpolate-size:allow-keywords] strip-open:h-auto strip-open:-inset-x-2 strip-open:overflow-y-auto strip-open:bg-zinc-900 strip-open:px-2 strip-open:pb-2 strip-open:shadow-xl strip-open:shadow-black/50 strip-open:ring-1 strip-open:ring-zinc-700">
+          <div className="absolute inset-x-0 top-0 z-30 h-10 max-h-[60vh] overflow-hidden rounded-xl transition-[height,background-color,box-shadow] duration-300 ease-out [interpolate-size:allow-keywords] strip-open:h-auto strip-open:-inset-x-2 strip-open:overflow-y-auto strip-open:bg-zinc-900 strip-open:p-2 strip-open:shadow-xl strip-open:shadow-black/50 strip-open:ring-1 strip-open:ring-zinc-700">
             <div className="flex flex-wrap gap-x-2 gap-y-1">
               {participants.map((p) => (
                 <PersonRow key={p.identity} p={p} isAdmin={isAdmin} />
