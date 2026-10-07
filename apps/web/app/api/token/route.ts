@@ -1,5 +1,5 @@
 import { AccessToken } from "livekit-server-sdk";
-import { keepImage } from "@/lib/chat";
+import { clearEmptyRoom, keepImage } from "@/lib/chat";
 import { AVATARS, CUSTOM, DORMS, isAvatar } from "@/lib/dolive";
 import { MIC_ONLY, dormsCheck, isLocal, isStaff, roomDeny } from "@/lib/server";
 
@@ -19,6 +19,8 @@ export async function POST(req: Request) {
   // 방송 목록에 있는 방만. 비밀번호 방은 비밀번호가 맞아야 한다 (방장·운영진은 안 묻는다)
   const no = roomDeny(room, password, admin);
   if (no) return no;
+  // 모두 나간 방의 옛 기록은 새로 들어오는 사람에게 주지 않는다.
+  await clearEmptyRoom(room);
 
   // 내 사진은 서버 메모리에 두고(채팅 사진과 같은 곳) 그 주소를 입장권에 적는다. 서버를 끄면 사라진다.
   // 방을 나가도 남아 있어서, 나중에 들어온 사람도 지난 채팅에서 그 사람 사진을 본다

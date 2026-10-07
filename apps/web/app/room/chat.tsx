@@ -17,12 +17,14 @@ function myIds(): string[] {
   }
 }
 
-// 채팅은 서버(/api/chat)를 거친다. 서버가 켜진 뒤의 글·사진을 모두 기록해 두고, 새 글은 방 안 모두에게 보낸다.
+// 채팅은 서버(/api/chat)를 거친다. 사람이 남아 있는 동안 글·사진을 기억하고, 새 글은 방 안 모두에게 보낸다.
 // 들어올 때(다시 붙을 때도) 기록을 통째로 받아서, 나중에 들어온 사람도 처음부터 다 본다.
 // 목록은 서버가 받은 순서(n)대로 (기기마다 시계가 달라도 순서가 섞이지 않게)
 export function useMessages(token: string) {
   const room = useRoomContext();
   const [messages, setMessages] = useState<ChatMsg[]>([]);
+  // 다시 연결한 사이 방이 비었으면 옛 기록을 붙이지 않는다. 기록을 받는 동안의 새 소식은 따로 모은다.
+  const loading = useRef<Array<ChatMsg | { deleted: string } | { edit: ChatMsg }> | null>(null);
   const add = useCallback(
     (list: ChatMsg[]) =>
       setMessages((prev) => {
@@ -42,6 +44,7 @@ export function useMessages(token: string) {
   useDataChannel(CHAT_TOPIC, (msg) => {
     if (msg.from) return;
     const data = JSON.parse(new TextDecoder().decode(msg.payload));
+    loading.current?.push(data);
     if (data.deleted) setMessages((prev) => prev.filter((m) => m.id !== data.deleted));
     else if (data.edit) replace(data.edit);
     else add([data]);
@@ -49,20 +52,39 @@ export function useMessages(token: string) {
 
   const auth = { Authorization: `Bearer ${token}` };
   useEffect(() => {
+    let alive = true;
     const load = () => {
+      const updates: NonNullable<typeof loading.current> = [];
+      loading.current = updates;
       const me = room.localParticipant.identity;
       if (!myIds().includes(me)) sessionStorage.setItem(MY_IDS, JSON.stringify([...myIds(), me]));
       fetch("/api/chat", { headers: { Authorization: `Bearer ${token}` } })
         .then(async (r) => (r.ok ? r.json() : Promise.reject((await r.json().catch(() => null))?.reason)))
-        .then(add, (reason) => reason !== "temporarily_unavailable" && leaveForDorms(reason)); // 도름스가 잠깐 안 되면 기록만 못 받는다
+        .then((list: ChatMsg[]) => {
+          if (!alive || loading.current !== updates) return;
+          loading.current = null;
+          const next = new Map(list.map((m) => [m.id, m]));
+          for (const update of updates) {
+            if ("deleted" in update) next.delete(update.deleted);
+            else if ("edit" in update) { if (next.has(update.edit.id)) next.set(update.edit.id, { ...update.edit, mine: next.get(update.edit.id)?.mine }); }
+            else if (!next.has(update.id)) next.set(update.id, update);
+          }
+          setMessages([...next.values()].sort((a, b) => a.timestamp - b.timestamp || a.n - b.n));
+        }, (reason) => {
+          if (!alive || loading.current !== updates) return;
+          loading.current = null;
+          if (reason !== "temporarily_unavailable") leaveForDorms(reason);
+        }); // 도름스가 잠깐 안 되면 기록만 못 받는다
     };
     // 방에 붙은 뒤에 받아야 그 사이에 올라온 글을 놓치지 않는다 (겹친 글은 add 가 걸러 낸다)
     if (room.state === "connected") load();
     room.on(RoomEvent.Connected, load).on(RoomEvent.Reconnected, load);
     return () => {
+      alive = false;
+      loading.current = null;
       room.off(RoomEvent.Connected, load).off(RoomEvent.Reconnected, load);
     };
-  }, [room, token, add]);
+  }, [room, token]);
 
   async function post(body: BodyInit, type: string) {
     const r = await fetch("/api/chat", { method: "POST", headers: { ...auth, "Content-Type": type }, body });

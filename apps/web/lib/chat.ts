@@ -1,8 +1,8 @@
 import { DataPacket_Kind, TokenVerifier } from "livekit-server-sdk";
-import { CHAT_TOPIC, type ChatMsg } from "@/lib/dolive";
+import { CHAT_TOPIC, VOICE_BOT, type ChatMsg } from "@/lib/dolive";
 import { dormsCheck, findRoom, isLocal, isStaff, rooms } from "@/lib/server";
 
-// 서버가 켜진 뒤의 채팅 전부 (messages: 방 이름 → 그 방 채팅). 서버 메모리에만 두고 파일로는 저장하지 않아서, 서버를 끄면 사라진다.
+// 사람이 남아 있는 동안의 채팅 전부. 방이 비거나 서버를 끄면 지운다. 파일로 저장하지 않는다.
 // (개발 중 코드를 고쳐 다시 읽혀도 안 사라지게 globalThis 에 둔다)
 type Store = { messages: Map<string, ChatMsg[]>; images: Map<string, { type: string; data: Uint8Array }>; imageBytes: number };
 const g = globalThis as unknown as { doliveChats?: Store };
@@ -10,8 +10,21 @@ export const store: Store = (g.doliveChats ??= { messages: new Map(), images: ne
 export const chatOf = (room: string) => store.messages.get(room) ?? store.messages.set(room, []).get(room)!;
 // 방송을 닫을 때(api/end) 그 방 채팅과 사진도 지운다
 export function dropRoom(room: string) {
-  for (const m of store.messages.get(room) ?? []) dropImage(m.id);
+  for (const m of store.messages.get(room) ?? []) {
+    dropImage(m.id);
+    owners.delete(m.id);
+    if (m.avatar.startsWith("/api/chat/")) dropImage(m.avatar.slice("/api/chat/".length));
+  }
   store.messages.delete(room);
+}
+
+// 통화 서버에 확인한다. 읽어 주는 참여자만 남아 있어도 빈 방으로 본다.
+export async function clearEmptyRoom(room: string) {
+  const people = await rooms.listParticipants(room);
+  if (people.some((p) => p.identity !== VOICE_BOT)) return false;
+  dropRoom(room);
+  if (people.some((p) => p.identity === VOICE_BOT)) await rooms.removeParticipant(room, VOICE_BOT).catch(() => {});
+  return true;
 }
 function dropImage(id: string) {
   const img = store.images.get(id);
@@ -47,6 +60,8 @@ export async function whoSent(req: Request) {
   const { user, deny } = await dormsCheck(req, { room, identity: c.sub });
   if (deny) return { deny };
   if ((user?.id ?? "") !== (c.attributes?.dorms ?? "") || !findRoom(room)) return { deny: new Response(null, { status: 403 }) };
+  // 나간 뒤에 옛 입장권으로 기록을 읽거나 쓰지 못하게 한다.
+  if (!await rooms.getParticipant(room, c.sub).catch(() => null)) return { deny: new Response(null, { status: 403 }) };
   return {
     room,
     who: { identity: c.sub, name: c.name ?? "", avatar: c.attributes?.avatar ?? "" },

@@ -10,5 +10,9 @@ rtc:
   advertise_internal_ip: true
 keys:
   dolive: PUT_A_RANDOM_48_CHAR_SECRET_HERE
+webhook:
+  api_key: dolive
+  urls:
+    - http://127.0.0.1:3000/api/livekit
 logging:
   level: info
