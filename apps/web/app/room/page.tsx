@@ -406,12 +406,14 @@ function RoomView({ token }: { token: string }) {
             <Knob
               compactMobile
               label="전체화면"
+              mobileRing={false}
               led={fullscreen ? "green" : undefined}
               aria-pressed={fullscreen}
               onClick={toggleFullscreen}
               icon={
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-[17px]">
-                  <path d="M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5" />
+                  <path className="hidden md:block" d="M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5" />
+                  <path className="md:hidden" d={fullscreen ? "M3 8h5V3M16 3v5h5M21 16h-5v5M8 21v-5H3" : "M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5"} />
                 </svg>
               }
             />

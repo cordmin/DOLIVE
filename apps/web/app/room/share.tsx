@@ -213,18 +213,19 @@ export function MediaControls({ asked, requestShare }: { asked: boolean; request
         />
       )}
       <TtsButton />
-      {/* 마이크: PC는 초록 불빛, 휴대폰은 초록 링 */}
+      {/* 마이크: 휴대폰은 켜짐·꺼짐을 링과 빗금으로 표시한다. */}
       <Knob
         compactMobile
         role="switch"
         aria-checked={isMicrophoneEnabled}
         label="마이크"
-        led={isMicrophoneEnabled ? "green" : undefined}
+        led={isMicrophoneEnabled ? "green" : "red"}
         onClick={() => run(() => me.setMicrophoneEnabled(!isMicrophoneEnabled), "마이크")}
         icon={
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden className="size-[17px]">
             <rect x="9" y="3" width="6" height="11" rx="3" />
             <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+            {!isMicrophoneEnabled && <path className="md:hidden" d="M20 4 4 20" stroke="#ffffff" strokeWidth="2.2" />}
           </svg>
         }
       />
