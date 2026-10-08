@@ -250,7 +250,7 @@ function RoomView({ token }: { token: string }) {
   const [pip, setPip] = useState<Window | null>(null);
   async function togglePip(on: boolean) {
     if (!on || !docPip) return pip?.close();
-    const w = await docPip.requestWindow({ width: 360, height: 560 }).catch(() => null);
+    const w = await docPip.requestWindow({ width: 360, height: 560, disallowReturnToOpener: true }).catch(() => null);
     if (!w) return alert("채팅 창을 띄울 수 없어요.");
     copyStyles(w);
     w.addEventListener("pagehide", () => setPip(null)); // 작은 창의 X를 눌러 닫았을 때
@@ -514,7 +514,7 @@ function RoomView({ token }: { token: string }) {
   );
 }
 
-type DocPip = { requestWindow(size: { width: number; height: number }): Promise<Window> };
+type DocPip = { requestWindow(size: { width: number; height: number; disallowReturnToOpener?: boolean }): Promise<Window> };
 
 // 작은 창은 빈 페이지라서, 이 페이지의 꾸밈(색·글꼴·배치)을 그대로 옮겨 준다
 function copyStyles(w: Window) {
