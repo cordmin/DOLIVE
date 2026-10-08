@@ -1,9 +1,10 @@
 import { TrackSource } from "livekit-server-sdk";
 import { endRoom } from "@/lib/chat";
-import { canEditRoom, dormsCheck, findRoom, isLocal, roomDeny, roomList, rooms, saveFixedRooms, userRooms, type RoomDef } from "@/lib/server";
+import { MAX_ROOMS } from "@/lib/dolive";
+import { canEditRoom, dormsCheck, findRoom, isLocal, roomDeny, roomList, rooms, saveRooms } from "@/lib/server";
 
 // 방송 목록: 방 이름, 비밀번호 방인지, 비회원도 들어오는지, 방송 중인지(ON AIR), 내가 고칠 수 있는 방인지.
-// ON AIR = 그 방의 방장(마스터·운영진·만든 사람)이 들어와 있거나 누가 화면공유 중. 비밀번호는 고칠 수 있는 사람(만든 사람·마스터)에게만 보낸다
+// ON AIR = 그 방의 방장(마스터·관리자·만든 사람)이 들어와 있거나 누가 화면공유 중. 비밀번호는 고칠 수 있는 사람(만든 사람·관리자·마스터)에게만 보낸다
 export async function GET(req: Request) {
   const { user } = await dormsCheck(req);
   const list = await Promise.all(
@@ -27,7 +28,7 @@ export async function POST(req: Request) {
 }
 
 // 방 이름·비밀번호·비회원 허용을 읽어서 고친다. 이름은 1~40자, 탭·줄바꿈 없이, 다른 방과 겹치지 않게
-async function readRoom(req: Request, except?: string): Promise<RoomDef | Response> {
+async function readRoom(req: Request, except?: string) {
   const { name, password, guest } = await req.json().catch(() => ({}));
   const n = typeof name === "string" ? name.trim() : "";
   const pw = typeof password === "string" ? password : "";
@@ -37,30 +38,22 @@ async function readRoom(req: Request, except?: string): Promise<RoomDef | Respon
   return { name: n, password: pw, guest: guest === true };
 }
 
-// 방 만들기 { name, password, guest }: 마스터가 만들면 고정 방(파일에 남는다, 개수 제한 없음),
-// 도름스 회원이 만들면 그 사람의 방 (한 사람에 하나, 모두 나가면 없어진다). 비회원은 못 만든다
+// 방 만들기 { name, password, guest }: 마스터가 만들면 고정 방(개수 제한 없음), 도름스 회원(관리자 포함)이 만들면 그 사람의 방 (한 사람에 하나).
+// 비회원은 못 만든다. 만든 방은 지우기 전까지 남는다. 방송은 모두 합쳐 MAX_ROOMS 개까지 (마스터도)
 export async function PUT(req: Request) {
   const { user, deny } = await dormsCheck(req);
   if (deny) return deny;
   const local = isLocal(req);
-  if (!local && userRooms.some((r) => r.owner === user!.id))
+  if (roomList().length >= MAX_ROOMS) return Response.json({ error: `방송은 최대 ${MAX_ROOMS}개까지만 지원합니다`, reason: "full" }, { status: 409 });
+  if (!local && roomList().some((r) => r.owner === user!.id))
     return Response.json({ error: "방은 한 사람에 하나만 만들 수 있어요", reason: "limit" }, { status: 409 });
   const r = await readRoom(req);
   if (r instanceof Response) return r;
-  if (local) {
-    saveFixedRooms([...roomList().filter((x) => !x.owner), r]);
-  } else {
-    userRooms.push({ ...r, owner: user!.id });
-    // 만들고 아무도 안 들어오면(입장 실패 등) 2분 뒤 치운다. 들어온 뒤에는 모두 나갈 때 치운다 (api/livekit)
-    setTimeout(async () => {
-      const people = await rooms.listParticipants(r.name).catch(() => []);
-      if (!people.length && userRooms.find((x) => x.name === r.name)?.owner === user!.id) userRooms.splice(userRooms.findIndex((x) => x.name === r.name), 1);
-    }, 120_000).unref?.();
-  }
+  saveRooms([...roomList(), { ...r, owner: local ? "" : user!.id }]);
   return new Response(null, { status: 201 });
 }
 
-// 방 고치기 { room, name, password, guest }: 만든 사람은 자기 방, 마스터는 모든 방. 이름을 바꾸면 옛 이름 방은 닫는다 (안에 있던 사람은 나가진다)
+// 방 고치기 (?room=, { name, password, guest }): 만든 사람은 자기 방, 관리자·마스터는 모든 방. 이름을 바꾸면 옛 이름 방은 닫는다 (안에 있던 사람은 나가진다)
 export async function PATCH(req: Request) {
   const { user, deny } = await dormsCheck(req);
   if (deny) return deny;
@@ -69,22 +62,19 @@ export async function PATCH(req: Request) {
   if (!canEditRoom(req, user, old)) return new Response(null, { status: 403 });
   const r = await readRoom(req, old.name);
   if (r instanceof Response) return r;
-  const before = old.name;
-  if (old.owner) Object.assign(old, r); // (사람들이 만든 방은 목록에 있는 그 방을 바로 고친다)
-  else saveFixedRooms(roomList().filter((x) => !x.owner).map((x) => (x.name === before ? r : x)));
-  if (r.name !== before) await endRoom(before);
+  saveRooms(roomList().map((x) => (x.name === old.name ? { ...r, owner: old.owner } : x)));
+  if (r.name !== old.name) await endRoom(old.name);
   return new Response(null, { status: 204 });
 }
 
-// 방 지우기 (?room=): 만든 사람은 자기 방, 마스터는 모든 방. 안에 있던 사람은 바로 나가진다
+// 방 지우기 (?room=): 만든 사람은 자기 방, 관리자·마스터는 모든 방. 안에 있던 사람은 바로 나가진다
 export async function DELETE(req: Request) {
   const { user, deny } = await dormsCheck(req);
   if (deny) return deny;
   const r = findRoom(new URL(req.url).searchParams.get("room"));
   if (!r) return new Response(null, { status: 204 });
   if (!canEditRoom(req, user, r)) return new Response(null, { status: 403 });
-  if (r.owner) userRooms.splice(userRooms.indexOf(userRooms.find((x) => x.name === r.name)!), 1);
-  else saveFixedRooms(roomList().filter((x) => !x.owner && x.name !== r.name));
+  saveRooms(roomList().filter((x) => x.name !== r.name));
   await endRoom(r.name);
   return new Response(null, { status: 204 });
 }

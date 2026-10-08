@@ -1,5 +1,49 @@
 @import "tailwindcss";
 
+/* 보내기 버튼은 금빛 테두리, 금액 버튼은 누르는 느낌을 살린다. */
+.donation-step, .donation-send {
+  border: 1px solid transparent;
+  transition: transform 150ms ease, background-color 150ms ease, box-shadow 150ms ease, filter 150ms ease;
+}
+.donation-step:enabled:hover {
+  background-color: #505056;
+  border-color: #cdb27d66;
+  box-shadow: 0 0 8px #e8c47926;
+}
+.donation-step:enabled:active { transform: scale(0.9); }
+.donation-send {
+  background: linear-gradient(135deg, #f0dca8, #cfaf6a);
+  border-color: #f6e3b9bb;
+  box-shadow: inset 0 1px 0 #fff5d999, 0 0 8px #e8c47926;
+}
+.donation-send:enabled:hover {
+  filter: brightness(1.08);
+  box-shadow: inset 0 1px 0 #fff5d9cc, 0 0 14px #e8c47955;
+  transform: translateY(-1px);
+}
+.donation-send:enabled:active { transform: translateY(1px) scale(0.97); }
+.donation-step:focus-visible, .donation-send:focus-visible {
+  outline: 2px solid #ead39e;
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .donation-step, .donation-send { transition: none; }
+}
+
+@keyframes donation-fall {
+  from { top: -160px; opacity: 1; }
+  to { top: 100%; opacity: 1; }
+}
+@keyframes donation-sway {
+  0%, 100% { transform: translateX(clamp(-150px, -9vw, -50px)) rotate(-4deg); }
+  50% { transform: translateX(clamp(50px, 9vw, 150px)) rotate(4deg); }
+}
+/* 우산을 포함한 그림에서 몸통 중심을 기준으로 살짝 기울인다. */
+.animate-\[donation-sway_3\.6s_ease-in-out_infinite\] { transform-origin: 50% 72%; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-\[donation-sway_3\.6s_ease-in-out_infinite\] { animation: none; }
+}
+
 /* 휴대폰을 가로로 눕혔을 때. room/page.tsx 의 usePhoneLandscape 가 <html data-phone-land> 를 붙인다 */
 @custom-variant phone-land (&:where([data-phone-land] *));
 
@@ -109,4 +153,55 @@ body {
 .quality-select option:checked {
   background: var(--color-green-600);
   font-weight: 600;
+}
+
+/* PC 방 화면의 기계판 꾸밈 (myboard.my 를 보고 따라 함). 휴대폰 화면은 쓰지 않는다 (room/page.tsx 에서 md: 로만 붙인다)
+   hw-inset: 안으로 살짝 파인 테두리. hw-cap: 위가 밝고 아래가 어두운 동그란 검정 버튼(고리 테두리). hw-led: 작은 불빛 (꺼짐 = 어두운 점) */
+@utility hw-inset {
+  box-shadow:
+    inset 0 1px 0 rgba(0, 0, 0, 0.95),
+    inset 0 3px 6px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.6),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.043),
+    0 -1px 0 rgba(0, 0, 0, 0.3),
+    0 1px 0 rgba(255, 255, 255, 0.09);
+}
+@utility hw-cap {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 9999px;
+  color: #d6d3cd;
+  background:
+    radial-gradient(70% 40% at 50% 14%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 70%),
+    radial-gradient(circle at 50% 32%, #353537, #19191a 66%, #111112);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.55),
+    0 0 0 1px #000,
+    0 0 0 3px #1b1b1c,
+    0 0 0 4px rgba(255, 255, 255, 0.06),
+    0 2px 4px rgba(0, 0, 0, 0.55);
+}
+@utility hw-led {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: #33312f;
+  box-shadow:
+    inset 0 1px 1px rgba(0, 0, 0, 0.7),
+    0 1px 0 rgba(255, 255, 255, 0.05);
+}
+@utility hw-led-green {
+  background: #7ed957;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 0 6px rgba(126, 217, 87, 0.55);
+}
+@utility hw-led-amber {
+  background: #e8b46a;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 0 6px rgba(232, 180, 106, 0.42);
 }

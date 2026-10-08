@@ -8,7 +8,7 @@ const ts = require("typescript");
 const sdk = require("livekit-server-sdk");
 const env = { LIVEKIT_API_KEY: "test", LIVEKIT_API_SECRET: "test-secret-test-secret-test-secret" };
 
-let file = "고정 방\t\tmembers\n비회원 방\t\tguest\n옛 방\t암호\tstaff"; // 마지막 줄 = 예전 형식(운영 권한 칸)도 회원만으로 읽힌다
+let file = "비회원 방\t\tguest\n옛 방\t암호\tstaff"; // 마지막 줄 = 예전 형식(운영 권한 칸)도 회원만으로 읽힌다
 let written = null;
 let user; // 지금 로그인한 도름스 회원 (없으면 비회원)
 const people = new Map(); // 방 이름 → 통화 서버에 있는 사람들
@@ -57,7 +57,7 @@ let sender = {};
 const chat = { clearEmptyRoom: async () => false, keepImage: () => {}, endRoom: async (n) => void ended.push(n), whoSent: async () => sender };
 const dolive = load("lib/dolive.ts", {});
 const token = load("app/api/token/route.ts", { "@/lib/server": server, "@/lib/chat": chat, "@/lib/dolive": dolive });
-const roomsApi = load("app/api/rooms/route.ts", { "@/lib/server": server, "@/lib/chat": chat });
+const roomsApi = load("app/api/rooms/route.ts", { "@/lib/server": server, "@/lib/chat": chat, "@/lib/dolive": dolive });
 const ownerApi = load("app/api/owner/route.ts", { "@/lib/server": server, "@/lib/chat": chat });
 
 const OUT = "dolive.duckdns.org";
@@ -77,7 +77,7 @@ const B = { id: "b", name: "다라" };
 
 (async () => {
   // 방 목록: 파일의 고정 방, 파일이 없으면 DOLIVE 하나
-  assert.deepEqual(plain(server.roomList().map((r) => [r.name, r.guest])), [["고정 방", false], ["비회원 방", true], ["옛 방", false]]);
+  assert.deepEqual(plain(server.roomList().map((r) => [r.name, r.guest])), [["비회원 방", true], ["옛 방", false]]);
   const keep = file;
   file = null;
   assert.deepEqual(plain(server.roomList().map((r) => r.name)), ["DOLIVE"]);
@@ -85,7 +85,7 @@ const B = { id: "b", name: "다라" };
 
   // 비회원: "비회원도" 방만, 입장권 쿠키를 받는다. 방은 못 만든다
   user = undefined;
-  assert.equal((await ticket("고정 방")).status, 401);
+  assert.equal((await ticket("옛 방")).status, 401);
   const g = await claims(await ticket("비회원 방"));
   assert.equal(g.c.attributes.dorms, "");
   assert.match(g.res.headers.get("set-cookie"), /^dolive_guest=/);
@@ -93,7 +93,7 @@ const B = { id: "b", name: "다라" };
 
   // 일반 회원: 마이크만, 방장 아님. 비밀번호 방은 비밀번호가 맞아야
   user = A;
-  let t = await claims(await ticket("고정 방"));
+  let t = await claims(await ticket("옛 방", "암호"));
   assert.deepEqual(t.c.video.canPublishSources, ["microphone"]);
   assert.equal(t.c.attributes.roomAdmin, "");
   assert.equal(t.res.headers.get("set-cookie"), null);
@@ -101,10 +101,11 @@ const B = { id: "b", name: "다라" };
 
   // 회원이 방 만들기: 한 사람에 하나, 이름은 겹치지 않게. 만든 사람은 방장(+화면공유, 비밀번호 안 물음), 다른 사람은 비밀번호를 물음
   assert.equal((await roomsApi.PUT(req("/api/rooms", "PUT", { name: "가나의 방", password: "1234", guest: false }))).status, 201);
-  assert.equal((await roomsApi.PUT(req("/api/rooms", "PUT", { name: "가나의 둘째 방" }))).status, 409);
+  const second = await roomsApi.PUT(req("/api/rooms", "PUT", { name: "가나의 둘째 방" }));
+  assert.equal((await second.json()).reason, "limit");
   user = B;
-  assert.equal((await roomsApi.PUT(req("/api/rooms", "PUT", { name: "고정 방" }))).status, 409);
-  assert.equal(written, null); // 회원 방은 파일에 안 쓴다
+  assert.equal((await (await roomsApi.PUT(req("/api/rooms", "PUT", { name: "옛 방" }))).json()).reason, "taken");
+  assert.match(written, /가나의 방\t1234\tmembers\ta\r\n$/); // 회원 방도 파일에 남는다 (지우기 전까지, 서버를 껐다 켜도)
   user = A;
   t = await claims(await ticket("가나의 방"));
   assert.equal(t.c.attributes.roomAdmin, "1");
@@ -114,16 +115,17 @@ const B = { id: "b", name: "다라" };
   assert.equal((await ticket("가나의 방")).status, 403);
   assert.equal((await claims(await ticket("가나의 방", "1234"))).c.attributes.roomAdmin, "");
 
-  // 목록: 고칠 수 있는 방(내 방)만 canEdit 과 비밀번호. 다른 사람(운영진 포함)이 고치거나 지우면 막힌다
+  // 목록: 고칠 수 있는 방(내 방, 관리자·마스터는 모든 방)만 canEdit 과 비밀번호. 다른 회원이 고치거나 지우면 막힌다
   let mine = await find("가나의 방");
   assert.equal(mine.canEdit, false);
   assert.equal(mine.password, undefined);
   assert.equal(mine.locked, true);
   assert.equal((await roomsApi.PATCH(req("/api/rooms?room=가나의 방", "PATCH", { name: "뺏은 방" }))).status, 403);
   assert.equal((await roomsApi.DELETE(req("/api/rooms?room=가나의 방", "DELETE"))).status, 403);
-  user = { id: "s", name: "운영진" };
-  assert.equal((await roomsApi.DELETE(req("/api/rooms?room=가나의 방", "DELETE"))).status, 403);
-  assert.equal((await claims(await ticket("가나의 방"))).c.attributes.roomAdmin, "1"); // 방 안에서는 방장 노릇
+  user = { id: "s", name: "운영진" }; // 관리자는 남의 방·고정 방도 고칠 수 있고, 방 안에서는 방장 노릇
+  assert.equal((await find("가나의 방")).canEdit, true);
+  assert.equal((await find("옛 방")).canEdit, true);
+  assert.equal((await claims(await ticket("가나의 방"))).c.attributes.roomAdmin, "1");
   user = A;
   mine = await find("가나의 방");
   assert.equal(mine.canEdit, true);
@@ -149,7 +151,7 @@ const B = { id: "b", name: "다라" };
   const changed = updated.map((u) => [u.id, u.attributes.roomAdmin, u.attributes.owner, u.permission.canPublishSources.length]).sort();
   assert.deepEqual(changed, [["a#1", "", "", 1], ["b#1", "1", "1", 3]]);
 
-  // 고치기·지우기: 새 주인(B)이 할 수 있다. 이름을 바꾸면 옛 방은 닫는다
+  // 고치기·지우기: 새 주인(B)이 할 수 있다. 이름을 바꾸면 옛 방은 닫는다. 방은 지워야 없어진다
   user = B;
   assert.equal((await roomsApi.PATCH(req("/api/rooms?room=가나의 방", "PATCH", { name: "다라의 방", password: "", guest: true }))).status, 204);
   assert.deepEqual(ended, ["가나의 방"]);
@@ -158,17 +160,23 @@ const B = { id: "b", name: "다라" };
   assert.equal(server.findRoom("다라의 방"), undefined);
   assert.equal((await roomsApi.PUT(req("/api/rooms", "PUT", { name: "다라의 새 방" }))).status, 201); // 지웠으니 다시 만들 수 있다
 
-  // 마스터(이 PC): 고정 방을 만들고(파일에 저장, 개수 제한 없음) 모든 방을 고친다
+  // 마스터(이 PC): 고정 방을 만들고 모든 방을 고친다. 방송은 마스터 것까지 모두 합쳐 4개까지
+  user = { id: "s", name: "운영진" };
+  assert.equal((await roomsApi.DELETE(req("/api/rooms?room=다라의 새 방", "DELETE"))).status, 204); // 관리자는 남의 방도 지운다
+  user = B;
+  assert.equal((await roomsApi.PUT(req("/api/rooms", "PUT", { name: "다라의 새 방 2" }))).status, 201);
   user = undefined;
   assert.equal((await roomsApi.PUT(req("/api/rooms", "PUT", { name: "새 고정 방", guest: true }, "localhost"))).status, 201);
-  assert.equal((await roomsApi.PUT(req("/api/rooms", "PUT", { name: "새 고정 방 2" }, "localhost"))).status, 201);
-  assert.match(written, /새 고정 방\t\tguest\r\n새 고정 방 2\t\tmembers/);
-  assert.equal((await find("다라의 새 방")).canEdit, false); // 바깥에서 보면 남의 방
-  assert.equal((await roomsApi.DELETE(req("/api/rooms?room=다라의 새 방", "DELETE", undefined, "localhost"))).status, 204);
-  assert.equal(server.findRoom("다라의 새 방"), undefined);
+  const fifth = await roomsApi.PUT(req("/api/rooms", "PUT", { name: "새 고정 방 2" }, "localhost"));
+  assert.equal(fifth.status, 409);
+  assert.equal((await fifth.json()).reason, "full");
+  assert.match(written, /새 고정 방\t\tguest\t\r\n$/);
+  assert.equal((await find("다라의 새 방 2")).canEdit, false); // 바깥에서 보면 남의 방
+  assert.equal((await roomsApi.DELETE(req("/api/rooms?room=다라의 새 방 2", "DELETE", undefined, "localhost"))).status, 204);
+  assert.equal(server.findRoom("다라의 새 방 2"), undefined);
   assert.equal((await roomsApi.PATCH(req("/api/rooms?room=옛 방", "PATCH", { name: "옛 방", password: "새암호", guest: false }, "localhost"))).status, 204);
   assert.match(written, /옛 방\t새암호\tmembers/);
-  console.log("통과: 비회원 입장, 방 만들기·고치기·지우기 권한, 만든 사람 방장, 방장 넘기기, ON AIR, 고정 방 저장");
+  console.log("통과: 비회원 입장, 방 만들기·고치기·지우기 권한(만든 사람·관리자·마스터), 만든 사람 방장, 방장 넘기기, ON AIR, 방 목록 파일 저장, 최대 4개");
 
   if (process.argv.includes("--live")) await live();
 })().catch((error) => {

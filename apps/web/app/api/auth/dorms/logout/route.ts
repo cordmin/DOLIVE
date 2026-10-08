@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { FLOW_COOKIE, SESSION_COOKIE } from "../../../../../lib/dormsLogin";
 // 바깥 주소 (Caddy 뒤라 request.url 은 localhost 로 나온다. lib/server.ts)
 import { publicUrl } from "@/lib/server";
+import { revokeDonation, DONATION_COOKIE, DONATION_FLOW_COOKIE, donationCookieOptions } from "@/lib/dormsDonation";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +17,13 @@ export async function POST(request: NextRequest) {
   if (from !== origin || (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none")) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+  try { await revokeDonation(); }
+  catch { return NextResponse.json({ reason: "temporarily_unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } }); }
   const response = NextResponse.redirect(new URL("/", publicUrl(request)), 303);
   response.cookies.set(SESSION_COOKIE, "", { path: "/", maxAge: 0 });
   response.cookies.set(FLOW_COOKIE, "", { path: "/", maxAge: 0 });
+  response.cookies.set(DONATION_COOKIE, "", donationCookieOptions(0));
+  response.cookies.set(DONATION_FLOW_COOKIE, "", donationCookieOptions(0));
   response.headers.set("Cache-Control", "no-store");
   return response;
 }

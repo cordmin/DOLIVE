@@ -294,7 +294,7 @@ function Show-Settings {
     $dlg.Add_HandleCreated({ param($s) $on = 1; [void][Win.Dwm]::DwmSetWindowAttribute($s.Handle, 20, [ref]$on, 4) })
 
     # 방송 관리자: 닉네임 칸 + [+]
-    $a = New-Page $dlg "방송 관리자" "도름스 닉네임을 적으면 그 사람은 방송에서 방장 권한을 받아요"
+    $a = New-Page $dlg "방송 관리자" "관리자로 등록된 도름스 회원은 모든 방송의 관리가 가능합니다."
     $staff.box = New-Input $a.page 24 92 346 "도름스 닉네임" { Add-Staff }
     New-Plus $a.page 386 92 { Add-Staff }
     $staff.flow = $a.flow

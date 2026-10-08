@@ -43,51 +43,41 @@ export function isStaff(user?: DormsUser) {
   return [user.name, user.handle].some((n) => n && names.includes(norm(n)));
 }
 
-// 방송 목록 = 고정 방(마스터가 입장 화면에서 만든 방, server/config/rooms.txt) + 사람들이 만든 방(도름스 회원 한 사람에 하나, 서버 메모리).
-// 방 이름이 통화 서버(LiveKit)의 방 이름이고, 채팅 기록·음성도 방마다 따로다.
-// guest = 비회원(도름스 로그인 안 한 사람)도 들어올 수 있음. owner = 만든 도름스 회원 id (그 방의 방장. 없으면 고정 방)
-export type RoomDef = { name: string; password: string; guest: boolean; owner?: string };
+// 방송 목록 = 마스터가 만든 고정 방 + 도름스 회원이 만든 방 (한 사람에 하나). 모두 server/config/rooms.txt 에 남아서,
+// 지우기 전까지는 모두 나가도, 서버를 껐다 켜도 그대로다 (지우기: 만든 사람·관리자·마스터, api/rooms).
+// 방 이름이 통화 서버(LiveKit)의 방 이름이고, 채팅 기록·음성도 방마다 따로다 (채팅 기록은 파일에 안 남긴다).
+// guest = 비회원(도름스 로그인 안 한 사람)도 들어올 수 있음. owner = 만든 도름스 회원 id (그 방의 방장. 빈칸이면 마스터가 만든 고정 방)
+export type RoomDef = { name: string; password: string; guest: boolean; owner: string };
 
-// 고정 방: 파일 한 줄은 "방 이름<탭>비밀번호<탭>guest 또는 members". 요청마다 다시 읽는다.
+// 파일 한 줄은 "방 이름<탭>비밀번호<탭>guest 또는 members<탭>만든 사람 id". 요청마다 다시 읽는다.
 // 파일이 아직 없으면(처음 켠 때) 비밀번호 없는 DOLIVE 방 하나
 const ROOMS_FILE = path.join(process.cwd(), "..", "..", "server", "config", "rooms.txt");
-function fixedRooms(): RoomDef[] {
+export function roomList(): RoomDef[] {
   let text: string;
   try {
     text = readFileSync(ROOMS_FILE, "utf8");
   } catch {
-    return [{ name: "DOLIVE", password: "", guest: false }];
+    return [{ name: "DOLIVE", password: "", guest: false, owner: "" }];
   }
   return text
     .split(/\r?\n/)
     .map((line) => {
-      const [name, password = "", who = ""] = line.split("\t");
-      return { name: name.trim(), password, guest: who.trim() === "guest" };
+      const [name, password = "", who = "", owner = ""] = line.split("\t");
+      return { name: name.trim(), password, guest: who.trim() === "guest", owner: owner.trim() };
     })
     .filter((r) => r.name);
 }
-export function saveFixedRooms(list: RoomDef[]) {
-  writeFileSync(ROOMS_FILE, list.map((r) => `${r.name}\t${r.password}\t${r.guest ? "guest" : "members"}`).join("\r\n") + "\r\n");
+export function saveRooms(list: RoomDef[]) {
+  writeFileSync(ROOMS_FILE, list.map((r) => [r.name, r.password, r.guest ? "guest" : "members", r.owner].join("\t")).join("\r\n") + "\r\n");
 }
-
-// 사람들이 만든 방. 모두 나가면 없어진다 (api/livekit). 서버를 끄면 사라진다.
-// (개발 중 코드를 고쳐 다시 읽혀도 안 사라지게 globalThis 에 둔다)
-const g = globalThis as unknown as { doliveUserRooms?: RoomDef[] };
-export const userRooms: RoomDef[] = (g.doliveUserRooms ??= []);
-export const dropUserRoom = (name: string) => {
-  const i = userRooms.findIndex((r) => r.name === name);
-  if (i >= 0) userRooms.splice(i, 1);
-};
-
-export const roomList = () => [...fixedRooms(), ...userRooms];
 export const findRoom = (name: unknown) => roomList().find((r) => r.name === name);
 
-// 그 방의 방장 노릇(강퇴·마이크 끄기·화면공유 허락)을 하는 사람: 마스터(서버 PC), 운영진, 그 방을 만든 사람
+// 그 방의 방장 노릇(강퇴·마이크 끄기·화면공유 허락)을 하는 사람: 마스터(서버 PC), 관리자(운영진), 그 방을 만든 사람
 export const isRoomAdmin = (req: Request, user: DormsUser | undefined, room: RoomDef | undefined) =>
   isLocal(req) || isStaff(user) || (!!user && !!room?.owner && room.owner === user.id);
-// 방 설정 바꾸기·지우기: 마스터는 모든 방, 만든 사람은 자기 방만 (운영진은 못 한다)
+// 방 설정 바꾸기·지우기: 마스터·관리자는 모든 방, 만든 사람은 자기 방만
 export const canEditRoom = (req: Request, user: DormsUser | undefined, room: RoomDef) =>
-  isLocal(req) || (!!user && room.owner === user.id);
+  isLocal(req) || isStaff(user) || (!!user && room.owner === user.id);
 
 // 그 방에 들어가도 되는지: 목록에 있는 방이고, 비밀번호 방이면 비밀번호가 맞아야 한다 (방장 노릇 하는 사람은 안 묻는다). 안 되면 거절 응답
 export function roomDeny(name: unknown, password: unknown, admin: boolean) {

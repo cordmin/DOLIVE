@@ -25,7 +25,7 @@ export function Stage({ participants, screen, floats }: { participants: Particip
   return (
     <div
       // PC: 위아래 두 칸을 다 써서 바닥이 오른쪽 채팅 카드 바닥과 맞는다. 공유 화면이 이 칸 크기(cqw·cqh)에 맞춰 커지게 크기를 알려 준다
-      className={`relative flex min-h-0 flex-col gap-2 p-2 md:col-start-1 md:row-span-2 md:row-start-1 md:[container-type:size] ${screen ? "phone-land:flex-1 phone-land:p-0" : "shrink-0"}`}
+      className={`relative flex min-h-0 flex-col gap-2 p-2 md:col-start-1 md:row-span-2 md:row-start-1 md:p-0 md:pr-[18px] md:[container-type:size] ${screen ? "phone-land:flex-1 phone-land:p-0" : "shrink-0"}`}
     >
       {screen?.participant.isLocal ? (
         // 내가 공유 중이면 내 공유 화면은 보여 주지 않는다. 모니터를 공유할 때 이 창이 다시 찍혀서
@@ -38,7 +38,7 @@ export function Stage({ participants, screen, floats }: { participants: Particip
       ) : (
         <>
           {/* PC: 공유 화면이 들어올 자리(왼쪽 칸 전체)를 카드로 미리 잡아 두고 가운데에 안내 */}
-          <div className="hidden min-h-0 w-full flex-1 items-center justify-center gap-3 rounded-xl border border-zinc-800 bg-zinc-800/40 text-2xl font-bold text-zinc-400 md:flex">
+          <div className="hidden min-h-0 w-full flex-1 items-center justify-center gap-3 rounded-xl border border-zinc-800 bg-zinc-800/40 text-2xl font-bold text-zinc-400 md:flex md:border-0 md:bg-[#1e1e21] md:hw-inset">
             <span className="size-3 animate-pulse rounded-full bg-red-500" />
             <span>
               <span className="text-red-500">LIVE</span> 방송 준비 중
@@ -233,6 +233,7 @@ function ScreenView({ screen, floats }: { screen: TrackReference; floats: Float[
       // 모서리는 채팅 카드와 같은 둥글기(rounded-xl). overflow-hidden: 영상 모서리도 같이 둥글게 잘리도록
       className="relative aspect-video min-h-0 w-full touch-none overflow-hidden rounded-xl bg-black [&:fullscreen]:rounded-none md:m-auto md:aspect-(--ratio) md:w-[min(100cqw,calc(100cqh*var(--ratio)))] phone-land:m-0! phone-land:aspect-auto! phone-land:w-full! phone-land:flex-1 phone-land:rounded-none"
     >
+      <div aria-hidden className="pointer-events-none absolute inset-0 z-10 hidden rounded-[inherit] md:block md:hw-inset" />
       <VideoTrack
         trackRef={screen}
         onResize={(e) => {

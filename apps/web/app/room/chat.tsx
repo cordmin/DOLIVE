@@ -5,6 +5,7 @@ import { Avatar } from "@/components/Avatar";
 import { CHAT_MAX, CHAT_TOPIC, IMAGE_MAX, IMAGE_TYPES, TTS_MAX, avatarOf, isPhone, leaveForDorms, playOnly, savedTts, type ChatMsg } from "@/lib/dolive";
 import { MENU_ITEM, NO_SELECT, PopMenu, useHoldMenu } from "./menu";
 import { Heart, STICKER_TEXT, type Reaction } from "./reactions";
+import { DonationFace } from "@/components/DonationMascot";
 
 // 이 탭에서 내가 썼던 identity 들. 나갔다가 다시 들어오면 identity 가 새로 바뀌어서, 예전 내 글도 내 글로 보이게 모아 둔다
 const MY_IDS = "dolive-my-ids";
@@ -521,11 +522,13 @@ export function ChatInput({
   send,
   sendImage,
   react,
+  donate,
   className,
 }: {
   send: (text: string) => void;
   sendImage: (f: File) => void;
   react: (kind: Reaction) => void;
+  donate?: () => void;
   className: string;
 }) {
   const [text, setText] = useState("");
@@ -691,6 +694,7 @@ export function ChatInput({
           />
           {/* 입력칸 오른쪽 안쪽 하트 버튼. 누르면 헐·ㅋ·하트가 위로 하나씩 펼쳐진다 (위에서부터 헐, ㅋ, 하트) */}
           <div ref={picker} className="pointer-events-none absolute right-1 bottom-1 flex flex-col items-center gap-2">
+            {donate && <button type="button" tabIndex={picking ? 0 : -1} aria-label="도름네이션" aria-hidden={!picking} onClick={() => { setPicking(false); donate(); }} className={`flex size-10 items-center justify-center rounded-full bg-zinc-700 ring-1 ring-zinc-600 hover:bg-zinc-600 ${picking ? "pointer-events-auto" : "hidden"}`}><DonationFace /></button>}
             {(
               [
                 ["hul", "헐 날리기", <span key="hul" className={STICKER_TEXT.hul}>헐</span>],

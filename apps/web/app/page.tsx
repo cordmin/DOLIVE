@@ -4,12 +4,12 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
 import { PhotoCrop } from "@/components/PhotoCrop";
-import { AVATARS, CUSTOM, DORMS, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
+import { AVATARS, CUSTOM, DORMS, MAX_ROOMS, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
 
 // 방송 목록 한 줄 (api/rooms GET). guest = 비회원도 들어옴, canEdit = 내가 고칠 수 있는 방(내가 만든 방, 마스터는 모든 방. 그때만 password 가 온다)
 type Broadcast = { name: string; locked: boolean; guest: boolean; onAir: boolean; canEdit: boolean; password?: string };
 // 방 만들기·설정 창에서 고치는 값 (old = 고치는 방의 원래 이름, 만들 때는 없음)
-type RoomForm = { old?: string; name: string; password: string; guest: boolean; error: string; sure: boolean };
+type RoomForm = { old?: string; name: string; password: string; guest: boolean; error: string };
 
 // 입장 화면: 프로필 사진(기본 9장 + 도름스 사진 + 내 사진) + 닉네임 + 방송 고르기 → LIVE 입장 (도름스 회원만. 서버 PC는 빼고)
 // 방송 목록 = 마스터가 만든 고정 방 + 도름스 회원이 만든 방 (api/rooms). [+ 방 만들기]로 만들고, 내 방(마스터는 모든 방)은 톱니바퀴로 고치거나 지운다.
@@ -50,7 +50,9 @@ export default function Home() {
     return () => clearInterval(t);
   }, [loadRooms]);
   const roomDlg = useRef<HTMLDialogElement>(null); // 방 만들기·설정 창 (모양은 아래 창들과 같게)
-  const [form, setForm] = useState<RoomForm>({ name: "", password: "", guest: false, error: "", sure: false });
+  const askDelete = useRef<HTMLDialogElement>(null); // "방을 삭제하시겠습니까?" 창 (채팅방의 나가기 창과 같은 모양)
+  const full = useRef<HTMLDialogElement>(null); // "방송은 최대 4개까지만 지원합니다" 창 (로그인 안내 창과 같은 모양)
+  const [form, setForm] = useState<RoomForm>({ name: "", password: "", guest: false, error: "" });
   // 오른쪽 위: 서버 PC(방장)면 아무것도 없고, 나머지는 도름스 칸 (로그인했으면 도름스 프로필 사진(없으면 이름) + [로그아웃], 아니면 [로그인]).
   // 도름스 회원만 채팅방에 들어간다. 운영진(서버 켜기 창 톱니바퀴에 적은 도름스 닉네임)은 방에서 방장 권한을 받는다 (lib/server.ts isStaff)
   const [me, setMe] = useState<{ local: boolean; admin: boolean; dorms: string | null; picture: string | null; dormsReason: string | null }>();
@@ -94,16 +96,11 @@ export default function Home() {
     reader.readAsDataURL(jpeg);
   }
 
-  // 닉네임·프로필 사진을 채팅방(app/room)에 넘겨준다
-  function keepProfile() {
+  function enter() {
+    if (!name.trim() || !room) return;
     sessionStorage.setItem("name", name.trim());
     sessionStorage.setItem("avatar", avatar);
     if (avatar === CUSTOM && custom) sessionStorage.setItem("photo", custom);
-  }
-
-  function enter() {
-    if (!name.trim() || !room) return;
-    keepProfile();
     // 도름스 로그인 전이면 들어가지 않고 [로그인]부터 누르게 한다 (여기서 바로 도름스로 보내면, 도름스에 로그인돼 있는 브라우저는
     // 묻지 않고 다시 로그인돼서 로그아웃했는데도 들어가지는 것처럼 보인다). 허용이 끊겼거나 도름스가 안 되면 안내 화면.
     // 진짜 문은 서버(app/room/layout.tsx, api/token)가 다시 확인한다
@@ -133,8 +130,8 @@ export default function Home() {
   }
 
   // 고른 방송과 비밀번호를 채팅방(app/room)에 넘겨주고 들어간다 (채팅방이 입장권을 받을 때 같이 보낸다)
-  function go(password: string, target = room) {
-    sessionStorage.setItem("room", target);
+  function go(password: string) {
+    sessionStorage.setItem("room", room);
     sessionStorage.setItem("password", password);
     // 휴대폰은 입장하면서 주소창·아래 버튼 줄·시계 줄을 모두 숨긴다 (누른 순간에만 허락돼서 여기서. 아이폰은 막혀 있어 그냥 넘어간다).
     // 시계 줄만 남기는 설정(navigationUI "show")은 시계 줄은 그대로 숨기고 아래 버튼 줄만 화면 위에 덮어 입력칸을 가려서 안 쓴다
@@ -142,41 +139,42 @@ export default function Home() {
     router.push("/room");
   }
 
-  // [+ 방 만들기]: 도름스 회원(마스터는 로그인 없이)만. 만들면 바로 그 방에 들어간다 (닉네임이 있어야 해서 먼저 확인)
+  // [+ 방 만들기]: 도름스 회원(마스터는 로그인 없이)만. 만들면 목록에서 그 방을 골라 둔다 (들어가는 건 각자 [LIVE 입장]으로)
   function openCreate() {
     if (me && !me.local && !me.dorms) return needLogin.current?.showModal();
-    setForm({ name: "", password: "", guest: false, error: "", sure: false });
+    if ((rooms?.length ?? 0) >= MAX_ROOMS) return full.current?.showModal();
+    setForm({ name: "", password: "", guest: false, error: "" });
     roomDlg.current?.showModal();
   }
   // 톱니바퀴: 내 방(마스터는 모든 방) 설정
   function openEdit(r: Broadcast) {
-    setForm({ old: r.name, name: r.name, password: r.password ?? "", guest: r.guest, error: "", sure: false });
+    setForm({ old: r.name, name: r.name, password: r.password ?? "", guest: r.guest, error: "" });
     roomDlg.current?.showModal();
   }
   const FAIL: Record<string, string> = { taken: "같은 이름의 방이 있어요", limit: "방은 한 사람에 하나만 만들 수 있어요", no_room: "이미 없어진 방이에요" };
   async function saveRoom() {
     const title = form.name.trim();
-    if (!form.old && !name.trim()) return setForm({ ...form, error: "닉네임을 먼저 입력해 주세요" });
     const url = form.old ? `/api/rooms?room=${encodeURIComponent(form.old)}` : "/api/rooms";
     const r = await fetch(url, { method: form.old ? "PATCH" : "PUT", body: JSON.stringify({ name: title, password: form.password, guest: form.guest }) }).catch(() => null);
     if (!r?.ok) {
       const reason = (await r?.json().catch(() => null))?.reason;
       if (leaveForDorms(reason)) return;
+      if (reason === "full") {
+        // 그사이 다른 사람이 만들어서 꽉 찼다
+        roomDlg.current?.close();
+        loadRooms();
+        return full.current?.showModal();
+      }
       return setForm({ ...form, error: FAIL[reason] ?? "저장하지 못했어요. 다시 해 주세요" });
     }
     roomDlg.current?.close();
-    if (form.old) {
-      if (room === form.old) setRoom(title);
-      return loadRooms();
-    }
-    // 새로 만든 방으로 바로 들어간다 (만든 사람은 비밀번호를 안 묻지만, 같이 넘겨 둔다)
-    keepProfile();
-    go(form.password, title);
+    if (!form.old || room === form.old) setRoom(title);
+    loadRooms();
   }
-  // [방 지우기]: 한 번 더 눌러야 지운다 (안에 있던 사람은 바로 나가진다)
+  // [방 지우기] → "방을 삭제하시겠습니까?" 창에서 [예]면 지운다 (안에 있던 사람은 바로 나가진다)
   async function deleteRoom() {
-    if (!form.sure) return setForm({ ...form, sure: true });
     await fetch(`/api/rooms?room=${encodeURIComponent(form.old!)}`, { method: "DELETE" }).catch(() => null);
+    askDelete.current?.close();
     roomDlg.current?.close();
     loadRooms();
   }
@@ -210,7 +208,7 @@ export default function Home() {
       </div>
 
       <section className="flex flex-col gap-2">
-        <span className="text-sm text-zinc-400">프로필 사진 선택</span>
+        <span className="text-sm text-zinc-400">프로필 사진</span>
         {/* 2줄 x 6칸 (PC, 휴대폰 같음): 기본 사진 9장, 도름스 사진, 내 사진, [+] 사진 올리기 */}
         <div className="grid grid-cols-6 gap-2">
           {AVATARS.map((id) => (
@@ -278,8 +276,14 @@ export default function Home() {
       {picked && <PhotoCrop file={picked} onDone={choosePhoto} onCancel={() => setPicked(undefined)} />}
 
       <label className="flex flex-col gap-2">
-        <span className="text-sm text-zinc-400">닉네임 입력</span>
+        <span className="flex items-center gap-1 text-sm text-zinc-400">
+          닉네임
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true" className="size-2.5 shrink-0 text-red-500">
+            <path d="M6 1v10M1.67 3.5l8.66 5M1.67 8.5l8.66-5" />
+          </svg>
+        </span>
         <input
+          aria-required="true"
           value={name}
           onChange={(e) => setName(e.target.value)}
           // Enter 를 여기서 끝낸다 (안 그러면 "로그인을 먼저 해주세요" 창이 열리자마자 같은 Enter 가 창의 [확인]을 눌러 바로 닫힌다)
@@ -408,7 +412,7 @@ export default function Home() {
           </div>
         </form>
       </dialog>
-      {/* 방 만들기·설정: Esc 나 [취소]로 닫힌다. 고르는 칸(들어올 수 있는 사람)은 어두운 홈 안에서 고른 쪽만 밝게 (아래 버튼들과 다르게 보이게) */}
+      {/* 방 만들기·설정: Esc 나 [취소]로 닫힌다. 고르는 칸(입장 권한)은 어두운 홈 안에서 고른 쪽만 밝게 (아래 버튼들과 다르게 보이게) */}
       <dialog
         ref={roomDlg}
         className="m-auto w-80 max-w-[calc(100%-2rem)] rounded-xl bg-zinc-800 p-5 text-zinc-100 ring-1 ring-zinc-700 backdrop:bg-black/60"
@@ -438,8 +442,8 @@ export default function Home() {
             className="rounded-lg bg-zinc-900 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
           />
           <div className="flex flex-col gap-2">
-            <span className="text-xs text-zinc-400">들어올 수 있는 사람</span>
-            <div role="radiogroup" aria-label="들어올 수 있는 사람" className="flex rounded-lg bg-zinc-900 p-1 ring-1 ring-zinc-700">
+            <span className="text-xs text-zinc-400">입장 권한</span>
+            <div role="radiogroup" aria-label="입장 권한" className="flex rounded-lg bg-zinc-900 p-1 ring-1 ring-zinc-700">
               {[false, true].map((g) => (
                 <button
                   key={String(g)}
@@ -454,21 +458,43 @@ export default function Home() {
               ))}
             </div>
           </div>
-          <p className="-my-2 h-4 text-center text-xs text-red-400">{form.error}</p>
+          {form.error && <p className="-my-2 h-4 text-center text-xs text-red-400">{form.error}</p>}
           <div className="mt-1 flex gap-2 border-t border-zinc-700 pt-5">
             {form.old && (
-              <button type="button" onClick={deleteRoom} className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold hover:bg-red-500">
-                {form.sure ? "정말 지우기" : "방 지우기"}
+              <button type="button" onClick={() => askDelete.current?.showModal()} className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold hover:bg-red-500">
+                방 지우기
               </button>
             )}
             <button type="button" onClick={() => roomDlg.current?.close()} className="flex-1 rounded-lg bg-zinc-700 py-2 text-sm font-semibold hover:bg-zinc-600">
               취소
             </button>
             <button disabled={!form.name.trim()} className="flex-1 rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500 disabled:opacity-40">
-              {form.old ? "저장" : "만들고 입장"}
+              {form.old ? "저장" : "만들기"}
             </button>
           </div>
         </form>
+      </dialog>
+      {/* 방 설정 창 위에 뜬다. Esc 나 [아니오]로 닫히고 설정 창은 그대로 */}
+      <dialog
+        ref={askDelete}
+        className="m-auto w-72 rounded-xl bg-zinc-800 p-5 text-zinc-100 ring-1 ring-zinc-700 backdrop:bg-black/60"
+      >
+        <p className="mb-10 text-center font-semibold">방을 삭제하시겠습니까?</p>
+        <div className="flex gap-2">
+          <button onClick={deleteRoom} className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold hover:bg-red-500">
+            예
+          </button>
+          <button onClick={() => askDelete.current?.close()} className="flex-1 rounded-lg bg-zinc-700 py-2 text-sm hover:bg-zinc-600">
+            아니오
+          </button>
+        </div>
+      </dialog>
+      {/* Esc 나 [확인]으로 닫힌다 */}
+      <dialog ref={full} className="m-auto w-80 max-w-[calc(100%-2rem)] rounded-xl bg-zinc-800 p-5 text-zinc-100 ring-1 ring-zinc-700 backdrop:bg-black/60">
+        <p className="mb-10 text-center font-semibold">방송은 최대 {MAX_ROOMS}개까지만 지원합니다</p>
+        <button onClick={() => full.current?.close()} className="w-full rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500">
+          확인
+        </button>
       </dialog>
     </main>
   );

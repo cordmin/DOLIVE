@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Knob } from "@/components/Knob";
 import { TTS_MODES, VOICES, playOnly, saveTts, savedTts, type TtsSettings } from "@/lib/dolive";
 
 const ROW = "flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-zinc-700/60";
@@ -11,6 +12,8 @@ const MODE_TEXT: Record<TtsSettings["mode"], string> = { off: "끄기", always: 
 export function TtsButton() {
   const box = useRef<HTMLDialogElement>(null);
   const [now, setNow] = useState<TtsSettings | null>(null);
+  const [mode, setMode] = useState<TtsSettings["mode"]>("off");
+  useEffect(() => setMode(savedTts().mode), []);
 
   function open() {
     setNow(savedTts());
@@ -40,10 +43,23 @@ export function TtsButton() {
         onClick={open}
         aria-label="TTS 설정"
         data-tip="TTS 설정"
-        className="grid size-8 shrink-0 place-items-center rounded-full bg-zinc-800 text-[11px] md:size-9 font-extrabold tracking-wide hover:bg-zinc-700"
+        className="grid size-8 shrink-0 place-items-center rounded-full bg-zinc-800 text-[11px] font-extrabold tracking-wide hover:bg-zinc-700 md:hidden"
       >
         TTS
       </button>
+      {/* PC: 동그란 기계 버튼 (share.tsx 의 다른 버튼들과 같은 모양) */}
+      <Knob
+        className="hidden md:flex"
+        label="TTS"
+        aria-label="TTS 설정"
+        led={mode !== "off" ? "green" : undefined}
+        onClick={open}
+        icon={
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-[17px]">
+            <path d="M3 5h9M7.5 5v14M16 9a5 5 0 0 1 0 6M19 6a9 9 0 0 1 0 12" />
+          </svg>
+        }
+      />
       {/* 채팅의 글 고치기·지우기 확인 창과 같은 모양 */}
       <dialog
         ref={box}
@@ -55,7 +71,9 @@ export function TtsButton() {
             onSubmit={(e) => {
               e.preventDefault();
               const f = new FormData(e.currentTarget);
-              saveTts({ mode: f.get("mode") as TtsSettings["mode"], voice: f.get("voice") as string });
+              const settings = { mode: f.get("mode") as TtsSettings["mode"], voice: f.get("voice") as string };
+              saveTts(settings);
+              setMode(settings.mode);
               box.current?.close();
             }}
           >

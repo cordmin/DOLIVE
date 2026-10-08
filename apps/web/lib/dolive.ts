@@ -98,3 +98,6 @@ export function leaveForDorms(reason: unknown) {
   else return false;
   return true;
 }
+
+// 방송은 모두 합쳐(마스터가 만든 방 포함) 이 개수까지만. 더 많으면 서버 PC가 감당하기 어렵다 (api/rooms 가 막고, 입장 화면은 안내 창)
+export const MAX_ROOMS = 4;

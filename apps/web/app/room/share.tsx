@@ -1,18 +1,14 @@
 import { useDataChannel, useLocalParticipant, useLocalParticipantPermissions, useRoomContext } from "@livekit/components-react";
 import { ScreenSharePresets, RoomEvent, Track, type Participant, type RemoteParticipant, type RemoteTrackPublication } from "livekit-client";
 import { useEffect, useState } from "react";
+import { Knob } from "@/components/Knob";
 import { Switch } from "@/components/Switch";
 import { VOICE_BOT, VOICE_ON } from "@/lib/dolive";
 import { TtsButton } from "./tts";
 
-// 공유하는 사람이 고르는 화질. 공유는 고른 화질과 한 단계 낮은 화질을 같이 보내고,
+// 화면공유는 720p와 낮은 화질을 같이 보내고,
 // 보는 사람 인터넷이 느려서 끊기면 서버가 그 사람에게만 낮은 쪽으로 자동으로 바꿔 보낸다.
-// 고르는 칸에 이 순서대로 나온다 (기본인 720p 가 위)
-const QUALITY = {
-  "720p": { top: ScreenSharePresets.h720fps30, low: ScreenSharePresets.h360fps15 },
-  "1080p": { top: ScreenSharePresets.h1080fps30, low: ScreenSharePresets.h720fps30 },
-};
-type Quality = keyof typeof QUALITY;
+const QUALITY = { top: ScreenSharePresets.h720fps30, low: ScreenSharePresets.h360fps15 };
 
 // 화면공유 요청("request")과 거부("denied")를 주고받는 채널
 const SHARE_TOPIC = "dolive-share";
@@ -128,7 +124,7 @@ export function useShareRequests(isAdmin: boolean, participants: Participant[], 
   return { waiting, answer, asked, requestShare };
 }
 
-// 위쪽 오른쪽: 화면공유(PC만) + 마이크 스위치
+// 위쪽 오른쪽: 화면공유(PC만) + 마이크 스위치. 넓은 PC 화면(md 이상)은 같은 일을 하는 동그란 기계 버튼(Knob)으로 따로 그린다
 // 화면공유 버튼: 방장은 바로 공유. 다른 사람은 [화면공유 -> 요청 중... -> (방장 승인) -> 지금 공유하기] 순서.
 // (승인이 나도 공유 고르는 창은 본인이 버튼을 눌러야 열린다 - 브라우저 규칙)
 export function MediaControls({ asked, requestShare }: { asked: boolean; requestShare: () => void }) {
@@ -138,7 +134,6 @@ export function MediaControls({ asked, requestShare }: { asked: boolean; request
   const allowed = sources.length === 0 || sources.includes(SCREEN_SHARE_SOURCE); // 빈 목록 = 다 보낼 수 있음(방장)
   const approved = allowed && sources.length > 0 && me.attributes.roomAdmin !== "1"; // 운영자가 아닌데 따로 승인받음
   const paused = me.getTrackPublication(Track.Source.ScreenShare)?.isMuted; // 다른 사람이 공유 중이라 멈춤
-  const [quality, setQuality] = useState<Quality>("720p");
 
   async function run(action: () => Promise<unknown>, fail: string) {
     try {
@@ -149,74 +144,94 @@ export function MediaControls({ asked, requestShare }: { asked: boolean; request
     }
   }
 
+  // 화면공유 시작·끝 (아직 권한이 없으면 방장에게 요청)
+  const toggleShare = () =>
+    !isScreenShareEnabled && !allowed
+      ? requestShare()
+      : run(
+        () =>
+          me.setScreenShareEnabled(
+            !isScreenShareEnabled,
+            {
+              audio: {
+                autoGainControl: false,
+                echoCancellation: false,
+                noiseSuppression: false,
+                // 컴퓨터 소리를 담을 때 이 도라이브 창에서 나는 소리("/글" 음성, 다른 사람 목소리)는 빼고 담는다.
+                // 안 빼면 그 소리가 공유 소리에 섞여 한 번 더 나가서, 모두에게 늦게 두 번 들린다 (말한 사람에겐 자기 목소리가 되돌아옴)
+                restrictOwnAudio: true,
+              },
+              resolution: QUALITY.top.resolution,
+              contentHint: "detail",
+              video: { displaySurface: "monitor" }, // 고르는 창에서 '전체 화면' 칸이 먼저 열리게
+              selfBrowserSurface: "exclude", // 이 탭은 목록에서 뺀다 (화면 속 화면이 끝없이 비치는 것 방지)
+              systemAudio: "include", // '전체 화면'에서 '시스템 오디오와 공유'를 늘 보여 준다 (켜짐이 기본)
+            },
+            { screenShareEncoding: QUALITY.top.encoding, screenShareSimulcastLayers: [QUALITY.low] },
+          ),
+        "화면공유",
+      );
+  const shareLabel = isScreenShareEnabled
+    ? paused
+      ? "공유 중지 (잠시 멈춤)"
+      : "공유 중지"
+    : allowed
+      ? approved
+        ? "지금 공유하기"
+        : "화면공유"
+      : asked
+        ? "요청 중..."
+        : "화면공유";
+
   return (
     <>
-      {canShare && (allowed || isScreenShareEnabled) && (
-        // 공유 중에 바꾸려면 공유를 끝냈다 다시 해야 해서(승인받은 사람은 승인도 다시), 공유 중엔 잠근다.
-        // 말풍선은 감싼 칸에 단다 (잠긴 칸은 마우스를 받지 않아서 감싼 칸이 대신 받는다)
-        <span className="hidden sm:flex" data-tip={isScreenShareEnabled ? "공유를 멈춘 뒤 바꿀 수 있어요" : "화면공유 화질"}>
-          <select
-            className="quality-select flex items-center gap-1 rounded-full bg-zinc-800 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-60"
-            value={quality}
-            disabled={isScreenShareEnabled}
-            onChange={(e) => setQuality(e.target.value as Quality)}
-          >
-            {Object.keys(QUALITY).map((q) => (
-              <option key={q}>{q}</option>
-            ))}
-          </select>
-        </span>
-      )}
       {canShare && (
         <button
           // 휴대폰은 화면공유를 못 하고 자리도 좁아서 숨긴다
-          className={`hidden rounded-full px-3 py-1.5 disabled:opacity-60 sm:block ${
+          className={`hidden rounded-full px-3 py-1.5 disabled:opacity-60 sm:block md:hidden ${
             isScreenShareEnabled ? "bg-indigo-600" : approved ? "bg-green-600 hover:bg-green-500" : "bg-zinc-800 hover:bg-zinc-700"
           }`}
           disabled={!isScreenShareEnabled && !allowed && asked}
-          onClick={() =>
-            !isScreenShareEnabled && !allowed
-              ? requestShare()
-              : run(
-              () =>
-                me.setScreenShareEnabled(
-                  !isScreenShareEnabled,
-                  {
-                    audio: {
-                      autoGainControl: false,
-                      echoCancellation: false,
-                      noiseSuppression: false,
-                      // 컴퓨터 소리를 담을 때 이 도라이브 창에서 나는 소리("/글" 음성, 다른 사람 목소리)는 빼고 담는다.
-                      // 안 빼면 그 소리가 공유 소리에 섞여 한 번 더 나가서, 모두에게 늦게 두 번 들린다 (말한 사람에겐 자기 목소리가 되돌아옴)
-                      restrictOwnAudio: true,
-                    },
-                    resolution: QUALITY[quality].top.resolution,
-                    contentHint: "detail",
-                    video: { displaySurface: "monitor" }, // 고르는 창에서 '전체 화면' 칸이 먼저 열리게
-                    selfBrowserSurface: "exclude", // 이 탭은 목록에서 뺀다 (화면 속 화면이 끝없이 비치는 것 방지)
-                    systemAudio: "include", // '전체 화면'에서 '시스템 오디오와 공유'를 늘 보여 준다 (켜짐이 기본)
-                  },
-                  { screenShareEncoding: QUALITY[quality].top.encoding, screenShareSimulcastLayers: [QUALITY[quality].low] },
-                ),
-              "화면공유",
-            )
-          }
+          onClick={toggleShare}
         >
-          {isScreenShareEnabled
-            ? paused
-              ? "공유 중지 (잠시 멈춤)"
-              : "공유 중지"
-            : allowed
-              ? approved
-                ? "지금 공유하기"
-                : "화면공유"
-              : asked
-                ? "요청 중..."
-                : "화면공유"}
+          {shareLabel}
         </button>
       )}
+      {/* PC: 화면공유 중이거나 승인받으면 초록 불빛 */}
+      {canShare && (
+        <Knob
+          className="hidden md:flex"
+          label={shareLabel}
+          led={isScreenShareEnabled || approved ? "green" : undefined}
+          disabled={!isScreenShareEnabled && !allowed && asked}
+          onClick={toggleShare}
+          icon={
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-[17px]">
+              <rect x="3" y="4" width="18" height="12" rx="2" />
+              <path d="M8 20h8M12 16v4" />
+            </svg>
+          }
+        />
+      )}
       <TtsButton />
-      <Switch label="마이크" on={isMicrophoneEnabled} onChange={(on) => run(() => me.setMicrophoneEnabled(on), "마이크")} />
+      <span className="md:hidden">
+        <Switch label="마이크" on={isMicrophoneEnabled} onChange={(on) => run(() => me.setMicrophoneEnabled(on), "마이크")} />
+      </span>
+      {/* PC: 마이크 (켜짐 = 초록 불빛) */}
+      <Knob
+        className="hidden md:flex"
+        role="switch"
+        aria-checked={isMicrophoneEnabled}
+        label="마이크"
+        led={isMicrophoneEnabled ? "green" : undefined}
+        onClick={() => run(() => me.setMicrophoneEnabled(!isMicrophoneEnabled), "마이크")}
+        icon={
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden className="size-[17px]">
+            <rect x="9" y="3" width="6" height="11" rx="3" />
+            <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+          </svg>
+        }
+      />
     </>
   );
 }

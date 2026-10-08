@@ -3,6 +3,7 @@
 import {
   LiveKitRoom,
   RoomAudioRenderer,
+  useConnectionState,
   useLocalParticipant,
   useParticipantAttributes,
   useParticipants,
@@ -11,11 +12,12 @@ import {
   useIsMuted,
   useIsSpeaking,
 } from "@livekit/components-react";
-import { ConnectionError, ConnectionErrorReason, DisconnectReason, Track, type Participant, type RoomOptions } from "livekit-client";
+import { ConnectionError, ConnectionErrorReason, ConnectionState, DisconnectReason, Track, type Participant, type RoomOptions } from "livekit-client";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
+import { Knob } from "@/components/Knob";
 import { Switch } from "@/components/Switch";
 import { Tooltips } from "@/components/Tooltips";
 import { VOICE_BOT, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
@@ -24,6 +26,7 @@ import { MENU_ITEM, NO_SELECT, PopMenu, useHoldMenu } from "./menu";
 import { useReactions } from "./reactions";
 import { MediaControls, SCREEN_SHARE_SOURCE, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
 import { Stage, useAvatarOf } from "./stage";
+import { DonationDialog } from "./donation";
 
 // 방 화면은 여러 파일로 나눠 둔다: chat.tsx(채팅), stage.tsx(공유 화면·프로필 사진 칸), share.tsx(화면공유·마이크), reactions.tsx(하트·ㅋ·헐)
 
@@ -33,6 +36,8 @@ import { Stage, useAvatarOf } from "./stage";
 const ROOM_OPTIONS: RoomOptions = {
   adaptiveStream: { pauseVideoInBackground: false },
   dynacast: true,
+  // 수정용 서버는 내부 브라우저에서도 열리도록 기존 연결 방식을 쓴다.
+  singlePeerConnection: process.env.NODE_ENV !== "development",
 };
 
 type Conn = { token: string; url: string };
@@ -191,10 +196,15 @@ function RoomView({ token }: { token: string }) {
     .filter((t) => !t.publication.isMuted)
     .at(-1);
   const room = useRoomContext();
+  // 화면공유한 사람을 먼저 고르고, 없으면 방 주인·방장 순으로 고른다.
+  const donationRecipient = screen?.participant
+    ?? participants.find((p) => p.attributes.owner === "1")
+    ?? participants.find((p) => p.attributes.roomAdmin === "1");
   usePauseOldShare();
   useDuckShareAudio();
 
-  const { floats, react } = useReactions();
+  const { floats, react, donation } = useReactions();
+  const [donating, setDonating] = useState(false);
   const { waiting, answer, asked, requestShare } = useShareRequests(isAdmin, participants, token);
 
   // PC 채팅 카드 폭(px). 왼쪽 가장자리를 끌어서 바꾸고, 이 브라우저에만 기억한다. null = 기본 폭
@@ -252,6 +262,12 @@ function RoomView({ token }: { token: string }) {
   useEffect(() => {
     if (!sharing) pip?.close();
   }, [sharing, pip]);
+  // 전체화면 버튼으로 켜기·끄기 (휴대폰은 기존처럼 로고)
+  const toggleFullscreen = () =>
+    document.fullscreenElement ? document.exitFullscreen().catch(() => {}) : document.documentElement.requestFullscreen?.().catch(() => {});
+  // PC 로고 아래 불빛: 통화 서버와 이어져 있으면 초록 "방송중", 끊겨서 다시 붙는 중이면 호박색
+  const live = useConnectionState() === ConnectionState.Connected;
+
   // 휴대폰을 가로로 눕히면 공유 화면만 꽉 차게 보여 주고 나머지는 모두 숨긴다
   const hideOnLand = screen ? "phone-land:hidden!" : "";
 
@@ -299,7 +315,7 @@ function RoomView({ token }: { token: string }) {
         </div>
       </dialog>
       {waiting && (
-        <div className="fixed inset-x-0 top-16 z-30 mx-auto flex w-fit max-w-[calc(100%-2rem)] items-center gap-3 rounded-xl bg-zinc-800 px-4 py-3 shadow-lg ring-1 ring-zinc-700">
+        <div className="fixed inset-x-0 top-16 z-30 mx-auto flex w-fit md:top-28 max-w-[calc(100%-2rem)] items-center gap-3 rounded-xl bg-zinc-800 px-4 py-3 shadow-lg ring-1 ring-zinc-700">
           <span className="text-sm">
             <b>{waiting.name}</b>님이 화면공유를 하려고 해요
           </span>
@@ -314,133 +330,174 @@ function RoomView({ token }: { token: string }) {
           </button>
         </div>
       )}
-      <header
-        // PC 는 아래로 펼치는 참여자 목록이 잘리지 않게 overflow 를 풀어 둔다 (휴대폰은 좁아서 옆으로 밀어 본다)
-        className={`${hideOnLand} flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b border-zinc-800 px-3 md:overflow-visible md:border-b-0 text-sm whitespace-nowrap`}
-      >
-        {/* 로고를 누르면 전체화면 켜기·끄기 (아이폰은 브라우저가 막아 둬서 안 된다) */}
-        <button
-          type="button"
-          onClick={() =>
-            document.fullscreenElement
-              ? document.exitFullscreen().catch(() => {})
-              : document.documentElement.requestFullscreen?.().catch(() => {})
-          }
-          data-tip="전체화면"
-          className="text-base font-bold"
+      {/* PC: 바깥 판 없이 공유 화면과 채팅의 파인 테두리만 둔다. 휴대폰은 그대로 */}
+      <div className="contents md:flex md:min-h-0 md:flex-1 md:flex-col md:gap-3.5 md:px-[18px] md:pt-3.5 md:pb-[18px]">
+        <header
+          // PC 는 아래로 펼치는 참여자 목록이 잘리지 않게 overflow 를 풀어 둔다 (휴대폰은 좁아서 옆으로 밀어 본다)
+          className={`${hideOnLand} flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b border-zinc-800 px-3 md:h-auto md:gap-4 md:overflow-visible md:border-b-0 md:px-0 text-sm whitespace-nowrap`}
         >
-          DO<span className="text-red-500">LIVE</span>
-        </button>
-        {/* 휴대폰: 눌러서 참여자 목록을 여는 배지. 넓은 화면은 목록이 늘 보여서 그냥 글자 */}
-        <button
-          onClick={(e) => {
-            const r = e.currentTarget.getBoundingClientRect();
-            setPeopleAt({ left: r.left + r.width / 2, top: r.bottom + 8 });
-            setShowPeople(!showPeople);
-          }}
-          aria-expanded={showPeople}
-          className={`flex items-center gap-1 rounded-full px-3 py-1 text-zinc-200 md:pointer-events-none md:bg-transparent md:px-0 md:text-zinc-400 ${showPeople ? "bg-indigo-600" : "bg-zinc-800 active:bg-zinc-700"}`}
-        >
-          참여자 {participants.length}명
-          <svg
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            aria-hidden
-            className={`size-4 transition-transform md:hidden ${showPeople ? "rotate-180" : ""}`}
+          {/* 로고를 누르면 전체화면 켜기·끄기 (아이폰은 브라우저가 막아 둬서 안 된다) */}
+          <button type="button" onClick={toggleFullscreen} data-tip="전체화면" className="text-base font-bold md:hidden">
+            DO<span className="text-red-500">LIVE</span>
+          </button>
+          {/* PC: 로고(+ 관리자 배지) 아래에 불빛과 참여자 수 */}
+          <div className="hidden flex-col gap-1.5 md:flex">
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => room.disconnect()} className="text-2xl font-bold tracking-tight text-[#d3d0ca]">
+                DO<span className="text-red-500">LIVE</span>
+              </button>
+              {/* 서버 PC에서 들어온 사람도, 운영진 목록에 있는 도름스 회원도 "관리자". 아니면 배지 없음 */}
+              {isAdmin && (
+                <span className="translate-y-px rounded-[3px] border border-[#e8b46a]/40 px-1.5 text-[11px] leading-[17px] text-[#e8b46a]">관리자</span>
+              )}
+            </div>
+            <span className="flex items-center gap-1.5 text-[11px] text-[#a39f98]">
+              <span className={`hw-led ${live ? "hw-led-green" : "hw-led-amber"}`} />
+              참여자 {participants.length}명
+            </span>
+          </div>
+          {/* 휴대폰: 눌러서 참여자 목록을 여는 배지. 넓은 화면은 목록이 늘 보여서 그냥 글자 */}
+          <button
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setPeopleAt({ left: r.left + r.width / 2, top: r.bottom + 8 });
+              setShowPeople(!showPeople);
+            }}
+            aria-expanded={showPeople}
+            className={`flex items-center gap-1 rounded-full px-3 py-1 text-zinc-200 md:hidden ${showPeople ? "bg-indigo-600" : "bg-zinc-800 active:bg-zinc-700"}`}
           >
-            <path d="M5.2 7.2a.75.75 0 0 1 1.06 0L10 10.94l3.74-3.74a.75.75 0 1 1 1.06 1.06l-4.27 4.27a.75.75 0 0 1-1.06 0L5.2 8.26a.75.75 0 0 1 0-1.06Z" />
-          </svg>
-        </button>
-        {/* PC: 참여자 사진·이름을 한 줄로. 자리가 모자라면 뒤쪽은 안 보이고(다음 줄로 넘어가 가려짐), 마우스를 올리면 아래로 스르륵 펼쳐 모두 보여 준다.
-            줄 높이(40px)의 가운데가 맨 위 막대 가운데 = 로고 글자 가운데 (16px 로고 글자는 줄 가운데에 딱 그려진다. 재서 확인함) */}
+            참여자 {participants.length}명
+            <svg
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              aria-hidden
+              className={`size-4 transition-transform md:hidden ${showPeople ? "rotate-180" : ""}`}
+            >
+              <path d="M5.2 7.2a.75.75 0 0 1 1.06 0L10 10.94l3.74-3.74a.75.75 0 1 1 1.06 1.06l-4.27 4.27a.75.75 0 0 1-1.06 0L5.2 8.26a.75.75 0 0 1 0-1.06Z" />
+            </svg>
+          </button>
+          {/* PC: 참여자 사진·이름을 한 줄로. 자리가 모자라면 뒤쪽은 안 보이고(다음 줄로 넘어가 가려짐), 마우스를 올리면 아래로 스르륵 펼쳐 모두 보여 준다.
+              사진은 오른쪽 버튼과 같은 38px, 이름은 사진 아래 가운데 */}
+          <div
+            // 펼친 목록을 아래로 내려 본 채 마우스가 나가도, 접히면서 맨 위(나 → 마이크 켠 사람 → 나머지 순서의 첫 줄)로 돌아오게
+            onPointerLeave={(e) => e.currentTarget.firstElementChild?.scrollTo({ top: 0, behavior: "smooth" })}
+            // 빈 곳을 오른쪽 클릭해도 브라우저 메뉴가 뜨지 않게 (사람 위는 PersonRow 가 자기 메뉴를 띄운다)
+            onContextMenu={(e) => e.preventDefault()}
+            className="group relative mr-6 hidden h-[71px] min-w-0 flex-1 md:z-30 md:block md:translate-y-[2px]"
+          >
+            <div className="absolute inset-x-0 top-0 z-30 h-[71px] max-h-[60vh] overflow-hidden rounded-xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden transition-[height,background-color,box-shadow] duration-300 ease-out [interpolate-size:allow-keywords] strip-open:h-auto strip-open:-inset-x-2 strip-open:overflow-y-auto strip-open:bg-[#232324] strip-open:p-2 strip-open:shadow-xl strip-open:shadow-black/50 strip-open:ring-1 strip-open:ring-[#3a3836]">
+              <div className="flex flex-wrap gap-x-2 gap-y-1">
+                {participants.map((p) => (
+                  <PersonRow key={p.identity} p={p} isAdmin={isAdmin} isOwner={isOwner} token={token} />
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="ml-auto flex items-center gap-2 md:items-end md:gap-5">
+            {/* 서버 PC에서 들어온 사람도, 운영진 목록(서버 켜기 창 톱니바퀴)에 있는 도름스 회원도 "관리자" (입장 화면 오른쪽 위 표시와 같은 모양). PC 는 로고 옆 */}
+            {isAdmin && (
+              <span className="rounded bg-amber-500 px-2 py-0.5 text-xs font-bold text-black md:hidden">관리자</span>
+            )}
+            <Knob
+              className="hidden md:flex"
+              label="전체화면"
+              onClick={toggleFullscreen}
+              icon={
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-[17px]">
+                  <path d="M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5" />
+                </svg>
+              }
+            />
+            <MediaControls asked={asked} requestShare={requestShare} />
+            {docPip && sharing && (
+              <div className="hidden sm:block md:hidden">
+                <Switch label="채팅분리" on={!!pip} onChange={togglePip} />
+              </div>
+            )}
+            {docPip && sharing && (
+              <Knob
+                className="hidden md:flex"
+                role="switch"
+                aria-checked={!!pip}
+                label="채팅분리"
+                led={pip ? "green" : undefined}
+                onClick={() => togglePip(!pip)}
+                icon={
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-[17px]">
+                    <rect x="3" y="5" width="12" height="10" rx="2" />
+                    <path d="M9 19h10a2 2 0 0 0 2-2V9" />
+                  </svg>
+                }
+              />
+            )}
+          </div>
+        </header>
+
+        {/* PC는 2x2 칸(grid): 왼쪽은 위아래 두 칸을 다 쓰는 공유 화면, 오른쪽은 채팅 내용 + 입력칸. 오른쪽 채팅 칸은 기본 500px, 창이 좁으면 절반까지만 (끌어서 바꾼 폭이 있으면 그 폭).
+            휴대폰은 위에서 아래로 쌓고, 안쪽 칸(md:contents)이 참여자 목록을 띄울 자리가 된다. (PC 참여자 목록은 맨 위 줄에)
+            휴대폰 가로 + 화면공유는 공유 화면만 꽉 차게 (나머지는 hideOnLand 로 숨김) */}
         <div
-          // 펼친 목록을 아래로 내려 본 채 마우스가 나가도, 접히면서 맨 위(나 → 마이크 켠 사람 → 나머지 순서의 첫 줄)로 돌아오게
-          onPointerLeave={(e) => e.currentTarget.firstElementChild?.scrollTo({ top: 0, behavior: "smooth" })}
-          // 빈 곳을 오른쪽 클릭해도 브라우저 메뉴가 뜨지 않게 (사람 위는 PersonRow 가 자기 메뉴를 띄운다)
-          onContextMenu={(e) => e.preventDefault()}
-          className="group relative mr-6 ml-6 hidden h-10 min-w-0 flex-1 md:block"
+          ref={grid}
+          style={chatW ? { gridTemplateColumns: `minmax(0,1fr) min(${chatW}px,600px,50%)` } : undefined}
+          className={`flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[minmax(0,1fr)_min(500px,50%)] md:grid-rows-[minmax(0,1fr)_auto] ${screen ? "phone-land:flex!" : ""}`}
         >
-          <div className="absolute inset-x-0 top-0 z-30 h-10 max-h-[60vh] overflow-hidden rounded-xl transition-[height,background-color,box-shadow] duration-300 ease-out [interpolate-size:allow-keywords] strip-open:h-auto strip-open:-inset-x-2 strip-open:overflow-y-auto strip-open:bg-zinc-900 strip-open:p-2 strip-open:shadow-xl strip-open:shadow-black/50 strip-open:ring-1 strip-open:ring-zinc-700">
-            <div className="flex flex-wrap gap-x-2 gap-y-1">
+          {/* 채팅 내용과 입력칸을 한 테두리로 감싼다. 그림자만 겹쳐서 버튼 누르기와 폭 조절은 그대로 */}
+          <div aria-hidden className={`pointer-events-none z-20 hidden rounded-xl md:col-start-2 md:row-span-2 md:row-start-1 md:block md:hw-inset ${hideOnLand}`} />
+          {/* PC: 채팅 카드 왼쪽 가장자리. 끌면 폭이 바뀌고, 두 번 누르면 기본 폭으로. 평소엔 안 보이고 마우스를 올리면 보라색.
+              위아래 끝은 채팅 카드 위아래 끝과 맞춘다 */}
+          <div
+            onPointerDown={dragChat}
+            onDoubleClick={() => saveChatW(null)}
+            data-tip="드래그 너비 조절"
+            className={`z-10 hidden w-3 -translate-x-1.5 cursor-col-resize justify-self-start rounded-full hover:bg-indigo-500/40 md:col-start-2 md:row-span-2 md:row-start-1 md:block ${hideOnLand}`}
+          />
+          {/* 공유 화면을 쓸어 올려 커지는 동안(data-grow)은 위로 삐져나와도 잘리지 않게 */}
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:contents [&:has([data-grow])]:overflow-visible">
+            {/* 휴대폰: 목록이 열려 있을 때 바깥을 누르면 닫힌다 */}
+            {showPeople && <div onClick={() => setShowPeople(false)} className="fixed inset-0 z-20 md:hidden" />}
+            {/* 휴대폰: 배지 아래로 스르륵 내려오는 둥근 카드 (가로 가운데를 배지와 맞춤). PC 는 맨 위 줄에 따로 있어서 숨긴다 */}
+            <aside
+              style={{ left: peopleAt.left, top: peopleAt.top }}
+              className={`fixed z-30 flex max-h-[60dvh] w-max max-w-[80vw] origin-top -translate-x-1/2 flex-col gap-1 overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-2 shadow-xl shadow-black/50 transition-[opacity,translate,scale,visibility] duration-200 ease-out ${showPeople ? "" : "pointer-events-none invisible -translate-y-2 scale-95 opacity-0"} md:hidden ${hideOnLand}`}
+            >
               {participants.map((p) => (
                 <PersonRow key={p.identity} p={p} isAdmin={isAdmin} isOwner={isOwner} token={token} />
               ))}
-            </div>
+            </aside>
+
+            <Stage participants={participants} screen={screen} floats={floats} />
+            {/* 휴대폰에서 화면공유 중에 자판이 올라오면 채팅 내용 칸이 먼저 줄고, 그래도 좁으면 공유 화면도 줄어든다 */}
+            <ChatLog
+              messages={messages}
+              isAdmin={isAdmin}
+              remove={removeChat} edit={editChat}
+              // PC: 채팅 내용 + 아래 입력칸이 둥근 카드 하나로 이어진다 (구분선 없이 카드로 나눔)
+              // (PC 카드 색 #1e1e21 = 예전 zinc-900 바탕 위 zinc-800/40 과 같은 색. 판 위에서도 지금과 같아 보이게)
+              className={`${screen ? "min-h-24 flex-1" : "min-h-0 flex-1"} border-t border-zinc-800 md:col-start-2 md:row-start-1 md:min-h-0 md:rounded-t-xl md:border-0 md:bg-[#1e1e21] ${hideOnLand}`}
+            />
           </div>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          {/* 서버 PC에서 들어온 사람도, 운영진 목록(서버 켜기 창 톱니바퀴)에 있는 도름스 회원도 "관리자" (입장 화면 오른쪽 위 표시와 같은 모양) */}
-          {isAdmin && (
-            <span className="rounded bg-amber-500 px-2 py-0.5 text-xs font-bold text-black">관리자</span>
-          )}
-          <MediaControls asked={asked} requestShare={requestShare} />
-          {docPip && sharing && (
-            <div className="hidden sm:block">
-              <Switch label="채팅분리" on={!!pip} onChange={togglePip} />
-            </div>
-          )}
-        </div>
-      </header>
 
-      {/* PC는 2x2 칸(grid): 왼쪽은 위아래 두 칸을 다 쓰는 공유 화면, 오른쪽은 채팅 내용 + 입력칸. 오른쪽 채팅 칸은 기본 500px, 창이 좁으면 절반까지만 (끌어서 바꾼 폭이 있으면 그 폭).
-          휴대폰은 위에서 아래로 쌓고, 안쪽 칸(md:contents)이 참여자 목록을 띄울 자리가 된다. (PC 참여자 목록은 맨 위 줄에)
-          휴대폰 가로 + 화면공유는 공유 화면만 꽉 차게 (나머지는 hideOnLand 로 숨김) */}
-      <div
-        ref={grid}
-        style={chatW ? { gridTemplateColumns: `minmax(0,1fr) min(${chatW}px,600px,50%)` } : undefined}
-        className={`flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[minmax(0,1fr)_min(500px,50%)] md:grid-rows-[minmax(0,1fr)_auto] ${screen ? "phone-land:flex!" : ""}`}
-      >
-        {/* PC: 채팅 카드 왼쪽 가장자리. 끌면 폭이 바뀌고, 두 번 누르면 기본 폭으로. 평소엔 안 보이고 마우스를 올리면 보라색.
-            위아래 끝은 채팅 카드 위아래 끝과 맞춘다(my-2) */}
-        <div
-          onPointerDown={dragChat}
-          onDoubleClick={() => saveChatW(null)}
-          data-tip="드래그 너비 조절"
-          className={`z-10 hidden w-3 -translate-x-1.5 cursor-col-resize md:my-2 justify-self-start rounded-full hover:bg-indigo-500/40 md:col-start-2 md:row-span-2 md:row-start-1 md:block ${hideOnLand}`}
-        />
-        {/* 공유 화면을 쓸어 올려 커지는 동안(data-grow)은 위로 삐져나와도 잘리지 않게 */}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:contents [&:has([data-grow])]:overflow-visible">
-          {/* 휴대폰: 목록이 열려 있을 때 바깥을 누르면 닫힌다 */}
-          {showPeople && <div onClick={() => setShowPeople(false)} className="fixed inset-0 z-20 md:hidden" />}
-          {/* 휴대폰: 배지 아래로 스르륵 내려오는 둥근 카드 (가로 가운데를 배지와 맞춤). PC 는 맨 위 줄에 따로 있어서 숨긴다 */}
-          <aside
-            style={{ left: peopleAt.left, top: peopleAt.top }}
-            className={`fixed z-30 flex max-h-[60dvh] w-max max-w-[80vw] origin-top -translate-x-1/2 flex-col gap-1 overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-2 shadow-xl shadow-black/50 transition-[opacity,translate,scale,visibility] duration-200 ease-out ${showPeople ? "" : "pointer-events-none invisible -translate-y-2 scale-95 opacity-0"} md:hidden ${hideOnLand}`}
-          >
-            {participants.map((p) => (
-              <PersonRow key={p.identity} p={p} isAdmin={isAdmin} isOwner={isOwner} token={token} />
-            ))}
-          </aside>
-
-          <Stage participants={participants} screen={screen} floats={floats} />
-          {/* 휴대폰에서 화면공유 중에 자판이 올라오면 채팅 내용 칸이 먼저 줄고, 그래도 좁으면 공유 화면도 줄어든다 */}
-          <ChatLog
-            messages={messages}
-            isAdmin={isAdmin}
-            remove={removeChat} edit={editChat}
-            // PC: 채팅 내용 + 아래 입력칸이 둥근 카드 하나로 이어진다 (구분선 없이 카드로 나눔)
-            className={`${screen ? "min-h-24 flex-1" : "min-h-0 flex-1"} border-t border-zinc-800 md:col-start-2 md:row-start-1 md:mt-2 md:mr-2 md:min-h-0 md:rounded-t-xl md:border md:border-b-0 md:bg-zinc-800/40 ${hideOnLand}`}
+          <ChatInput
+            donate={() => setDonating(true)}
+            send={sendChat}
+            sendImage={sendImage}
+            react={react}
+            // PC: 경계선이 없어서 "맨 아래로" 버튼은 이 칸 위쪽 끝을 사이에 두고 보내기 버튼과 대칭 = (칸 높이 - 버튼 48px) / 2
+            className={`md:col-start-2 md:row-start-2 md:rounded-b-xl md:border-t-0 md:bg-[#1e1e21] md:pb-3 md:[--down-gap:calc(50%-24px)] ${hideOnLand}`}
           />
         </div>
-
-        <ChatInput
-          send={sendChat}
-          sendImage={sendImage}
-          react={react}
-          // PC: 경계선이 없어서 "맨 아래로" 버튼은 이 칸 위쪽 끝을 사이에 두고 보내기 버튼과 대칭 = (칸 높이 - 버튼 48px) / 2
-          className={`md:col-start-2 md:row-start-2 md:mr-2 md:mb-2 md:rounded-b-xl md:border md:border-t-0 md:bg-zinc-800/40 md:pb-3 md:[--down-gap:calc(50%-24px)] ${hideOnLand}`}
-        />
       </div>
 
       {pip &&
         createPortal(
           <div className="flex h-dvh flex-col">
             <ChatLog messages={messages} isAdmin={isAdmin} remove={removeChat} edit={editChat} className="min-h-0 flex-1" />
-            <ChatInput send={sendChat} sendImage={sendImage} react={react} className="" />
+            <ChatInput send={sendChat} sendImage={sendImage} react={react} donate={() => setDonating(true)} className="" />
             <Tooltips doc={pip.document} />
           </div>,
           pip.document.body,
         )}
+      {donating && <DonationDialog token={token} room={room.name} target={donationRecipient ? { isSelf: donationRecipient.isLocal || (!!mine?.dorms && mine.dorms === donationRecipient.attributes.dorms), identity: donationRecipient.identity, recipientId: donationRecipient.attributes.dorms ?? "", name: donationRecipient.name || donationRecipient.identity } : undefined} close={() => setDonating(false)} success={donation} />}
       <Tooltips />
     </>
   );
@@ -497,11 +554,11 @@ function PersonRow({ p, isAdmin, isOwner, token }: { p: Participant; isAdmin: bo
 
   return (
     // 사진 + 이름. 마이크는 사진 구석 점, 말하는 중은 초록 테두리.
-    // PC 맨 위 줄: 접혀 있으면 32px 사진 옆에 이름(높이 40px), 줄에 마우스를 올리면(strip-open) 47px 사진 아래 이름으로 커진다 (사진은 스르륵)
-    // 휴대폰 목록: 나는 사진 아래에 걸친 ME (이름 옆에 붙이면 이름이 잘려서). PC 는 사진을 가려서 ME 를 안 보인다
+    // PC 맨 위 줄: 평소 사진은 38px, 펼치면 47px. 이름은 오른쪽 버튼 설명과 같은 11px
+    // 휴대폰 목록: 나는 사진 아래에 걸친 ME (이름 옆에 붙이면 이름이 잘려서). PC 는 내 닉네임을 금색으로 표시
     <div
       {...(hasMenu ? hold(setMenuAt) : {})}
-      className={`${hasMenu ? NO_SELECT : ""} flex items-center gap-2 rounded p-1 hover:bg-zinc-800 md:shrink-0 md:pr-2 md:strip-open:w-[4.5rem] md:strip-open:flex-col md:strip-open:pr-1`}
+      className={`${hasMenu ? NO_SELECT : ""} flex items-center gap-2 rounded p-1 hover:bg-zinc-800 md:w-[4.5rem] md:shrink-0 md:flex-col md:gap-1.5`}
     >
       <div className="relative shrink-0">
         <Avatar
@@ -509,7 +566,7 @@ function PersonRow({ p, isAdmin, isOwner, token }: { p: Participant; isAdmin: bo
           talking={speaking && !muted}
           mic={!muted}
           px={47}
-          className="w-10 md:w-8 md:transition-[width] md:duration-300 md:ease-out md:strip-open:w-[47px]"
+          className="w-10 md:w-[38px] md:transition-[width] md:duration-300 md:ease-out md:strip-open:w-[47px]"
         />
         {p.isLocal && (
           <span className="absolute -bottom-1.5 left-1/2 md:hidden -translate-x-1/2 rounded-full bg-indigo-600 px-1 text-[10px] leading-[14px] font-bold ring-2 ring-zinc-900">
@@ -517,7 +574,12 @@ function PersonRow({ p, isAdmin, isOwner, token }: { p: Participant; isAdmin: bo
           </span>
         )}
       </div>
-      <div className="min-w-0 truncate text-sm md:max-w-32 md:strip-open:w-full md:strip-open:text-center">{p.name}</div>
+      {/* PC 는 내 닉네임만 호박빛 금색으로 구분한다 */}
+      <div
+        className={`min-w-0 truncate text-sm md:w-full md:text-center md:text-[11px] ${p.isLocal ? "md:text-[#e8b46a]" : "md:text-[#a39f98]"}`}
+      >
+        {p.name}
+      </div>
       {hasMenu && (
         <PopMenu at={menuAt} onClose={() => setMenuAt(null)}>
           {!otherAdmin && (
