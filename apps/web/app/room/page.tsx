@@ -172,8 +172,10 @@ export default function RoomPage() {
 // PC:     [화면공유 또는 프로필 사진 | 채팅 내용  ]
 //         [참여자 한 줄              | 메시지 입력칸]
 function RoomView({ token }: { token: string }) {
-  // 이 방의 운영 권한: 방장·운영진은 입장권에, "누구나" 방은 가장 먼저 와 있는 사람에게 서버가 붙여 준다 (그 사람이 나가면 다음 사람에게 넘어가서 바로 바뀐다)
-  const isAdmin = useParticipantAttributes({ participant: useLocalParticipant().localParticipant }).attributes?.roomAdmin === "1";
+  // 이 방의 방장 노릇(마스터·운영진·방을 만든 사람)과 방 주인. 방장을 넘기면 서버가 표시를 바꿔서 바로 바뀐다 (api/owner)
+  const mine = useParticipantAttributes({ participant: useLocalParticipant().localParticipant }).attributes;
+  const isAdmin = mine?.roomAdmin === "1";
+  const isOwner = mine?.owner === "1";
   // 나는 늘 맨 앞(왼쪽), 그다음 마이크를 켠 사람, 나머지는 들어온 순서 그대로. 마이크를 켜고 끄면 바로 자리가 바뀐다.
   // "/글" 을 읽어 주는 서버 참여자는 사람이 아니라서 목록·인원수에서 뺀다 (소리는 RoomAudioRenderer 가 그대로 튼다)
   const rank = (p: Participant) => (p.isLocal ? 2 : p.isMicrophoneEnabled ? 1 : 0);
@@ -361,7 +363,7 @@ function RoomView({ token }: { token: string }) {
           <div className="absolute inset-x-0 top-0 z-30 h-10 max-h-[60vh] overflow-hidden rounded-xl transition-[height,background-color,box-shadow] duration-300 ease-out [interpolate-size:allow-keywords] strip-open:h-auto strip-open:-inset-x-2 strip-open:overflow-y-auto strip-open:bg-zinc-900 strip-open:p-2 strip-open:shadow-xl strip-open:shadow-black/50 strip-open:ring-1 strip-open:ring-zinc-700">
             <div className="flex flex-wrap gap-x-2 gap-y-1">
               {participants.map((p) => (
-                <PersonRow key={p.identity} p={p} isAdmin={isAdmin} token={token} />
+                <PersonRow key={p.identity} p={p} isAdmin={isAdmin} isOwner={isOwner} token={token} />
               ))}
             </div>
           </div>
@@ -406,7 +408,7 @@ function RoomView({ token }: { token: string }) {
             className={`fixed z-30 flex max-h-[60dvh] w-max max-w-[80vw] origin-top -translate-x-1/2 flex-col gap-1 overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-2 shadow-xl shadow-black/50 transition-[opacity,translate,scale,visibility] duration-200 ease-out ${showPeople ? "" : "pointer-events-none invisible -translate-y-2 scale-95 opacity-0"} md:hidden ${hideOnLand}`}
           >
             {participants.map((p) => (
-              <PersonRow key={p.identity} p={p} isAdmin={isAdmin} token={token} />
+              <PersonRow key={p.identity} p={p} isAdmin={isAdmin} isOwner={isOwner} token={token} />
             ))}
           </aside>
 
@@ -473,8 +475,9 @@ const PERSON_ACTIONS = {
   share: { url: "/api/share", fail: "공유 권한을 바꾸지 못했어요." },
   mute: { url: "/api/mute", fail: "마이크를 끄지 못했어요." },
   kick: { url: "/api/kick", fail: "내보내지 못했어요." },
+  owner: { url: "/api/owner", fail: "방장을 넘기지 못했어요. 그 사람이 이미 만든 방이 있을 수 있어요." },
 };
-function PersonRow({ p, isAdmin, token }: { p: Participant; isAdmin: boolean; token: string }) {
+function PersonRow({ p, isAdmin, isOwner, token }: { p: Participant; isAdmin: boolean; isOwner: boolean; token: string }) {
   const speaking = useIsSpeaking(p);
   const muted = useIsMuted({ participant: p, source: Track.Source.Microphone });
   const room = useRoomContext();
@@ -525,6 +528,12 @@ function PersonRow({ p, isAdmin, token }: { p: Participant; isAdmin: boolean; to
           {!muted && (
             <button type="button" onClick={() => act("mute")} className={MENU_ITEM}>
               마이크 끄기
+            </button>
+          )}
+          {/* 방 주인만, 도름스 회원에게만 (비회원은 다음에 알아볼 수가 없어서) */}
+          {isOwner && !!p.attributes?.dorms && (
+            <button type="button" onClick={() => act("owner")} className={MENU_ITEM}>
+              방장 넘기기
             </button>
           )}
           <button type="button" onClick={() => act("kick")} className={`${MENU_ITEM} text-red-400`}>

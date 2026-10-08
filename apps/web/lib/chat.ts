@@ -1,6 +1,6 @@
 import { DataPacket_Kind, TokenVerifier } from "livekit-server-sdk";
 import { CHAT_TOPIC, VOICE_BOT, type ChatMsg } from "@/lib/dolive";
-import { WITH_SCREEN, dormsCheck, findRoom, isLocal, isStaff, rooms } from "@/lib/server";
+import { dormsCheck, findRoom, isRoomAdmin, rooms } from "@/lib/server";
 
 // 사람이 남아 있는 동안의 채팅 전부. 방이 비거나 서버를 끄면 지운다. 파일로 저장하지 않는다.
 // (개발 중 코드를 고쳐 다시 읽혀도 안 사라지게 globalThis 에 둔다)
@@ -27,20 +27,11 @@ export async function clearEmptyRoom(room: string) {
   return true;
 }
 
-// "누구나" 방: 지금 남아 있는 사람 중 가장 먼저 들어온 사람이 그 방 운영 권한(roomAdmin)을 받는다 (화면공유·강퇴·마이크 끄기·공유 허락).
-// 그 사람이 나가면 다음으로 먼저 들어온 사람이 이어받는다. 통화 서버의 입장·퇴장 소식(api/livekit)마다 다시 고른다.
-// 방장·운영진은 원래부터 roomAdmin 이라, 그 사람이 가장 먼저 와 있으면 따로 주지 않는다
-export async function pickHost(room: string) {
-  if (!findRoom(room)?.adminEveryone) return;
-  const since = (p: { joinedAtMs: bigint; joinedAt: bigint }) => p.joinedAtMs || p.joinedAt * BigInt(1000);
-  const host = (await rooms.listParticipants(room))
-    .filter((p) => p.identity !== VOICE_BOT)
-    .sort((a, b) => (since(a) < since(b) ? -1 : since(a) > since(b) ? 1 : 0))[0];
-  if (!host || host.attributes.roomAdmin === "1") return;
-  await rooms.updateParticipant(room, host.identity, {
-    attributes: { roomAdmin: "1" },
-    permission: { canSubscribe: true, canPublish: true, canPublishData: true, canPublishSources: WITH_SCREEN },
-  });
+// 방 닫기 (방을 지우거나 이름을 바꿀 때, 서버를 끌 때): 채팅 기록·사진을 지우고 통화 방을 없앤다.
+// 안에 있던 사람은 '방이 닫혔다'는 이유로 바로 끊기고 "방송이 끝났어요"를 본다 (app/room/page.tsx)
+export async function endRoom(room: string) {
+  dropRoom(room);
+  await rooms.deleteRoom(room).catch(() => {}); // 방이 이미 없어도 괜찮다
 }
 function dropImage(id: string) {
   const img = store.images.get(id);
@@ -65,7 +56,8 @@ export function keepImage(id: string, type: string, data: Uint8Array) {
 }
 
 // 방에 들어올 때 받은 입장권(토큰)으로 누가 보냈는지 확인한다 (이름·사진을 속일 수 없게).
-// 그리고 지금도 도름스가 허용하는지, 입장권을 받은 그 도름스 회원(sub)인지, 그 방송이 아직 목록에 있는지 매번 확인한다. 막히면 deny 를 그대로 돌려준다
+// 그리고 지금도 도름스가 허용하는지, 입장권을 받은 그 도름스 회원(sub)인지, 그 방송이 아직 목록에 있는지 매번 확인한다. 막히면 deny 를 그대로 돌려준다.
+// 비회원(입장권의 dorms 가 빈칸)은 "비회원도" 방에서만 도름스 로그인 없이 통과한다
 export async function whoSent(req: Request) {
   const token = req.headers.get("authorization")?.replace(/^Bearer /, "");
   const c = token
@@ -74,17 +66,17 @@ export async function whoSent(req: Request) {
   const room = c?.video?.room;
   if (!c?.sub || !room) return { deny: new Response(null, { status: 401 }) };
   const { user, deny } = await dormsCheck(req, { room, identity: c.sub });
-  if (deny) return { deny };
-  if ((user?.id ?? "") !== (c.attributes?.dorms ?? "") || !findRoom(room)) return { deny: new Response(null, { status: 403 }) };
+  const r = findRoom(room);
+  if (deny && !(deny.status === 401 && r?.guest && !c.attributes?.dorms)) return { deny };
+  if ((user?.id ?? "") !== (c.attributes?.dorms ?? "") || !r) return { deny: new Response(null, { status: 403 }) };
   // 나간 뒤에 옛 입장권으로 기록을 읽거나 쓰지 못하게 한다.
-  const me = await rooms.getParticipant(room, c.sub).catch(() => null);
-  if (!me) return { deny: new Response(null, { status: 403 }) };
+  if (!(await rooms.getParticipant(room, c.sub).catch(() => null))) return { deny: new Response(null, { status: 403 }) };
   return {
     room,
     who: { identity: c.sub, name: c.name ?? "", avatar: c.attributes?.avatar ?? "" },
     owner: user?.id ?? c.sub, // 보낸 사람 표시: 같은 도름스 계정이면 방을 나갔다 들어와도 같다
-    // 그 방의 운영 권한. "누구나" 방은 입장권이 아니라 지금 통화 서버에 붙어 있는 표시로 본다 (pickHost 가 붙인다)
-    admin: isLocal(req) || isStaff(user) || (findRoom(room)?.adminEveryone === true && me.attributes.roomAdmin === "1"),
+    admin: isRoomAdmin(req, user, r), // 그 방의 방장 노릇 (방장을 넘기면 바로 바뀐다)
+    user,
   };
 }
 

@@ -1,16 +1,20 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
 import { PhotoCrop } from "@/components/PhotoCrop";
 import { AVATARS, CUSTOM, DORMS, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
 
-// 방송 목록 한 줄 (api/rooms GET)
-type Broadcast = { name: string; locked: boolean; onAir: boolean };
+// 방송 목록 한 줄 (api/rooms GET). guest = 비회원도 들어옴, canEdit = 내가 고칠 수 있는 방(내가 만든 방, 마스터는 모든 방. 그때만 password 가 온다)
+type Broadcast = { name: string; locked: boolean; guest: boolean; onAir: boolean; canEdit: boolean; password?: string };
+// 방 만들기·설정 창에서 고치는 값 (old = 고치는 방의 원래 이름, 만들 때는 없음)
+type RoomForm = { old?: string; name: string; password: string; guest: boolean; error: string; sure: boolean };
 
 // 입장 화면: 프로필 사진(기본 9장 + 도름스 사진 + 내 사진) + 닉네임 + 방송 고르기 → LIVE 입장 (도름스 회원만. 서버 PC는 빼고)
-// 방송 목록은 서버 켜기 창 톱니바퀴 [채팅방 관리]에서 만든 방들 (api/rooms). 비밀번호 방은 [LIVE 입장]을 누르면 비밀번호 창이 뜬다 (방장·운영진은 안 묻는다)
+// 방송 목록 = 마스터가 만든 고정 방 + 도름스 회원이 만든 방 (api/rooms). [+ 방 만들기]로 만들고, 내 방(마스터는 모든 방)은 톱니바퀴로 고치거나 지운다.
+// 비밀번호 방은 [LIVE 입장]을 누르면 비밀번호 창이 뜬다 (방장 노릇 하는 사람은 안 묻는다). 비회원은 "비회원도" 방에만 들어간다.
+// 방 주소: /?room=방이름 으로 들어오면 그 방을 골라 둔다 (초대 링크)
 // 내 사진은 이 브라우저(localStorage "photo")에 남겨 두어 다음에 와도 그대로고, 입장할 때 서버 메모리에 올린다 (서버를 끄면 서버에선 사라진다).
 // (마이크는 꺼진 채로 들어가고, 방 안 위쪽 스위치로 켠다)
 export default function Home() {
@@ -24,23 +28,29 @@ export default function Home() {
   const askPw = useRef<HTMLDialogElement>(null); // 비밀번호 방 비밀번호 묻는 창 (모양은 위 창과 같게)
   const [pw, setPw] = useState("");
   const [pwError, setPwError] = useState("");
-  // 방송 목록과 고른 방송. ON AIR(방장·운영진이 들어가 있음)가 바뀌는 걸 보여 주려고 10초마다 다시 묻는다
+  // 방송 목록과 고른 방송. ON AIR(방장이 들어가 있거나 화면공유 중)가 바뀌는 걸 보여 주려고 10초마다 다시 묻는다
   const [rooms, setRooms] = useState<Broadcast[]>(); // 받아 오기 전엔 비워 둔다 ("열린 방송이 없어요"가 잠깐 보이지 않게)
   const [room, setRoom] = useState("");
-  useEffect(() => {
-    const load = () =>
+  const loadRooms = useCallback(
+    () =>
       fetch("/api/rooms", { cache: "no-store" })
         .then((r) => r.json())
         .then((list: Broadcast[]) => {
           setRooms(list);
-          // 고른 방이 목록에서 사라졌으면 이 탭에서 전에 고른 방, 그것도 없으면 첫 방
-          setRoom((cur) => [cur, sessionStorage.getItem("room")].find((n) => list.some((x) => x.name === n)) ?? list[0]?.name ?? "");
+          // 고른 방이 목록에서 사라졌으면 방 주소(?room=)의 방, 이 탭에서 전에 고른 방, 그것도 없으면 첫 방
+          const invited = new URLSearchParams(location.search).get("room");
+          setRoom((cur) => [cur, invited, sessionStorage.getItem("room")].find((n) => list.some((x) => x.name === n)) ?? list[0]?.name ?? "");
         })
-        .catch(() => {});
-    load();
-    const t = setInterval(load, 10_000);
+        .catch(() => {}),
+    [],
+  );
+  useEffect(() => {
+    loadRooms();
+    const t = setInterval(loadRooms, 10_000);
     return () => clearInterval(t);
-  }, []);
+  }, [loadRooms]);
+  const roomDlg = useRef<HTMLDialogElement>(null); // 방 만들기·설정 창 (모양은 아래 창들과 같게)
+  const [form, setForm] = useState<RoomForm>({ name: "", password: "", guest: false, error: "", sure: false });
   // 오른쪽 위: 서버 PC(방장)면 아무것도 없고, 나머지는 도름스 칸 (로그인했으면 도름스 프로필 사진(없으면 이름) + [로그아웃], 아니면 [로그인]).
   // 도름스 회원만 채팅방에 들어간다. 운영진(서버 켜기 창 톱니바퀴에 적은 도름스 닉네임)은 방에서 방장 권한을 받는다 (lib/server.ts isStaff)
   const [me, setMe] = useState<{ local: boolean; admin: boolean; dorms: string | null; picture: string | null; dormsReason: string | null }>();
@@ -84,21 +94,27 @@ export default function Home() {
     reader.readAsDataURL(jpeg);
   }
 
-  function enter() {
-    if (!name.trim() || !room) return;
+  // 닉네임·프로필 사진을 채팅방(app/room)에 넘겨준다
+  function keepProfile() {
     sessionStorage.setItem("name", name.trim());
     sessionStorage.setItem("avatar", avatar);
     if (avatar === CUSTOM && custom) sessionStorage.setItem("photo", custom);
+  }
+
+  function enter() {
+    if (!name.trim() || !room) return;
+    keepProfile();
     // 도름스 로그인 전이면 들어가지 않고 [로그인]부터 누르게 한다 (여기서 바로 도름스로 보내면, 도름스에 로그인돼 있는 브라우저는
     // 묻지 않고 다시 로그인돼서 로그아웃했는데도 들어가지는 것처럼 보인다). 허용이 끊겼거나 도름스가 안 되면 안내 화면.
     // 진짜 문은 서버(app/room/layout.tsx, api/token)가 다시 확인한다
-    if (me && !me.local && !me.dorms) {
+    const target = rooms?.find((r) => r.name === room);
+    if (me && !me.local && !me.dorms && !target?.guest) {
       if (me.dormsReason === "access_denied" || me.dormsReason === "temporarily_unavailable")
         location.href = `/dorms-denied?reason=${me.dormsReason}&next=/room`;
       else needLogin.current?.showModal();
       return;
     }
-    if (rooms?.find((r) => r.name === room)?.locked && !me?.admin) {
+    if (target?.locked && !me?.admin && !target.canEdit) {
       setPw("");
       setPwError("");
       askPw.current?.showModal();
@@ -117,13 +133,52 @@ export default function Home() {
   }
 
   // 고른 방송과 비밀번호를 채팅방(app/room)에 넘겨주고 들어간다 (채팅방이 입장권을 받을 때 같이 보낸다)
-  function go(password: string) {
-    sessionStorage.setItem("room", room);
+  function go(password: string, target = room) {
+    sessionStorage.setItem("room", target);
     sessionStorage.setItem("password", password);
     // 휴대폰은 입장하면서 주소창·아래 버튼 줄·시계 줄을 모두 숨긴다 (누른 순간에만 허락돼서 여기서. 아이폰은 막혀 있어 그냥 넘어간다).
     // 시계 줄만 남기는 설정(navigationUI "show")은 시계 줄은 그대로 숨기고 아래 버튼 줄만 화면 위에 덮어 입력칸을 가려서 안 쓴다
     if (isPhone()) document.documentElement.requestFullscreen?.().catch(() => {});
     router.push("/room");
+  }
+
+  // [+ 방 만들기]: 도름스 회원(마스터는 로그인 없이)만. 만들면 바로 그 방에 들어간다 (닉네임이 있어야 해서 먼저 확인)
+  function openCreate() {
+    if (me && !me.local && !me.dorms) return needLogin.current?.showModal();
+    setForm({ name: "", password: "", guest: false, error: "", sure: false });
+    roomDlg.current?.showModal();
+  }
+  // 톱니바퀴: 내 방(마스터는 모든 방) 설정
+  function openEdit(r: Broadcast) {
+    setForm({ old: r.name, name: r.name, password: r.password ?? "", guest: r.guest, error: "", sure: false });
+    roomDlg.current?.showModal();
+  }
+  const FAIL: Record<string, string> = { taken: "같은 이름의 방이 있어요", limit: "방은 한 사람에 하나만 만들 수 있어요", no_room: "이미 없어진 방이에요" };
+  async function saveRoom() {
+    const title = form.name.trim();
+    if (!form.old && !name.trim()) return setForm({ ...form, error: "닉네임을 먼저 입력해 주세요" });
+    const url = form.old ? `/api/rooms?room=${encodeURIComponent(form.old)}` : "/api/rooms";
+    const r = await fetch(url, { method: form.old ? "PATCH" : "PUT", body: JSON.stringify({ name: title, password: form.password, guest: form.guest }) }).catch(() => null);
+    if (!r?.ok) {
+      const reason = (await r?.json().catch(() => null))?.reason;
+      if (leaveForDorms(reason)) return;
+      return setForm({ ...form, error: FAIL[reason] ?? "저장하지 못했어요. 다시 해 주세요" });
+    }
+    roomDlg.current?.close();
+    if (form.old) {
+      if (room === form.old) setRoom(title);
+      return loadRooms();
+    }
+    // 새로 만든 방으로 바로 들어간다 (만든 사람은 비밀번호를 안 묻지만, 같이 넘겨 둔다)
+    keepProfile();
+    go(form.password, title);
+  }
+  // [방 지우기]: 한 번 더 눌러야 지운다 (안에 있던 사람은 바로 나가진다)
+  async function deleteRoom() {
+    if (!form.sure) return setForm({ ...form, sure: true });
+    await fetch(`/api/rooms?room=${encodeURIComponent(form.old!)}`, { method: "DELETE" }).catch(() => null);
+    roomDlg.current?.close();
+    loadRooms();
   }
 
   return (
@@ -240,32 +295,57 @@ export default function Home() {
       </label>
 
       <section className="flex flex-col gap-2">
-        <span className="text-sm text-zinc-400">방송 목록</span>
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-zinc-400">방송 목록</span>
+          <button onClick={openCreate} className="flex items-center gap-1 rounded-lg bg-zinc-700 px-3 py-1.5 text-sm font-semibold hover:bg-zinc-600">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden className="size-4">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            방 만들기
+          </button>
+        </div>
         {!rooms ? null : rooms.length ? (
           // 여러 개 중 하나를 고르는 칸이라는 게 보이게, 바탕 없이 테두리만 + 왼쪽 동그라미 (아래 [LIVE 입장] 버튼과 다르게). 고른 줄만 보라 테두리.
           // (보라 테두리는 안쪽으로 그려서 스크롤 칸 가장자리에 잘리지 않는다) 많으면 이 칸 안에서 스크롤.
-          // 이름 옆 ON AIR = 방장·운영진이 들어가 있음, 오른쪽 자물쇠 = 비밀번호 방
+          // 이름 앞 ON AIR = 방장이 들어가 있거나 화면공유 중이면 빨갛게 빛나고, 아니면 불 꺼진 회색. 오른쪽 자물쇠 = 비밀번호 방, 톱니바퀴 = 내 방 설정
           <div role="radiogroup" aria-label="방송 목록" className="flex max-h-60 flex-col gap-1.5 overflow-y-auto">
             {rooms.map((r) => (
-              <button
-                key={r.name}
-                role="radio"
-                aria-checked={room === r.name}
-                onClick={() => setRoom(r.name)}
-                className={`flex items-center gap-2 rounded-lg border px-4 py-3 text-left ${room === r.name ? "border-indigo-500 bg-indigo-500/10 text-white ring-1 ring-indigo-500 ring-inset" : "border-zinc-700 text-zinc-300 hover:border-zinc-500"}`}
-              >
-                <span
-                  className={`mr-1 size-[18px] shrink-0 rounded-full border-2 ${room === r.name ? "border-indigo-400 bg-indigo-400 shadow-[inset_0_0_0_3px_#18181b]" : "border-zinc-500"}`}
-                />
-                <span className="truncate">{r.name}</span>
-                {r.onAir && <span className="shrink-0 rounded bg-red-600 px-1.5 py-0.5 text-[11px] font-bold tracking-wider">ON AIR</span>}
-                {r.locked && (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-label="비밀번호" className="ml-auto size-4 shrink-0 text-zinc-400">
-                    <rect x="5" y="11" width="14" height="10" rx="2" />
-                    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-                  </svg>
+              <div key={r.name} className="relative">
+                <button
+                  role="radio"
+                  aria-checked={room === r.name}
+                  onClick={() => setRoom(r.name)}
+                  className={`flex w-full items-center gap-2 rounded-lg border px-4 py-3 text-left ${r.canEdit ? "pr-12" : ""} ${room === r.name ? "border-indigo-500 bg-indigo-500/10 text-white ring-1 ring-indigo-500 ring-inset" : "border-zinc-700 text-zinc-300 hover:border-zinc-500"}`}
+                >
+                  <span
+                    className={`mr-1 size-[18px] shrink-0 rounded-full border-2 ${room === r.name ? "border-indigo-400 bg-indigo-400 shadow-[inset_0_0_0_3px_#18181b]" : "border-zinc-500"}`}
+                  />
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold tracking-wider ${r.onAir ? "bg-red-600 text-white shadow-[0_0_10px_rgba(239,68,68,.65)]" : "bg-zinc-800/60 text-zinc-600 ring-1 ring-zinc-700 ring-inset"}`}
+                  >
+                    ON AIR
+                  </span>
+                  <span className="truncate">{r.name}</span>
+                  {r.locked && (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-label="비밀번호" className="ml-auto size-4 shrink-0 text-zinc-400">
+                      <rect x="5" y="11" width="14" height="10" rx="2" />
+                      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                    </svg>
+                  )}
+                </button>
+                {r.canEdit && (
+                  <button
+                    onClick={() => openEdit(r)}
+                    aria-label="방 설정"
+                    className="absolute top-1/2 right-3 -translate-y-1/2 rounded-md p-1 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-[18px]">
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+                    </svg>
+                  </button>
                 )}
-              </button>
+              </div>
             ))}
           </div>
         ) : (
@@ -324,6 +404,68 @@ export default function Home() {
             </button>
             <button disabled={!pw} className="flex-1 rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500 disabled:opacity-40">
               입장
+            </button>
+          </div>
+        </form>
+      </dialog>
+      {/* 방 만들기·설정: Esc 나 [취소]로 닫힌다. 고르는 칸(들어올 수 있는 사람)은 어두운 홈 안에서 고른 쪽만 밝게 (아래 버튼들과 다르게 보이게) */}
+      <dialog
+        ref={roomDlg}
+        className="m-auto w-80 max-w-[calc(100%-2rem)] rounded-xl bg-zinc-800 p-5 text-zinc-100 ring-1 ring-zinc-700 backdrop:bg-black/60"
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveRoom();
+          }}
+          className="flex flex-col gap-4"
+        >
+          <p className="text-center font-semibold">{form.old ? "방 설정" : "방 만들기"}</p>
+          <input
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value, error: "" })}
+            maxLength={40}
+            autoFocus
+            placeholder="방 이름"
+            className="rounded-lg bg-zinc-900 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <input
+            type="password"
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value, error: "" })}
+            maxLength={40}
+            placeholder="비밀번호 (비워도 돼요)"
+            className="rounded-lg bg-zinc-900 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <div className="flex flex-col gap-2">
+            <span className="text-xs text-zinc-400">들어올 수 있는 사람</span>
+            <div role="radiogroup" aria-label="들어올 수 있는 사람" className="flex rounded-lg bg-zinc-900 p-1 ring-1 ring-zinc-700">
+              {[false, true].map((g) => (
+                <button
+                  key={String(g)}
+                  type="button"
+                  role="radio"
+                  aria-checked={form.guest === g}
+                  onClick={() => setForm({ ...form, guest: g })}
+                  className={`flex-1 rounded-md py-1.5 text-sm ${form.guest === g ? "bg-zinc-600 font-semibold text-white shadow" : "text-zinc-400 hover:text-zinc-200"}`}
+                >
+                  {g ? "비회원도" : "도름스 회원만"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="-my-2 h-4 text-center text-xs text-red-400">{form.error}</p>
+          <div className="mt-1 flex gap-2 border-t border-zinc-700 pt-5">
+            {form.old && (
+              <button type="button" onClick={deleteRoom} className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold hover:bg-red-500">
+                {form.sure ? "정말 지우기" : "방 지우기"}
+              </button>
+            )}
+            <button type="button" onClick={() => roomDlg.current?.close()} className="flex-1 rounded-lg bg-zinc-700 py-2 text-sm font-semibold hover:bg-zinc-600">
+              취소
+            </button>
+            <button disabled={!form.name.trim()} className="flex-1 rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500 disabled:opacity-40">
+              {form.old ? "저장" : "만들고 입장"}
             </button>
           </div>
         </form>

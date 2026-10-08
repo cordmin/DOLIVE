@@ -1,10 +1,10 @@
 import { VOICES, isVoice } from "@/lib/dolive";
-import { dormsCheck } from "@/lib/server";
+import { accessCheck } from "@/lib/server";
 import { replay } from "@/lib/voice";
 
-// 목소리 미리 듣기 (?listen=F1, WAV). 방에 들어올 수 있는 도름스 회원이면 누구나 (TTS 버튼 창의 스피커)
+// 목소리 미리 듣기 (?listen=F1, WAV). 방에 들어올 수 있는 사람이면 누구나 (비회원은 비회원 방에 들어가 있을 때) (TTS 버튼 창의 스피커)
 export async function GET(req: Request) {
-  const { deny } = await dormsCheck(req);
+  const { deny } = await accessCheck(req);
   if (deny) return deny;
   const id = new URL(req.url).searchParams.get("listen");
   if (!isVoice(id)) return new Response(null, { status: 404 });

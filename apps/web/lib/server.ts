@@ -1,6 +1,7 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { RoomServiceClient, TrackSource } from "livekit-server-sdk";
+import { cookies } from "next/headers";
+import { RoomServiceClient, TokenVerifier, TrackSource } from "livekit-server-sdk";
 import { DormsAuthError, getDormsUser, type DormsUser } from "@/lib/dormsLogin";
 
 // 서버에서만 쓰는 것들 (방장·운영진 확인, 도름스 확인, 통화 서버에 시키기, 화면공유 권한)
@@ -8,7 +9,7 @@ import { DormsAuthError, getDormsUser, type DormsUser } from "@/lib/dormsLogin";
 // 이 PC의 통화 서버(LiveKit)에 일을 시키는 창구. 채팅 보내기·마이크 끄기·화면공유 허락에 같이 쓴다
 export const rooms = new RoomServiceClient("http://localhost:7880", process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET);
 
-// 일반 참여자는 마이크만. 누구나 공유하는 방이거나 방장이 허락하면 화면공유(+공유 소리)도 보낼 수 있다.
+// 일반 참여자는 마이크만. 방을 만든 사람이나 방장이 허락한 사람은 화면공유(+공유 소리)도 보낼 수 있다.
 export const MIC_ONLY = [TrackSource.MICROPHONE];
 export const WITH_SCREEN = [TrackSource.MICROPHONE, TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO];
 
@@ -42,29 +43,53 @@ export function isStaff(user?: DormsUser) {
   return [user.name, user.handle].some((n) => n && names.includes(norm(n)));
 }
 
-// 방송 목록 = 서버 켜기 창 톱니바퀴 [채팅방 관리]에서 만든 방들. 파일 한 줄은 "방 이름<탭>비밀번호<탭>staff 또는 everyone".
-// 운영진 목록처럼 요청마다 다시 읽는다. 방 이름이 통화 서버(LiveKit)의 방 이름이고, 채팅 기록·음성도 방마다 따로다.
-// 파일이 아직 없으면(처음 켠 때) 예전처럼 비밀번호 없는 DOLIVE 방 하나
+// 방송 목록 = 고정 방(마스터가 입장 화면에서 만든 방, server/config/rooms.txt) + 사람들이 만든 방(도름스 회원 한 사람에 하나, 서버 메모리).
+// 방 이름이 통화 서버(LiveKit)의 방 이름이고, 채팅 기록·음성도 방마다 따로다.
+// guest = 비회원(도름스 로그인 안 한 사람)도 들어올 수 있음. owner = 만든 도름스 회원 id (그 방의 방장. 없으면 고정 방)
+export type RoomDef = { name: string; password: string; guest: boolean; owner?: string };
+
+// 고정 방: 파일 한 줄은 "방 이름<탭>비밀번호<탭>guest 또는 members". 요청마다 다시 읽는다.
+// 파일이 아직 없으면(처음 켠 때) 비밀번호 없는 DOLIVE 방 하나
 const ROOMS_FILE = path.join(process.cwd(), "..", "..", "server", "config", "rooms.txt");
-export type RoomDef = { name: string; password: string; adminEveryone: boolean };
-export function roomList(): RoomDef[] {
+function fixedRooms(): RoomDef[] {
   let text: string;
   try {
     text = readFileSync(ROOMS_FILE, "utf8");
   } catch {
-    return [{ name: "DOLIVE", password: "", adminEveryone: false }];
+    return [{ name: "DOLIVE", password: "", guest: false }];
   }
   return text
     .split(/\r?\n/)
     .map((line) => {
-      const [name, password = "", share = "staff"] = line.split("\t");
-      return { name: name.trim(), password, adminEveryone: share === "everyone" };
+      const [name, password = "", who = ""] = line.split("\t");
+      return { name: name.trim(), password, guest: who.trim() === "guest" };
     })
     .filter((r) => r.name);
 }
+export function saveFixedRooms(list: RoomDef[]) {
+  writeFileSync(ROOMS_FILE, list.map((r) => `${r.name}\t${r.password}\t${r.guest ? "guest" : "members"}`).join("\r\n") + "\r\n");
+}
+
+// 사람들이 만든 방. 모두 나가면 없어진다 (api/livekit). 서버를 끄면 사라진다.
+// (개발 중 코드를 고쳐 다시 읽혀도 안 사라지게 globalThis 에 둔다)
+const g = globalThis as unknown as { doliveUserRooms?: RoomDef[] };
+export const userRooms: RoomDef[] = (g.doliveUserRooms ??= []);
+export const dropUserRoom = (name: string) => {
+  const i = userRooms.findIndex((r) => r.name === name);
+  if (i >= 0) userRooms.splice(i, 1);
+};
+
+export const roomList = () => [...fixedRooms(), ...userRooms];
 export const findRoom = (name: unknown) => roomList().find((r) => r.name === name);
 
-// 그 방에 들어가도 되는지: 목록에 있는 방이고, 비밀번호 방이면 비밀번호가 맞아야 한다 (방장·운영진은 안 묻는다). 안 되면 거절 응답
+// 그 방의 방장 노릇(강퇴·마이크 끄기·화면공유 허락)을 하는 사람: 마스터(서버 PC), 운영진, 그 방을 만든 사람
+export const isRoomAdmin = (req: Request, user: DormsUser | undefined, room: RoomDef | undefined) =>
+  isLocal(req) || isStaff(user) || (!!user && !!room?.owner && room.owner === user.id);
+// 방 설정 바꾸기·지우기: 마스터는 모든 방, 만든 사람은 자기 방만 (운영진은 못 한다)
+export const canEditRoom = (req: Request, user: DormsUser | undefined, room: RoomDef) =>
+  isLocal(req) || (!!user && room.owner === user.id);
+
+// 그 방에 들어가도 되는지: 목록에 있는 방이고, 비밀번호 방이면 비밀번호가 맞아야 한다 (방장 노릇 하는 사람은 안 묻는다). 안 되면 거절 응답
 export function roomDeny(name: unknown, password: unknown, admin: boolean) {
   const r = findRoom(name);
   if (!r) return Response.json({ error: "없는 방송이에요", reason: "no_room" }, { status: 404 });
@@ -98,6 +123,19 @@ export async function dormsCheck(req: Request, kick?: { room: string; identity: 
   // 도름스가 잠깐 안 될 때(503)는 그동안 자료만 막혀 있다가 되살아나면 다시 쓸 수 있다
   if (kick && deny.status === 403) await rooms.removeParticipant(kick.room, kick.identity).catch(() => {});
   return { deny };
+}
+
+// 비회원: "비회원도" 방에 들어갈 때 입장권을 쿠키(GUEST_COOKIE)로도 받는다. 채팅 사진·다시 듣기·목소리 미리 듣기·링크 미리보기처럼
+// 입장권을 같이 못 보내는 요청에서, 도름스 로그인이 없으면 이 쿠키로 "지금 비회원 방에 들어가 있는 사람"인지 본다
+export const GUEST_COOKIE = "dolive_guest";
+export async function accessCheck(req: Request) {
+  const checked = await dormsCheck(req);
+  if (checked.deny?.status !== 401) return checked;
+  const token = (await cookies()).get(GUEST_COOKIE)?.value;
+  const c = token ? await new TokenVerifier(process.env.LIVEKIT_API_KEY!, process.env.LIVEKIT_API_SECRET!).verify(token).catch(() => null) : null;
+  const room = c?.video?.room;
+  if (c?.sub && room && findRoom(room)?.guest && (await rooms.getParticipant(room, c.sub).catch(() => null))) return {};
+  return checked;
 }
 
 // Caddy 뒤의 실제 서버(next start -H 127.0.0.1)는 request.url 을 https://localhost:3000/... 으로 안다 (Next 가 들어온 주소를 보지 않아서).
