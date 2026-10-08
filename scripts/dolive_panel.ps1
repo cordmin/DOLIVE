@@ -146,7 +146,7 @@ function RoundRect($x, $y, $w, $h, $r) {
 function Set-BadgeText($b, $name, [bool]$lock) {
     $tw = [Windows.Forms.TextRenderer]::MeasureText($name, $b.Font, [Drawing.Size]::Empty, [Windows.Forms.TextFormatFlags]::NoPadding).Width
     $b.Tag.name = $name; $b.Tag.lock = $lock
-    $b.Size = $(if ($b.Tag.room) { "390,118" } else { "$($tw + 44 + $(if ($lock) { 18 } else { 0 })),30" }); $b.Invalidate()
+    $b.Size = $(if ($b.Tag.room) { "390,94" } else { "$($tw + 44 + $(if ($lock) { 18 } else { 0 })),30" }); $b.Invalidate()
 }
 
 # 배지: 살짝 둥근 알약 모양 + 오른쪽 X (누르면 $onRemove 에 이름을 넘기고 배지를 없앤다). -Lock 이면 이름 뒤에 자물쇠(비밀번호 방).
@@ -161,9 +161,14 @@ function Add-Badge($flow, $name, $onRemove, $tipText, [switch]$Lock) {
     $b.Add_Paint({
         param($s, $e)
         $g = $e.Graphics; $g.SmoothingMode = "AntiAlias"; $g.Clear($s.Parent.BackColor)
+        if ($s.Tag.down -and $s.Tag.down.moved) {  # 끄는 중: 원래 자리는 점선 빈칸 (놓으면 여기에 들어간다)
+            $edge = RoundRect 1 1 ($s.Width - 3) ($s.Height - 3) 12
+            $pen = New-Object Drawing.Pen((Color "#52525b"), 1.5); $pen.DashStyle = "Dash"; $g.DrawPath($pen, $edge); $pen.Dispose(); $edge.Dispose()
+            return
+        }
         $p = RoundRect 0 0 ($s.Width - 1) ($s.Height - 1) $(if ($s.Tag.room) { 12 } else { 9 })
-        # 끄는 중이면 조금 밝게, 고치는 중(hl)이면 보라 테두리
-        $brush = New-Object Drawing.SolidBrush (Color $(if ($s.Tag.down -and $s.Tag.down.moved) { "#52525b" } elseif ($s.Tag.room) { "#232327" } else { "#3f3f46" })); $g.FillPath($brush, $p); $brush.Dispose()
+        # 고치는 중(hl)이면 보라 테두리
+        $brush = New-Object Drawing.SolidBrush (Color $(if ($s.Tag.room) { "#232327" } else { "#3f3f46" })); $g.FillPath($brush, $p); $brush.Dispose()
         if ($s.Tag.hl) {  # 굵은 선은 가장자리에서 반이 잘리니 안쪽으로 1px 들여 그린다
             $edge = RoundRect 1 1 ($s.Width - 3) ($s.Height - 3) 8
             $pen = New-Object Drawing.Pen((Color "#6366f1"), 2.5); $g.DrawPath($pen, $edge); $pen.Dispose(); $edge.Dispose()
@@ -192,14 +197,35 @@ function Add-Badge($flow, $name, $onRemove, $tipText, [switch]$Lock) {
     $b.Add_MouseMove({
         param($s, $e)
         $d = $s.Tag.down
-        # 끌기: 조금(4px) 움직이면 시작. 커서가 있는 높이에 맞춰 목록 안 자리를 바로바로 옮긴다 (누른 채면 배지 밖으로 나가도 이 배지가 마우스를 받는다)
+        # 끌기: 조금(4px) 움직이면 시작. 카드 그림(ghost, 보라 테두리)이 마우스를 따라 위아래로 움직이고,
+        # 원래 카드는 점선 빈칸이 되어 그림 가운데 높이에 맞춰 목록 안 자리를 바로바로 옮긴다 (누른 채면 카드 밖으로 나가도 이 카드가 마우스를 받는다)
         if ($d -and $s.Tag.drag -and -not $d.onX) {
+            $flow = $s.Parent; $page = $flow.Parent
             if (-not $d.moved) {
                 if ([Math]::Abs($e.X - $d.x) + [Math]::Abs($e.Y - $d.y) -lt 4) { return }
-                $d.moved = $true; $s.Invalidate()
+                $bmp = New-Object Drawing.Bitmap $s.Width, $s.Height
+                $s.DrawToBitmap($bmp, $s.ClientRectangle)
+                $g = [Drawing.Graphics]::FromImage($bmp); $g.SmoothingMode = "AntiAlias"
+                $edge = RoundRect 1 1 ($s.Width - 3) ($s.Height - 3) 11
+                $pen = New-Object Drawing.Pen((Color "#6366f1"), 2.5); $g.DrawPath($pen, $edge); $pen.Dispose(); $edge.Dispose(); $g.Dispose()
+                $ghost = New-Object Windows.Forms.PictureBox
+                $ghost.Image = $bmp; $ghost.Size = $s.Size; $ghost.Enabled = $false
+                $ghost.Location = $page.PointToClient($s.PointToScreen([Drawing.Point]::Empty))
+                $page.Controls.Add($ghost); $ghost.BringToFront()
+                $d.ghost = $ghost; $d.moved = $true
+                foreach ($c in $s.Controls) { $c.Visible = $false }
+                $s.Invalidate()
             }
-            $flow = $s.Parent; $y = $flow.PointToClient([Windows.Forms.Cursor]::Position).Y; $i = 0
-            foreach ($c in $flow.Controls) { if ($c -ne $s -and $c.Top + $c.Height / 2 -lt $y) { $i++ } }
+            $mouse = [Windows.Forms.Cursor]::Position
+            $d.ghost.Top = [Math]::Max($flow.Top - 8, [Math]::Min($flow.Bottom - $d.ghost.Height + 8, $page.PointToClient($mouse).Y - $d.y))
+            # 목록 위아래 끝 가까이 끌면 그쪽으로 스크롤
+            $y = $flow.PointToClient($mouse).Y
+            if ($y -lt 24 -or $y -gt $flow.Height - 24) {
+                $flow.AutoScrollPosition = New-Object Drawing.Point 0, (-$flow.AutoScrollPosition.Y + $(if ($y -lt 24) { -16 } else { 16 }))
+                Update-Bar $flow
+            }
+            $mid = $flow.PointToClient($page.PointToScreen((New-Object Drawing.Point 0, ($d.ghost.Top + $d.ghost.Height / 2)))).Y; $i = 0
+            foreach ($c in $flow.Controls) { if ($c -ne $s -and $c.Top + $c.Height / 2 -lt $mid) { $i++ } }
             if ($flow.Controls.GetChildIndex($s) -ne $i) { $flow.Controls.SetChildIndex($s, $i) }
             return
         }
@@ -212,7 +238,11 @@ function Add-Badge($flow, $name, $onRemove, $tipText, [switch]$Lock) {
     $b.Add_MouseUp({
         param($s)
         $d = $s.Tag.down; $s.Tag.down = $null
-        if ($d -and $d.moved) { & $s.Tag.drag; $s.Invalidate() }
+        if ($d -and $d.moved) {
+            $d.ghost.Image.Dispose(); $d.ghost.Dispose()
+            foreach ($c in $s.Controls) { $c.Visible = $true }
+            & $s.Tag.drag; $s.Invalidate()
+        }
     })
     $b.Add_MouseLeave({ param($s) if ($s.Cursor -eq [Windows.Forms.Cursors]::Hand) { $s.Cursor = [Windows.Forms.Cursors]::Default; $s.Invalidate() } })
     # 클릭은 손을 떼기(MouseUp) 전에 온다. 끌었으면 아무것도 안 한다. X 는 누를 때와 뗄 때 모두 X 위여야 지운다
@@ -277,10 +307,11 @@ function Add-RoomBadge($r) {
     $b.Tag.room = $r; $b.Tag.pick = $pickRoom; $b.Tag.drag = $moveRoom; $b.Margin = "0,0,0,12"
     $b.BackColor = Color "#232327"
     $b.Font = Font 11 -Bold; Set-BadgeText $b $r.name ([bool]$r.pw)
-    $b.Controls.Add((Label "운영 권한" 16 43 9 "#a1a1aa"))
+    # 둘째 줄: 왼쪽에 "운영 권한", 같은 줄 오른쪽에 같은 폭 버튼 두 개
+    $b.Controls.Add((Label "운영 권한" 16 54 9 "#a1a1aa"))
     $buttons = @()
     foreach ($i in 0, 1) {
-        $button = Button @("방송 관리자만", "누구나")[$i] $(if ($i -eq 0) { 16 } else { 228 }) 68 $(if ($i -eq 0) { 200 } else { 146 }) 34 10
+        $button = Button @("방송 관리자만", "누구나")[$i] (88 + $i * 147) 46 139 34 10
         $button.Tag = @{ value = @("staff", "everyone")[$i] }
         $button.AccessibleName = "$($r.name) 운영 권한 $($button.Text)"
         $button.BackColor = Color $(if ($r.share -eq $button.Tag.value) { "#4f46e5" } else { "#35353b" })
@@ -377,15 +408,54 @@ function New-Plus($parent, $x, $y, $onClick) {
     $plus
 }
 
+# 목록 옆 얇은 막대: 목록이 칸보다 길 때만 보이고, 보이는 만큼의 길이·위치로
+function Update-Bar($flow) {
+    $bar = $flow.Tag; $view = $flow.ClientSize.Height; $total = $flow.DisplayRectangle.Height
+    $bar.Visible = $total -gt $view + 1
+    if (-not $bar.Visible) { return }
+    $h = [Math]::Max(30, [int]($view * $view / $total))
+    $bar.Height = $h; $bar.Top = [int]((-$flow.AutoScrollPosition.Y) * ($view - $h) / ($total - $view)); $bar.Invalidate()
+}
+
 # 오른쪽 내용 한 쪽: 제목 + 흐린 설명 + 배지들이 왼쪽부터 차례로 쌓이는 자리(넘치면 아랫줄로, 더 넘치면 스크롤). 입력칸은 92 줄에 둔다
 function New-Page($dlg, $title, $desc) {
     $page = New-Object Windows.Forms.Panel
     $page.Location = "168,0"; $page.Size = "448,600"; $page.BackColor = $dlg.BackColor
     $page.Controls.Add((Label $title 24 24 14 "#f4f4f5" -Bold))
     $page.Controls.Add((Label $desc 26 60 9 "#a1a1aa"))
+    # 윈도우 기본 스크롤바는 흰색이라(어두운 모양으로 안 바뀜) 목록을 감싼 칸(clip) 밖으로 밀어내 감추고, 얇은 회색 막대(bar)를 직접 그린다.
+    # 오른쪽 여백(Padding) = 숨은 스크롤바 폭이라, 스크롤바가 생겨도 방 카드(390)가 들어가서 좌우 스크롤바는 안 생긴다
+    $sbw = [Windows.Forms.SystemInformation]::VerticalScrollBarWidth
+    $clip = New-Object Windows.Forms.Panel
+    $clip.Location = "24,148"; $clip.Size = "412,432"; $clip.BackColor = $page.BackColor
     $flow = New-Object Windows.Forms.FlowLayoutPanel
-    $flow.Location = "24,148"; $flow.Size = "404,432"; $flow.AutoScroll = $true; $flow.BackColor = $page.BackColor
-    $page.Controls.Add($flow)
+    $flow.Size = "$(412 + $sbw),432"; $flow.Padding = "0,0,$sbw,0"; $flow.AutoScroll = $true; $flow.BackColor = $page.BackColor
+    $bar = New-Object Windows.Forms.Panel
+    $bar.Location = "404,0"; $bar.Size = "6,30"; $bar.Visible = $false; $bar.BackColor = $page.BackColor; $bar.Tag = @{ flow = $flow; grab = $null }
+    NoFlicker $bar
+    $bar.Add_Paint({
+        param($s, $e)
+        $g = $e.Graphics; $g.SmoothingMode = "AntiAlias"; $g.Clear($s.BackColor)
+        $p = RoundRect 0 0 ($s.Width - 1) ($s.Height - 1) 3
+        $brush = New-Object Drawing.SolidBrush (Color $(if ($s.Tag.grab -or $s.ClientRectangle.Contains($s.PointToClient([Windows.Forms.Cursor]::Position))) { "#71717a" } else { "#3f3f46" }))
+        $g.FillPath($brush, $p); $brush.Dispose(); $p.Dispose()
+    })
+    # 막대를 잡고 끌면 그만큼 목록이 움직인다
+    $bar.Add_MouseDown({ param($s) $s.Tag.grab = @{ y = [Windows.Forms.Cursor]::Position.Y; top = $s.Top } })
+    $bar.Add_MouseMove({
+        param($s)
+        $grab = $s.Tag.grab; if (-not $grab) { return }
+        $f = $s.Tag.flow; $view = $f.ClientSize.Height; $total = $f.DisplayRectangle.Height
+        $top = [Math]::Max(0, [Math]::Min($view - $s.Height, $grab.top + [Windows.Forms.Cursor]::Position.Y - $grab.y))
+        $f.AutoScrollPosition = New-Object Drawing.Point 0, ([int]($top * ($total - $view) / ($view - $s.Height)))
+        Update-Bar $f
+    })
+    $bar.Add_MouseUp({ param($s) $s.Tag.grab = $null; $s.Invalidate() })
+    $bar.Add_MouseEnter({ param($s) $s.Invalidate() }); $bar.Add_MouseLeave({ param($s) $s.Invalidate() })
+    $flow.Tag = $bar
+    $flow.Add_Scroll({ Update-Bar $this }); $flow.Add_MouseWheel({ Update-Bar $this }); $flow.Add_Layout({ Update-Bar $this })
+    $clip.Controls.Add($flow); $clip.Controls.Add($bar); $bar.BringToFront()
+    $page.Controls.Add($clip)
     $dlg.Controls.Add($page)
     @{ page = $page; flow = $flow }
 }
@@ -422,9 +492,6 @@ function Show-Settings {
     $roomCfg.name = New-Input $b.page 24 92 200 "방 이름" { Add-Room }
     $roomCfg.pw = New-Input $b.page 232 92 138 "비밀번호" { Add-Room }
     $roomCfg.plus = New-Plus $b.page 386 92 { Add-Room }
-    $b.flow.Size = "404,402"
-    $b.page.Controls.Add((Label "방 이름을 누르면 수정 · 끌어서 순서 변경" 26 558 9 "#a1a1aa"))
-    $b.page.Controls.Add((Label "권한은 방마다 바로 저장 · 다시 입장할 때 적용" 26 580 9 "#a1a1aa"))
     $roomCfg.flow = $b.flow
 
     # 왼쪽 메뉴 (창보다 살짝 어두운 바탕)
