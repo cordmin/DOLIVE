@@ -29,9 +29,12 @@ export function Stage({ participants, screen, floats }: { participants: Particip
     >
       {screen?.participant.isLocal ? (
         // 내가 공유 중이면 내 공유 화면은 보여 주지 않는다. 모니터를 공유할 때 이 창이 다시 찍혀서
-        // 화면 속에 화면이 끝없이 생기는 것을 막고, 그 자리만큼 채팅을 넓게 본다.
-        <div className="rounded-lg bg-indigo-600/15 px-4 py-3 text-sm text-indigo-100 ring-1 ring-indigo-500/40">
-          내 화면을 공유하고 있어요. 다른 사람들에게는 내 화면이 보여요.
+        // 화면 속에 화면이 끝없이 생기는 것을 막고, 공유 영역 가운데에 안내를 보여 준다.
+        <div className="flex min-h-32 flex-1 items-center justify-center rounded-xl md:min-h-0 md:bg-[#1e1e21] md:hw-inset">
+          <p className="max-w-full rounded-lg bg-indigo-600/15 px-4 py-3 text-center text-sm leading-relaxed text-indigo-100 ring-1 ring-indigo-500/40">
+            화면 공유 기능이 켜졌습니다.<br />
+            현재 내 화면이 송출되고 있습니다.
+          </p>
         </div>
       ) : screen ? (
         <ScreenView screen={screen} floats={floats} />
