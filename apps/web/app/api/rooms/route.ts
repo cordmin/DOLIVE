@@ -1,11 +1,12 @@
+import { TrackSource } from "livekit-server-sdk";
 import { dormsCheck, isLocal, isStaff, roomDeny, roomList, rooms } from "@/lib/server";
 
-// 입장 화면의 방송 목록: 방 이름, 비밀번호 방인지(locked), 방장·운영진이 들어가 있는지(onAir, 이름 옆 ON AIR). 비밀번호는 안 보낸다
+// 방송 목록: 방 이름, 비밀번호 방인지, 방송 중인지. 방장·운영진이 있거나 화면공유 중이면 ON AIR. 비밀번호는 안 보낸다.
 export async function GET() {
   const list = await Promise.all(
     roomList().map(async (r) => {
       const people = await rooms.listParticipants(r.name).catch(() => []); // 아직 아무도 안 들어온 방은 통화 서버에 없다
-      return { name: r.name, locked: !!r.password, onAir: people.some((p) => p.attributes?.admin === "1") };
+      return { name: r.name, locked: !!r.password, onAir: people.some((p) => p.attributes?.admin === "1" || p.tracks.some((t) => t.source === TrackSource.SCREEN_SHARE && !t.muted)) };
     }),
   );
   return Response.json(list, { headers: { "cache-control": "no-store" } });

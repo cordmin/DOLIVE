@@ -66,8 +66,15 @@ export async function whoSent(req: Request) {
     room,
     who: { identity: c.sub, name: c.name ?? "", avatar: c.attributes?.avatar ?? "" },
     owner: user?.id ?? c.sub, // 보낸 사람 표시: 같은 도름스 계정이면 방을 나갔다 들어와도 같다
-    admin: isLocal(req) || isStaff(user), // 남의 메시지도 지울 수 있다
+    admin: isLocal(req) || isStaff(user) || (findRoom(room)?.adminEveryone === true && c.attributes?.roomAdmin === "1"), // 그 방의 운영 권한
   };
+}
+
+// 화면공유 허락·강퇴·마이크 끄기: 지금 그 방 안에 있고, 그 방에서 운영 권한을 받은 사람만.
+export async function roomAdminDeny(req: Request, room: string) {
+  const sender = await whoSent(req);
+  if (sender.deny) return sender.deny;
+  return sender.room === room && sender.admin ? null : Response.json({ error: "이 방의 운영 권한이 필요해요" }, { status: 403 });
 }
 
 // 기록에 쌓고 방 안 모두에게 보낸다 (보낸 사람 = 서버라서, 받는 쪽은 사람이 보낸 가짜 채팅을 걸러 낼 수 있다)

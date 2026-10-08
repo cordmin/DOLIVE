@@ -1,12 +1,13 @@
 import { TrackSource } from "livekit-server-sdk";
-import { adminDeny, rooms } from "@/lib/server";
+import { rooms } from "@/lib/server";
+import { roomAdminDeny } from "@/lib/chat";
 
 // 방장만: 다른 사람 마이크를 강제로 끈다. (그 사람이 스스로 다시 켜는 것은 막지 않는다)
 export async function POST(req: Request) {
-  const no = await adminDeny(req); // 서버 PC, 또는 지금도 도름스 허용이 살아 있는 운영진만
-  if (no) return no;
   const { room, identity } = await req.json().catch(() => ({}));
   if (typeof identity !== "string" || typeof room !== "string") return Response.json({ error: "잘못된 요청" }, { status: 400 });
+  const no = await roomAdminDeny(req, room);
+  if (no) return no;
 
   try {
     const p = await rooms.getParticipant(room, identity);

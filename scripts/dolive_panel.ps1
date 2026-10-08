@@ -121,12 +121,12 @@ $staffFile = "$root\server\config\staff.txt"
 $staff = @{ names = New-Object Collections.Generic.List[string]; flow = $null; box = $null }
 function Save-Staff { [IO.File]::WriteAllLines($staffFile, [string[]]$staff.names, (New-Object Text.UTF8Encoding $false)) }
 
-# 채팅방 관리 = 입장 화면 방송 목록에 나오는 방들 (roomList). 한 줄에 "방 이름<탭>비밀번호" (비밀번호는 비워도 된다).
+# 채팅방 관리 = 방송 목록. 한 줄에 "방 이름<탭>비밀번호<탭>staff 또는 everyone". 마지막 칸이 없으면 방송 관리자만.
 # 파일이 없으면(처음) 웹 서버처럼 비밀번호 없는 DOLIVE 방 하나로 본다. 방을 지우면 그 방에 있던 사람은 모두 나가진다 (api/end)
 $roomsFile = "$root\server\config\rooms.txt"
 $roomCfg = @{ list = New-Object Collections.Generic.List[object]; flow = $null; name = $null; pw = $null; plus = $null; edit = $null }  # edit = 고치는 중인 배지
 function Save-Rooms {
-    [IO.File]::WriteAllLines($roomsFile, [string[]]@($roomCfg.list | ForEach-Object { "$($_.name)`t$($_.pw)" }), (New-Object Text.UTF8Encoding $false))
+    [IO.File]::WriteAllLines($roomsFile, [string[]]@($roomCfg.list | ForEach-Object { "$($_.name)`t$($_.pw)`t$($_.share)" }), (New-Object Text.UTF8Encoding $false))
 }
 
 # 설정 창 왼쪽 메뉴와 오른쪽 내용 (같은 순서)
@@ -146,7 +146,7 @@ function RoundRect($x, $y, $w, $h, $r) {
 function Set-BadgeText($b, $name, [bool]$lock) {
     $tw = [Windows.Forms.TextRenderer]::MeasureText($name, $b.Font, [Drawing.Size]::Empty, [Windows.Forms.TextFormatFlags]::NoPadding).Width
     $b.Tag.name = $name; $b.Tag.lock = $lock
-    $b.Size = "$($tw + 44 + $(if ($lock) { 18 } else { 0 })),30"; $b.Invalidate()
+    $b.Size = $(if ($b.Tag.room) { "390,118" } else { "$($tw + 44 + $(if ($lock) { 18 } else { 0 })),30" }); $b.Invalidate()
 }
 
 # 배지: 살짝 둥근 알약 모양 + 오른쪽 X (누르면 $onRemove 에 이름을 넘기고 배지를 없앤다). -Lock 이면 이름 뒤에 자물쇠(비밀번호 방).
@@ -161,32 +161,34 @@ function Add-Badge($flow, $name, $onRemove, $tipText, [switch]$Lock) {
     $b.Add_Paint({
         param($s, $e)
         $g = $e.Graphics; $g.SmoothingMode = "AntiAlias"; $g.Clear($s.Parent.BackColor)
-        $p = RoundRect 0 0 ($s.Width - 1) ($s.Height - 1) 9
+        $p = RoundRect 0 0 ($s.Width - 1) ($s.Height - 1) $(if ($s.Tag.room) { 12 } else { 9 })
         # 끄는 중이면 조금 밝게, 고치는 중(hl)이면 보라 테두리
-        $brush = New-Object Drawing.SolidBrush (Color $(if ($s.Tag.down -and $s.Tag.down.moved) { "#52525b" } else { "#3f3f46" })); $g.FillPath($brush, $p); $brush.Dispose()
+        $brush = New-Object Drawing.SolidBrush (Color $(if ($s.Tag.down -and $s.Tag.down.moved) { "#52525b" } elseif ($s.Tag.room) { "#232327" } else { "#3f3f46" })); $g.FillPath($brush, $p); $brush.Dispose()
         if ($s.Tag.hl) {  # 굵은 선은 가장자리에서 반이 잘리니 안쪽으로 1px 들여 그린다
             $edge = RoundRect 1 1 ($s.Width - 3) ($s.Height - 3) 8
             $pen = New-Object Drawing.Pen((Color "#6366f1"), 2.5); $g.DrawPath($pen, $edge); $pen.Dispose(); $edge.Dispose()
         }
         $p.Dispose()
         $flags = [Windows.Forms.TextFormatFlags]"VerticalCenter, NoPadding"
-        [Windows.Forms.TextRenderer]::DrawText($g, $s.Tag.name, $s.Font, (New-Object Drawing.Rectangle 12, 0, ($s.Width - 40), $s.Height), (Color "#f4f4f5"), $flags)
+        $titleY = if ($s.Tag.room) { 8 } else { 0 }; $titleH = if ($s.Tag.room) { 30 } else { $s.Height }
+        $titleX = if ($s.Tag.room) { 16 } else { 12 }; $titleSpace = if ($s.Tag.room) { 76 } else { 40 }
+        [Windows.Forms.TextRenderer]::DrawText($g, $s.Tag.name, $s.Font, (New-Object Drawing.Rectangle $titleX, $titleY, ($s.Width - $titleSpace), $titleH), (Color "#f4f4f5"), $flags)
         if ($s.Tag.lock) {
             $lockFont = New-Object Drawing.Font("Segoe MDL2 Assets", 8)
-            [Windows.Forms.TextRenderer]::DrawText($g, [string][char]0xE72E, $lockFont, (New-Object Drawing.Rectangle ($s.Width - 48), 0, 18, $s.Height),
+            [Windows.Forms.TextRenderer]::DrawText($g, [string][char]0xE72E, $lockFont, (New-Object Drawing.Rectangle ($s.Width - 48), $titleY, 18, $titleH),
                 (Color "#a1a1aa"), [Windows.Forms.TextFormatFlags]"HorizontalCenter, VerticalCenter")
             $lockFont.Dispose()
         }
         $hot = $s.Cursor -eq [Windows.Forms.Cursors]::Hand  # X 위에 있는지는 커서 모양으로 기억한다 (MouseMove)
         # X 는 선 두 개로 직접 그린다 (글꼴 글자는 칸 가운데에서 살짝 비껴 나와서 동그라미 한가운데에 안 맞는다)
-        $cx = $s.Width - 17; $cy = $s.Height / 2
+        $cx = $s.Width - 17; $cy = if ($s.Tag.room) { 23 } else { $s.Height / 2 }
         if ($hot) {  # 지우는 버튼이라는 걸 알게 X 뒤에 빨간 동그라미
             $red = New-Object Drawing.SolidBrush (Color "#ef4444"); $g.FillEllipse($red, ($cx - 10), ($cy - 10), 20, 20); $red.Dispose()
         }
         $pen = New-Object Drawing.Pen((Color $(if ($hot) { "#ffffff" } else { "#a1a1aa" })), 1.5)
         $g.DrawLine($pen, ($cx - 4), ($cy - 4), ($cx + 4), ($cy + 4)); $g.DrawLine($pen, ($cx - 4), ($cy + 4), ($cx + 4), ($cy - 4)); $pen.Dispose()
     })
-    $b.Add_MouseDown({ param($s, $e) if ($e.Button -eq "Left") { $s.Tag.down = @{ x = $e.X; y = $e.Y; onX = $e.X -ge $s.Width - 30; moved = $false } } })
+    $b.Add_MouseDown({ param($s, $e) if ($e.Button -eq "Left" -and (-not $s.Tag.room -or $e.Y -lt 40)) { $s.Tag.down = @{ x = $e.X; y = $e.Y; onX = $e.X -ge $s.Width - 30; moved = $false } } })
     $b.Add_MouseMove({
         param($s, $e)
         $d = $s.Tag.down
@@ -202,7 +204,7 @@ function Add-Badge($flow, $name, $onRemove, $tipText, [switch]$Lock) {
             return
         }
         # X 안팎을 넘나들 때만 다시 그린다 (움직일 때마다 그리면 깜빡인다). 끌 수 있는 배지는 몸통 위에서 십자 화살표 커서
-        $hot = $e.X -ge $s.Width - 30
+        $hot = $e.X -ge $s.Width - 30 -and (-not $s.Tag.room -or $e.Y -lt 40)
         if ($hot -ne ($s.Cursor -eq [Windows.Forms.Cursors]::Hand)) {
             $s.Cursor = $(if ($hot) { [Windows.Forms.Cursors]::Hand } elseif ($s.Tag.drag) { [Windows.Forms.Cursors]::SizeAll } else { [Windows.Forms.Cursors]::Default }); $s.Invalidate()
         }
@@ -265,10 +267,35 @@ function End-Edit {
     $roomCfg.name.Text = ""; $roomCfg.pw.Text = ""
     $tip.SetToolTip($roomCfg.plus, "추가"); $roomCfg.plus.Invalidate()
 }
-function RoomTip($r) { if ($r.pw) { "비밀번호: $($r.pw)" } else { "비밀번호 없음" } }
+function RoomTip($r) {
+    $password = if ($r.pw) { "비밀번호: $($r.pw)" } else { "비밀번호 없음" }
+    $share = if ($r.share -eq "everyone") { "누구나" } else { "방송 관리자만" }
+    "$password`n운영 권한: $share"
+}
 function Add-RoomBadge($r) {
     $b = Add-Badge $roomCfg.flow $r.name $removeRoom (RoomTip $r) -Lock:([bool]$r.pw)
-    $b.Tag.pick = $pickRoom; $b.Tag.drag = $moveRoom; $b.Margin = "0,0,8,14"  # 한 줄에 하나라 줄 사이를 조금 더 띄운다
+    $b.Tag.room = $r; $b.Tag.pick = $pickRoom; $b.Tag.drag = $moveRoom; $b.Margin = "0,0,0,12"
+    $b.BackColor = Color "#232327"
+    $b.Font = Font 11 -Bold; Set-BadgeText $b $r.name ([bool]$r.pw)
+    $b.Controls.Add((Label "운영 권한" 16 43 9 "#a1a1aa"))
+    $buttons = @()
+    foreach ($i in 0, 1) {
+        $button = Button @("방송 관리자만", "누구나")[$i] $(if ($i -eq 0) { 16 } else { 228 }) 68 $(if ($i -eq 0) { 200 } else { 146 }) 34 10
+        $button.Tag = @{ value = @("staff", "everyone")[$i] }
+        $button.AccessibleName = "$($r.name) 운영 권한 $($button.Text)"
+        $button.BackColor = Color $(if ($r.share -eq $button.Tag.value) { "#4f46e5" } else { "#35353b" })
+        $button.Add_Click({
+            param($s)
+            $card = $s.Parent; $card.Tag.room.share = $s.Tag.value
+            Save-Rooms
+            foreach ($choice in $card.Tag.buttons) {
+                $choice.BackColor = Color $(if ($choice.Tag.value -eq $card.Tag.room.share) { "#4f46e5" } else { "#35353b" })
+            }
+            $tip.SetToolTip($card, (RoomTip $card.Tag.room))
+        })
+        $b.Controls.Add($button); $buttons += $button
+    }
+    $b.Tag.buttons = $buttons
 }
 
 # 칸에 적은 닉네임 추가 (빈칸·이미 있는 이름은 넘어간다. 대소문자는 같은 이름으로 본다)
@@ -297,7 +324,7 @@ function Add-Room {
         return
     }
     $roomCfg.name.Text = ""; $roomCfg.pw.Text = ""; [void]$roomCfg.name.Focus()
-    $r = [pscustomobject]@{ name = $name; pw = $pw }
+    $r = [pscustomobject]@{ name = $name; pw = $pw; share = "staff" }
     $roomCfg.list.Add($r); Save-Rooms; Add-RoomBadge $r
 }
 
@@ -388,13 +415,16 @@ function Show-Settings {
 
     # 채팅방 관리: 방 이름 칸 + 비밀번호 칸 + [+]. 자물쇠 = 비밀번호 방 (배지에 마우스를 올리면 비밀번호가 보인다)
     # 방은 한 줄에 하나씩 (끌어서 위아래 순서를 바꾼다)
-    $b = New-Page $dlg "채팅방 관리" "방을 누르면 고치고, 끌면 순서가 바뀌어요. 비밀번호는 비워도 돼요"
+    $b = New-Page $dlg "채팅방 관리" "각 방의 운영 권한: 화면공유 · 강퇴 · 마이크 끄기"
     $b.flow.FlowDirection = "TopDown"; $b.flow.WrapContents = $false
     # 방 목록·창의 빈 곳을 누르면 고치기를 그만둔다 (새 방을 바로 넣을 수 있게)
     $b.flow.Add_MouseClick({ End-Edit }); $b.page.Add_MouseClick({ End-Edit })
     $roomCfg.name = New-Input $b.page 24 92 200 "방 이름" { Add-Room }
     $roomCfg.pw = New-Input $b.page 232 92 138 "비밀번호" { Add-Room }
     $roomCfg.plus = New-Plus $b.page 386 92 { Add-Room }
+    $b.flow.Size = "404,402"
+    $b.page.Controls.Add((Label "방 이름을 누르면 수정 · 끌어서 순서 변경" 26 558 9 "#a1a1aa"))
+    $b.page.Controls.Add((Label "권한은 방마다 바로 저장 · 다시 입장할 때 적용" 26 580 9 "#a1a1aa"))
     $roomCfg.flow = $b.flow
 
     # 왼쪽 메뉴 (창보다 살짝 어두운 바탕)
@@ -418,10 +448,10 @@ function Show-Settings {
     $roomCfg.list.Clear(); $roomCfg.edit = $null
     $lines = if (Test-Path $roomsFile) { Get-Content $roomsFile -Encoding UTF8 } else { "DOLIVE`t" }
     foreach ($line in $lines) {
-        $name, $pw = "$line" -split "`t", 2
+        $name, $pw, $share = "$line" -split "`t", 3
         $name = $name.Trim()
         if ($name -and -not ($roomCfg.list | Where-Object { $_.name -ieq $name })) {
-            $r = [pscustomobject]@{ name = $name; pw = "$pw" }
+            $r = [pscustomobject]@{ name = $name; pw = "$pw"; share = $(if ($share -eq "everyone") { "everyone" } else { "staff" }) }
             $roomCfg.list.Add($r); Add-RoomBadge $r
         }
     }

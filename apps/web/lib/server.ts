@@ -8,7 +8,7 @@ import { DormsAuthError, getDormsUser, type DormsUser } from "@/lib/dormsLogin";
 // 이 PC의 통화 서버(LiveKit)에 일을 시키는 창구. 채팅 보내기·마이크 끄기·화면공유 허락에 같이 쓴다
 export const rooms = new RoomServiceClient("http://localhost:7880", process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET);
 
-// 방장이 아닌 사람은 처음엔 마이크만 보낼 수 있다. 방장이 허락하면 화면공유(+공유 소리)도 보낼 수 있다.
+// 일반 참여자는 마이크만. 누구나 공유하는 방이거나 방장이 허락하면 화면공유(+공유 소리)도 보낼 수 있다.
 export const MIC_ONLY = [TrackSource.MICROPHONE];
 export const WITH_SCREEN = [TrackSource.MICROPHONE, TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO];
 
@@ -42,23 +42,23 @@ export function isStaff(user?: DormsUser) {
   return [user.name, user.handle].some((n) => n && names.includes(norm(n)));
 }
 
-// 방송 목록 = 서버 켜기 창 톱니바퀴 [채팅방 관리]에서 만든 방들 (server/config/rooms.txt, 한 줄에 "방 이름<탭>비밀번호". 비밀번호는 비워도 된다).
+// 방송 목록 = 서버 켜기 창 톱니바퀴 [채팅방 관리]에서 만든 방들. 파일 한 줄은 "방 이름<탭>비밀번호<탭>staff 또는 everyone".
 // 운영진 목록처럼 요청마다 다시 읽는다. 방 이름이 통화 서버(LiveKit)의 방 이름이고, 채팅 기록·음성도 방마다 따로다.
 // 파일이 아직 없으면(처음 켠 때) 예전처럼 비밀번호 없는 DOLIVE 방 하나
 const ROOMS_FILE = path.join(process.cwd(), "..", "..", "server", "config", "rooms.txt");
-export type RoomDef = { name: string; password: string };
+export type RoomDef = { name: string; password: string; adminEveryone: boolean };
 export function roomList(): RoomDef[] {
   let text: string;
   try {
     text = readFileSync(ROOMS_FILE, "utf8");
   } catch {
-    return [{ name: "DOLIVE", password: "" }];
+    return [{ name: "DOLIVE", password: "", adminEveryone: false }];
   }
   return text
     .split(/\r?\n/)
     .map((line) => {
-      const [name, password = ""] = line.split("\t");
-      return { name: name.trim(), password };
+      const [name, password = "", share = "staff"] = line.split("\t");
+      return { name: name.trim(), password, adminEveryone: share === "everyone" };
     })
     .filter((r) => r.name);
 }

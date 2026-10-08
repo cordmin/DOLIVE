@@ -190,7 +190,7 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
   useDuckShareAudio();
 
   const { floats, react } = useReactions();
-  const { waiting, answer, asked, requestShare } = useShareRequests(isAdmin, participants);
+  const { waiting, answer, asked, requestShare } = useShareRequests(isAdmin, participants, token);
 
   // PC 채팅 카드 폭(px). 왼쪽 가장자리를 끌어서 바꾸고, 이 브라우저에만 기억한다. null = 기본 폭
   const grid = useRef<HTMLDivElement>(null);
@@ -358,7 +358,7 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
           <div className="absolute inset-x-0 top-0 z-30 h-10 max-h-[60vh] overflow-hidden rounded-xl transition-[height,background-color,box-shadow] duration-300 ease-out [interpolate-size:allow-keywords] strip-open:h-auto strip-open:-inset-x-2 strip-open:overflow-y-auto strip-open:bg-zinc-900 strip-open:p-2 strip-open:shadow-xl strip-open:shadow-black/50 strip-open:ring-1 strip-open:ring-zinc-700">
             <div className="flex flex-wrap gap-x-2 gap-y-1">
               {participants.map((p) => (
-                <PersonRow key={p.identity} p={p} isAdmin={isAdmin} />
+                <PersonRow key={p.identity} p={p} isAdmin={isAdmin} token={token} />
               ))}
             </div>
           </div>
@@ -403,7 +403,7 @@ function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
             className={`fixed z-30 flex max-h-[60dvh] w-max max-w-[80vw] origin-top -translate-x-1/2 flex-col gap-1 overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-2 shadow-xl shadow-black/50 transition-[opacity,translate,scale,visibility] duration-200 ease-out ${showPeople ? "" : "pointer-events-none invisible -translate-y-2 scale-95 opacity-0"} md:hidden ${hideOnLand}`}
           >
             {participants.map((p) => (
-              <PersonRow key={p.identity} p={p} isAdmin={isAdmin} />
+              <PersonRow key={p.identity} p={p} isAdmin={isAdmin} token={token} />
             ))}
           </aside>
 
@@ -471,21 +471,21 @@ const PERSON_ACTIONS = {
   mute: { url: "/api/mute", fail: "마이크를 끄지 못했어요." },
   kick: { url: "/api/kick", fail: "내보내지 못했어요." },
 };
-function PersonRow({ p, isAdmin }: { p: Participant; isAdmin: boolean }) {
+function PersonRow({ p, isAdmin, token }: { p: Participant; isAdmin: boolean; token: string }) {
   const speaking = useIsSpeaking(p);
   const muted = useIsMuted({ participant: p, source: Track.Source.Microphone });
   const room = useRoomContext();
   const [menuAt, setMenuAt] = useState<Element | null>(null);
   const hold = useHoldMenu();
   const hasMenu = isAdmin && !p.isLocal;
-  const otherAdmin = p.attributes?.admin === "1";
+  const otherAdmin = p.attributes?.roomAdmin === "1";
   const canShare = !!p.permissions?.canPublishSources.includes(SCREEN_SHARE_SOURCE);
 
   async function act(what: keyof typeof PERSON_ACTIONS) {
     setMenuAt(null);
     const { url, fail } = PERSON_ACTIONS[what];
     const body = { room: room.name, identity: p.identity, ...(what === "share" ? { allow: !canShare } : {}) };
-    const r = await fetch(url, { method: "POST", body: JSON.stringify(body) });
+    const r = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
     if (!r.ok) alert(fail);
   }
 

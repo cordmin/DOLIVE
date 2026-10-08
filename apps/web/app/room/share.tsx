@@ -79,7 +79,7 @@ export function usePauseOldShare() {
 
 // 화면공유 승인 받기: 방장이 아닌 사람이 요청하면 방장 화면에 [승인] [거부]가 뜬다.
 // waiting: 방장이 지금 답할 요청 (방을 나간 사람 요청은 건너뛴다), asked: 내가 요청하고 기다리는 중
-export function useShareRequests(isAdmin: boolean, participants: Participant[]) {
+export function useShareRequests(isAdmin: boolean, participants: Participant[], token: string) {
   const room = useRoomContext();
   const [requests, setRequests] = useState<{ identity: string; name: string }[]>([]); // 방장이 받은 요청
   const [asked, setAsked] = useState(false); // 내가 요청하고 기다리는 중
@@ -98,7 +98,7 @@ export function useShareRequests(isAdmin: boolean, participants: Participant[]) 
   });
 
   function requestShare() {
-    const admins = participants.filter((p) => p.attributes?.admin === "1").map((p) => p.identity);
+    const admins = participants.filter((p) => p.attributes?.roomAdmin === "1").map((p) => p.identity);
     if (!admins.length) return alert("방장이 방에 없어서 화면공유를 요청할 수 없어요.");
     send(text("request"), { reliable: true, destinationIdentities: admins });
     setAsked(true);
@@ -108,7 +108,7 @@ export function useShareRequests(isAdmin: boolean, participants: Participant[]) 
   async function answer(req: { identity: string }, allow: boolean) {
     setRequests((r) => r.filter((x) => x.identity !== req.identity));
     if (!allow) return send(text("denied"), { reliable: true, destinationIdentities: [req.identity] });
-    const r = await fetch("/api/share", { method: "POST", body: JSON.stringify({ room: room.name, identity: req.identity, allow: true }) });
+    const r = await fetch("/api/share", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ room: room.name, identity: req.identity, allow: true }) });
     if (!r.ok) alert("승인하지 못했어요. 그 사람이 방을 나갔을 수 있어요.");
   }
 
@@ -116,14 +116,14 @@ export function useShareRequests(isAdmin: boolean, participants: Participant[]) 
   useEffect(() => {
     if (!isAdmin) return;
     const onUnpublished = (pub: RemoteTrackPublication, p: RemoteParticipant) => {
-      if (pub.source !== Track.Source.ScreenShare || p.attributes.admin === "1") return;
-      fetch("/api/share", { method: "POST", body: JSON.stringify({ room: room.name, identity: p.identity, allow: false }) });
+      if (pub.source !== Track.Source.ScreenShare || p.attributes.roomAdmin === "1") return;
+      fetch("/api/share", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ room: room.name, identity: p.identity, allow: false }) });
     };
     room.on(RoomEvent.TrackUnpublished, onUnpublished);
     return () => {
       room.off(RoomEvent.TrackUnpublished, onUnpublished);
     };
-  }, [room, isAdmin]);
+  }, [room, isAdmin, token]);
   const waiting = requests.find((r) => participants.some((p) => p.identity === r.identity));
   return { waiting, answer, asked, requestShare };
 }
@@ -136,7 +136,7 @@ export function MediaControls({ asked, requestShare }: { asked: boolean; request
   const canShare = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
   const sources = useLocalParticipantPermissions()?.canPublishSources ?? [];
   const allowed = sources.length === 0 || sources.includes(SCREEN_SHARE_SOURCE); // 빈 목록 = 다 보낼 수 있음(방장)
-  const approved = allowed && sources.length > 0; // 방장이 아닌데 승인받음
+  const approved = allowed && sources.length > 0 && me.attributes.roomAdmin !== "1"; // 운영자가 아닌데 따로 승인받음
   const paused = me.getTrackPublication(Track.Source.ScreenShare)?.isMuted; // 다른 사람이 공유 중이라 멈춤
   const [quality, setQuality] = useState<Quality>("720p");
 
