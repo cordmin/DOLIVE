@@ -1,5 +1,5 @@
 // 실행: node tests/room-sharing.cjs (실제 방 목록과 서버는 바꾸지 않는다)
-// 켜진 통화 서버에 화면 보내기까지 확인: node tests/room-sharing.cjs --live
+// 켜진 서버에서 "누구나" 방 운영 권한 넘겨주기까지 확인: node tests/room-sharing.cjs --live (확인용 방을 잠깐 목록에 넣었다가 원래 파일 그대로 되돌린다)
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -43,20 +43,20 @@ async function claims(response) {
   return { body, payload: JSON.parse(Buffer.from(body.token.split(".")[1], "base64url")) };
 }
 (async () => {
-  assert.deepEqual(Array.from(server.roomList(), (r) => r.shareEveryone), [false, false, true, false]);
+  assert.deepEqual(Array.from(server.roomList(), (r) => r.adminEveryone), [false, false, true, false]);
   config = null;
-  assert.equal(server.roomList()[0].shareEveryone, false);
+  assert.equal(server.roomList()[0].adminEveryone, false);
   config = "옛 방\t\n관리자 방\t암호\tstaff\n열린 방\t암호\teveryone";
   for (const name of ["옛 방", "관리자 방"]) {
     const { payload } = await claims(await ticket(name));
     assert.deepEqual(payload.video.canPublishSources, ["microphone"]);
     assert.equal(payload.attributes.admin, "");
   }
+  // "누구나" 방도 입장권은 마이크만. 운영 권한은 들어온 뒤 서버가 가장 먼저 온 사람에게 붙인다 (아래 --live)
   const { body, payload } = await claims(await ticket("열린 방"));
   assert.equal(body.isAdmin, false);
-  assert.equal(payload.attributes.admin, "");
-  assert.equal(payload.attributes.shareEveryone, "1");
-  assert.deepEqual(payload.video.canPublishSources, ["microphone", "screen_share", "screen_share_audio"]);
+  assert.equal(payload.attributes.roomAdmin, "");
+  assert.deepEqual(payload.video.canPublishSources, ["microphone"]);
   assert.equal((await ticket("열린 방", "틀린 암호")).status, 403);
   assert.equal((await server.adminDeny(new Request("http://dolive.duckdns.org/api/kick", { headers: { host: "dolive.duckdns.org" } }))).status, 403);
   assert.equal((await ticket("없는 방")).status, 404);
@@ -69,42 +69,47 @@ async function claims(response) {
   assert.equal((await (await listing.GET()).json())[0].onAir, true);
   people[0].tracks[0].muted = true;
   assert.equal((await (await listing.GET()).json())[0].onAir, false);
-  console.log("통과: 방별 화면공유 권한, 옛 설정 유지, 비밀번호·로그인·방장 권한 유지, 방송 표시");
+  console.log("통과: 방별 운영 권한 설정, 옛 설정 유지, 비밀번호·로그인·방장 권한 유지, 방송 표시");
   if (live) {
     const rtc = require("@livekit/rtc-node");
-    const roomName = `화면공유 확인 ${Date.now()}`;
-    const connection = new rtc.Room();
+    const roomName = `운영 권한 확인 ${Date.now()}`;
+    const file = path.join(__dirname, "..", "..", "..", "server", "config", "rooms.txt");
+    const original = fs.existsSync(file) ? fs.readFileSync(file) : null;
     const service = new sdk.RoomServiceClient("http://localhost:7880", credentials.LIVEKIT_API_KEY, credentials.LIVEKIT_API_SECRET);
-    const source = new rtc.VideoSource(32, 32);
-    let track;
+    const joined = [];
+    const join = async () => {
+      const { body } = await claims(await ticket(roomName, ""));
+      const r = new rtc.Room();
+      joined.push(r);
+      await r.connect("ws://localhost:7880", body.token);
+      await new Promise((resolve) => setTimeout(resolve, 1100)); // 들어온 순서가 확실히 갈리게
+      return r;
+    };
+    const hostOf = async () => (await service.listParticipants(roomName)).filter((p) => p.attributes.roomAdmin === "1").map((p) => p.identity);
+    const waitHost = async (identity) => {
+      for (let i = 0; i < 50; i++) { if ((await hostOf()).join() === identity) return; await new Promise((resolve) => setTimeout(resolve, 100)); }
+      throw new Error(`운영 권한이 ${identity} 에게 가지 않았어요: ${await hostOf()}`);
+    };
     try {
-      config = `${roomName}\t\teveryone`;
+      fs.writeFileSync(file, Buffer.concat([original ?? Buffer.from(""), Buffer.from(`
+${roomName}		everyone`)]));
+      config = `${roomName}		everyone`;
       user = { id: "member", name: "일반 회원" };
-      const { body: normal } = await claims(await ticket(roomName, ""));
-      assert.equal(normal.isAdmin, false);
-      await connection.connect("ws://localhost:7880", normal.token);
-      const options = new rtc.TrackPublishOptions({ source: rtc.TrackSource.SOURCE_SCREENSHARE });
-      for (let i = 0; i < 2; i++) {
-        track = rtc.LocalVideoTrack.createVideoTrack("확인 화면", source);
-        const publication = await connection.localParticipant.publishTrack(track, options);
-        source.captureFrame(new rtc.VideoFrame(new Uint8Array(32 * 32 * 4), 32, 32, rtc.VideoBufferType.RGBA));
-        let participant;
-        for (let attempt = 0; attempt < 30; attempt++) {
-          participant = (await service.listParticipants(roomName))[0];
-          if (participant.tracks.some((t) => t.sid === publication.sid)) break;
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-        assert.equal(participant.attributes.admin, "");
-        assert.ok(participant.tracks.some((t) => t.sid === publication.sid && t.source === sdk.TrackSource.SCREEN_SHARE));
-        await connection.localParticipant.unpublishTrack(publication.sid);
-        await track.close(false); track = undefined;
-      }
-      console.log("통과: 일반 회원 입장권으로 실제 통화 서버에 화면공유 시작·종료·다시 시작");
+      const a = await join();
+      const b = await join();
+      const c = await join();
+      await waitHost(a.localParticipant.identity); // 처음 들어온 사람
+      const first = (await service.listParticipants(roomName)).find((p) => p.identity === a.localParticipant.identity);
+      assert.deepEqual(first.permission.canPublishSources, [sdk.TrackSource.MICROPHONE, sdk.TrackSource.SCREEN_SHARE, sdk.TrackSource.SCREEN_SHARE_AUDIO]);
+      await a.disconnect();
+      await waitHost(b.localParticipant.identity); // 처음 사람이 나가면 그다음 들어온 사람
+      await service.removeParticipant(roomName, b.localParticipant.identity); // 강퇴돼도 넘어간다
+      await waitHost(c.localParticipant.identity);
+      console.log("통과: 누구나 방에서 가장 먼저 온 사람이 운영 권한, 나가거나 강퇴되면 다음 사람에게");
     } finally {
-      await connection.disconnect();
-      await track?.close(false);
-      await source.close();
+      await Promise.all(joined.map((r) => r.disconnect().catch(() => {})));
       await service.deleteRoom(roomName).catch(() => {});
+      if (original) fs.writeFileSync(file, original); else fs.unlinkSync(file);
       await rtc.dispose();
     }
   }

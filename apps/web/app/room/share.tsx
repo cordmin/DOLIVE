@@ -86,7 +86,7 @@ export function useShareRequests(isAdmin: boolean, participants: Participant[], 
   const { send } = useDataChannel(SHARE_TOPIC, (msg) => {
     const what = new TextDecoder().decode(msg.payload);
     const from = msg.from;
-    if (what === "request" && isAdmin && from) {
+    if (what === "request" && from) { // 요청은 운영 권한이 있는 사람에게만 온다 (requestShare). 권한이 막 넘어와도 받게 isAdmin 은 안 본다
       setRequests((r) =>
         r.some((x) => x.identity === from.identity) ? r : [...r, { identity: from.identity, name: from.name ?? "" }],
       );

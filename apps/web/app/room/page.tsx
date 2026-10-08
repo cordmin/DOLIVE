@@ -4,6 +4,7 @@ import {
   LiveKitRoom,
   RoomAudioRenderer,
   useLocalParticipant,
+  useParticipantAttributes,
   useParticipants,
   useRoomContext,
   useTracks,
@@ -34,7 +35,7 @@ const ROOM_OPTIONS: RoomOptions = {
   dynacast: true,
 };
 
-type Conn = { token: string; url: string; isAdmin: boolean };
+type Conn = { token: string; url: string };
 
 const CHAT_W_KEY = "dolive-chat-width"; // PC 채팅 카드 폭 기억 (이 브라우저에만)
 
@@ -161,7 +162,7 @@ export default function RoomPage() {
     >
       <RoomAudioRenderer />
       {/* 소리 켜기 안내 버튼은 두지 않는다. 브라우저가 소리를 막아 두면 화면 아무 데나 처음 누를 때 켠다 (RoomView) */}
-      <RoomView isAdmin={conn.isAdmin} token={conn.token} />
+      <RoomView token={conn.token} />
     </LiveKitRoom>
   );
 }
@@ -170,7 +171,9 @@ export default function RoomPage() {
 // 휴대폰: [화면공유 또는 프로필 사진 / 채팅 내용 / 메시지 입력칸]  (참여자 목록은 눌러서 연다)
 // PC:     [화면공유 또는 프로필 사진 | 채팅 내용  ]
 //         [참여자 한 줄              | 메시지 입력칸]
-function RoomView({ isAdmin, token }: { isAdmin: boolean; token: string }) {
+function RoomView({ token }: { token: string }) {
+  // 이 방의 운영 권한: 방장·운영진은 입장권에, "누구나" 방은 가장 먼저 와 있는 사람에게 서버가 붙여 준다 (그 사람이 나가면 다음 사람에게 넘어가서 바로 바뀐다)
+  const isAdmin = useParticipantAttributes({ participant: useLocalParticipant().localParticipant }).attributes?.roomAdmin === "1";
   // 나는 늘 맨 앞(왼쪽), 그다음 마이크를 켠 사람, 나머지는 들어온 순서 그대로. 마이크를 켜고 끄면 바로 자리가 바뀐다.
   // "/글" 을 읽어 주는 서버 참여자는 사람이 아니라서 목록·인원수에서 뺀다 (소리는 RoomAudioRenderer 가 그대로 튼다)
   const rank = (p: Participant) => (p.isLocal ? 2 : p.isMicrophoneEnabled ? 1 : 0);

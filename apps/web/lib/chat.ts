@@ -1,6 +1,6 @@
 import { DataPacket_Kind, TokenVerifier } from "livekit-server-sdk";
 import { CHAT_TOPIC, VOICE_BOT, type ChatMsg } from "@/lib/dolive";
-import { dormsCheck, findRoom, isLocal, isStaff, rooms } from "@/lib/server";
+import { WITH_SCREEN, dormsCheck, findRoom, isLocal, isStaff, rooms } from "@/lib/server";
 
 // 사람이 남아 있는 동안의 채팅 전부. 방이 비거나 서버를 끄면 지운다. 파일로 저장하지 않는다.
 // (개발 중 코드를 고쳐 다시 읽혀도 안 사라지게 globalThis 에 둔다)
@@ -25,6 +25,22 @@ export async function clearEmptyRoom(room: string) {
   dropRoom(room);
   if (people.some((p) => p.identity === VOICE_BOT)) await rooms.removeParticipant(room, VOICE_BOT).catch(() => {});
   return true;
+}
+
+// "누구나" 방: 지금 남아 있는 사람 중 가장 먼저 들어온 사람이 그 방 운영 권한(roomAdmin)을 받는다 (화면공유·강퇴·마이크 끄기·공유 허락).
+// 그 사람이 나가면 다음으로 먼저 들어온 사람이 이어받는다. 통화 서버의 입장·퇴장 소식(api/livekit)마다 다시 고른다.
+// 방장·운영진은 원래부터 roomAdmin 이라, 그 사람이 가장 먼저 와 있으면 따로 주지 않는다
+export async function pickHost(room: string) {
+  if (!findRoom(room)?.adminEveryone) return;
+  const since = (p: { joinedAtMs: bigint; joinedAt: bigint }) => p.joinedAtMs || p.joinedAt * BigInt(1000);
+  const host = (await rooms.listParticipants(room))
+    .filter((p) => p.identity !== VOICE_BOT)
+    .sort((a, b) => (since(a) < since(b) ? -1 : since(a) > since(b) ? 1 : 0))[0];
+  if (!host || host.attributes.roomAdmin === "1") return;
+  await rooms.updateParticipant(room, host.identity, {
+    attributes: { roomAdmin: "1" },
+    permission: { canSubscribe: true, canPublish: true, canPublishData: true, canPublishSources: WITH_SCREEN },
+  });
 }
 function dropImage(id: string) {
   const img = store.images.get(id);
@@ -61,12 +77,14 @@ export async function whoSent(req: Request) {
   if (deny) return { deny };
   if ((user?.id ?? "") !== (c.attributes?.dorms ?? "") || !findRoom(room)) return { deny: new Response(null, { status: 403 }) };
   // 나간 뒤에 옛 입장권으로 기록을 읽거나 쓰지 못하게 한다.
-  if (!await rooms.getParticipant(room, c.sub).catch(() => null)) return { deny: new Response(null, { status: 403 }) };
+  const me = await rooms.getParticipant(room, c.sub).catch(() => null);
+  if (!me) return { deny: new Response(null, { status: 403 }) };
   return {
     room,
     who: { identity: c.sub, name: c.name ?? "", avatar: c.attributes?.avatar ?? "" },
     owner: user?.id ?? c.sub, // 보낸 사람 표시: 같은 도름스 계정이면 방을 나갔다 들어와도 같다
-    admin: isLocal(req) || isStaff(user) || (findRoom(room)?.adminEveryone === true && c.attributes?.roomAdmin === "1"), // 그 방의 운영 권한
+    // 그 방의 운영 권한. "누구나" 방은 입장권이 아니라 지금 통화 서버에 붙어 있는 표시로 본다 (pickHost 가 붙인다)
+    admin: isLocal(req) || isStaff(user) || (findRoom(room)?.adminEveryone === true && me.attributes.roomAdmin === "1"),
   };
 }
 
