@@ -362,7 +362,7 @@ function RoomView({ token }: { token: string }) {
             </div>
             <span className="flex items-center gap-1.5 text-[11px] text-[#a39f98]">
               <span className={`hw-led ${live ? "hw-led-green" : "hw-led-amber"}`} />
-              참여자 {participants.length}명
+              참여 {participants.length}명
             </span>
           </div>
           {/* 휴대폰: 눌러서 참여자 목록을 여는 배지. 넓은 화면은 목록이 늘 보여서 그냥 글자 */}
@@ -375,7 +375,7 @@ function RoomView({ token }: { token: string }) {
             aria-expanded={showPeople}
             className={`flex items-center gap-1 rounded-full px-3 py-1 text-zinc-200 md:hidden ${showPeople ? "bg-indigo-600" : "bg-zinc-800 active:bg-zinc-700"}`}
           >
-            참여자 {participants.length}명
+            참여 {participants.length}명
             <svg
               viewBox="0 0 20 20"
               fill="currentColor"
