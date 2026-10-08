@@ -264,7 +264,9 @@ function RoomView({ token }: { token: string }) {
   }, [sharing, pip]);
   // PC와 휴대폰 모두 전체화면 버튼으로 켜고 끈다.
   const [fullscreen, setFullscreen] = useState(false);
+  const [canFullscreen, setCanFullscreen] = useState(false);
   useEffect(() => {
+    setCanFullscreen(!!document.fullscreenEnabled && typeof document.documentElement.requestFullscreen === "function");
     const update = () => setFullscreen(!!document.fullscreenElement);
     update();
     document.addEventListener("fullscreenchange", update);
@@ -403,7 +405,7 @@ function RoomView({ token }: { token: string }) {
             </div>
           </div>
           <div className="ml-auto mr-1.5 flex items-center gap-3 md:mr-0 md:items-end md:gap-5">
-            <Knob
+            {canFullscreen && <Knob
               compactMobile
               label="전체화면"
               mobileRing={false}
@@ -416,7 +418,7 @@ function RoomView({ token }: { token: string }) {
                   <path className="md:hidden" d={fullscreen ? "M3 8h5V3M16 3v5h5M21 16h-5v5M8 21v-5H3" : "M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5"} />
                 </svg>
               }
-            />
+            />}
             <MediaControls asked={asked} requestShare={requestShare} />
             {docPip && sharing && (
               <div className="hidden sm:block md:hidden">
