@@ -2,7 +2,6 @@ import { useDataChannel, useLocalParticipant, useLocalParticipantPermissions, us
 import { ScreenSharePresets, RoomEvent, Track, type Participant, type RemoteParticipant, type RemoteTrackPublication } from "livekit-client";
 import { useEffect, useState } from "react";
 import { Knob } from "@/components/Knob";
-import { Switch } from "@/components/Switch";
 import { VOICE_BOT, VOICE_ON } from "@/lib/dolive";
 import { TtsButton } from "./tts";
 
@@ -214,12 +213,9 @@ export function MediaControls({ asked, requestShare }: { asked: boolean; request
         />
       )}
       <TtsButton />
-      <span className="md:hidden">
-        <Switch label="마이크" on={isMicrophoneEnabled} onChange={(on) => run(() => me.setMicrophoneEnabled(on), "마이크")} />
-      </span>
-      {/* PC: 마이크 (켜짐 = 초록 불빛) */}
+      {/* 마이크: PC는 초록 불빛, 휴대폰은 초록 링 */}
       <Knob
-        className="hidden md:flex"
+        compactMobile
         role="switch"
         aria-checked={isMicrophoneEnabled}
         label="마이크"

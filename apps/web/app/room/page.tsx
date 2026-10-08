@@ -262,7 +262,14 @@ function RoomView({ token }: { token: string }) {
   useEffect(() => {
     if (!sharing) pip?.close();
   }, [sharing, pip]);
-  // 전체화면 버튼으로 켜기·끄기 (휴대폰은 기존처럼 로고)
+  // PC와 휴대폰 모두 전체화면 버튼으로 켜고 끈다.
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    const update = () => setFullscreen(!!document.fullscreenElement);
+    update();
+    document.addEventListener("fullscreenchange", update);
+    return () => document.removeEventListener("fullscreenchange", update);
+  }, []);
   const toggleFullscreen = () =>
     document.fullscreenElement ? document.exitFullscreen().catch(() => {}) : document.documentElement.requestFullscreen?.().catch(() => {});
   // PC 로고 아래 불빛: 통화 서버와 이어져 있으면 초록 "방송중", 끊겨서 다시 붙는 중이면 호박색
@@ -283,15 +290,17 @@ function RoomView({ token }: { token: string }) {
   // 뒤로가기를 누르면 바로 나가지 않고 "메인으로 나가시겠습니까?" 창을 먼저 띄운다.
   // 같은 주소를 한 칸 더 쌓아 두고, 뒤로가기로 그 칸이 빠지면 창을 연다
   const leave = useRef<HTMLDialogElement>(null);
+  const wentBack = useRef(false);
   useEffect(() => {
     history.pushState(history.state, "");
-    const onBack = () => leave.current?.showModal();
+    const onBack = () => { wentBack.current = true; leave.current?.showModal(); };
     window.addEventListener("popstate", onBack);
     return () => window.removeEventListener("popstate", onBack);
   }, []);
   function stay() {
     leave.current?.close();
-    history.pushState(history.state, ""); // 다음 뒤로가기도 다시 막는다
+    if (wentBack.current) history.pushState(history.state, ""); // 뒤로가기로 빠진 칸만 다시 채운다.
+    wentBack.current = false;
   }
 
   return (
@@ -336,14 +345,14 @@ function RoomView({ token }: { token: string }) {
           // PC 는 아래로 펼치는 참여자 목록이 잘리지 않게 overflow 를 풀어 둔다 (휴대폰은 좁아서 옆으로 밀어 본다)
           className={`${hideOnLand} flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b border-zinc-800 px-3 md:h-auto md:gap-4 md:overflow-visible md:border-b-0 md:px-0 text-sm whitespace-nowrap`}
         >
-          {/* 로고를 누르면 전체화면 켜기·끄기 (아이폰은 브라우저가 막아 둬서 안 된다) */}
-          <button type="button" onClick={toggleFullscreen} data-tip="전체화면" className="text-base font-bold md:hidden">
+          {/* 로고를 누르면 메인화면으로 돌아간다. */}
+          <button type="button" onClick={() => leave.current?.showModal()} aria-label="메인화면으로 가기" className="text-base font-bold md:hidden">
             DO<span className="text-red-500">LIVE</span>
           </button>
           {/* PC: 로고(+ 관리자 배지) 아래에 불빛과 참여자 수 */}
           <div className="hidden flex-col gap-1.5 md:flex">
             <div className="flex items-center gap-2">
-              <button type="button" onClick={() => room.disconnect()} className="text-2xl font-bold tracking-tight text-[#d3d0ca]">
+              <button type="button" aria-label="메인화면으로 가기" onClick={() => leave.current?.showModal()} className="cursor-pointer text-2xl font-bold tracking-tight text-[#d3d0ca] transition-[filter,text-shadow] duration-150 hover:brightness-125 hover:[text-shadow:0_0_10px_rgb(255_255_255/0.2)] focus-visible:rounded focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400">
                 DO<span className="text-red-500">LIVE</span>
               </button>
               {/* 서버 PC에서 들어온 사람도, 운영진 목록에 있는 도름스 회원도 "관리자". 아니면 배지 없음 */}
@@ -393,14 +402,12 @@ function RoomView({ token }: { token: string }) {
               </div>
             </div>
           </div>
-          <div className="ml-auto flex items-center gap-2 md:items-end md:gap-5">
-            {/* 서버 PC에서 들어온 사람도, 운영진 목록(서버 켜기 창 톱니바퀴)에 있는 도름스 회원도 "관리자" (입장 화면 오른쪽 위 표시와 같은 모양). PC 는 로고 옆 */}
-            {isAdmin && (
-              <span className="rounded bg-amber-500 px-2 py-0.5 text-xs font-bold text-black md:hidden">관리자</span>
-            )}
+          <div className="ml-auto mr-1.5 flex items-center gap-3 md:mr-0 md:items-end md:gap-5">
             <Knob
-              className="hidden md:flex"
+              compactMobile
               label="전체화면"
+              led={fullscreen ? "green" : undefined}
+              aria-pressed={fullscreen}
               onClick={toggleFullscreen}
               icon={
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-[17px]">
@@ -497,7 +504,7 @@ function RoomView({ token }: { token: string }) {
           </div>,
           pip.document.body,
         )}
-      {donating && <DonationDialog token={token} room={room.name} target={donationRecipient ? { isSelf: donationRecipient.isLocal || (!!mine?.dorms && mine.dorms === donationRecipient.attributes.dorms), identity: donationRecipient.identity, recipientId: donationRecipient.attributes.dorms ?? "", name: donationRecipient.name || donationRecipient.identity } : undefined} close={() => setDonating(false)} success={donation} />}
+      {donating && <DonationDialog token={token} room={room.name} isGuest={!mine?.dorms} target={donationRecipient ? { isSelf: donationRecipient.isLocal || (!!mine?.dorms && mine.dorms === donationRecipient.attributes.dorms), identity: donationRecipient.identity, recipientId: donationRecipient.attributes.dorms ?? "", name: donationRecipient.name || donationRecipient.identity } : undefined} close={() => setDonating(false)} success={donation} />}
       <Tooltips />
     </>
   );

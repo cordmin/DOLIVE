@@ -24,7 +24,7 @@ const pendingKey = "dolive-donation-pending";
 type Pending = { requestId: string; recipientId: string; identity: string; name: string; amount: number; subject: string; room: string };
 export type DonationTarget = { recipientId: string; identity: string; name: string; isSelf?: boolean };
 
-export function DonationDialog({ token, room, target, close, success, preview = false, previewCase = "normal" }: { token: string; room: string; target?: DonationTarget; close: () => void; success: (result: DonationResult) => void; preview?: boolean; previewCase?: "normal" | "empty" | "limit" }) {
+export function DonationDialog({ token, room, target, close, success, isGuest = false, preview = false, previewCase = "normal" }: { token: string; room: string; target?: DonationTarget; close: () => void; success: (result: DonationResult) => void; isGuest?: boolean; preview?: boolean; previewCase?: "normal" | "empty" | "limit" }) {
   const example = process.env.NODE_ENV === "development" && preview;
   const dialog = useRef<HTMLDialogElement>(null);
   const locked = useRef(false);
@@ -33,9 +33,10 @@ export function DonationDialog({ token, room, target, close, success, preview = 
   const [amount, setAmount] = useState(1);
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState("");
-  const [message, setMessage] = useState("확인 중…");
+  const [message, setMessage] = useState("");
   useEffect(() => {
     dialog.current?.showModal();
+    if (isGuest) return;
     // 예시 화면은 실제 로그인·보내기·저장 기록에 손대지 않는다.
     if (example) {
       setStatus({ subject: "예시 보낸 사람", availableBalance: previewCase === "empty" ? 0 : 8, dailyRemaining: previewCase === "limit" ? 0 : 3, resetsAt: "예시" });
@@ -53,7 +54,7 @@ export function DonationDialog({ token, room, target, close, success, preview = 
     return () => { alive = false; };
   }, []);
   const selected = pending ?? target;
-  const self = (!pending && !!target?.isSelf) || (!!status && !!selected && status.subject === selected.recipientId);
+  const self = isGuest || (!pending && !!target?.isSelf) || (!!status && !!selected && status.subject === selected.recipientId);
   const another = pending && (pending.subject !== status?.subject || pending.room !== room);
   const nothingToSend = !pending && !!status && (status.availableBalance < 1 || status.dailyRemaining < 1);
   // 결과가 불확실한 이전 보내기는 잔액이 줄었어도 같은 번호로 확인할 수 있어야 한다.
@@ -100,7 +101,7 @@ export function DonationDialog({ token, room, target, close, success, preview = 
       <div aria-live="polite" className="flex items-baseline gap-1.5 text-3xl font-light text-[#ead39e]"><span className="[text-shadow:0_0_8px_rgb(232_196_121/0.35),0_0_20px_rgb(232_196_121/0.15)]">{amount}</span><span>도름</span></div>
       <button type="button" aria-label="금액 늘리기" disabled={!!pending || busy || amount >= 3} onClick={() => setAmount((n) => Math.min(3, n + 1))} className="donation-step flex size-8 items-center justify-center rounded-full bg-zinc-700 text-xl text-zinc-200 disabled:opacity-40">+</button>
     </div>}
-    {(another || self || unavailable || (message && reason !== "approval_required")) && <p role="status" className="mb-4 text-center text-sm text-zinc-400">{another ? "이전 보내기의 계정과 방송으로 돌아가 결과를 확인해 주세요." : self ? messages.self_donation : unavailable || message}</p>}
+    {(another || self || unavailable || (message && reason !== "approval_required")) && <p role="status" className="mb-4 text-center text-sm text-zinc-400">{isGuest ? "비회원은 도름네이션 기능이 제한됩니다" : another ? "이전 보내기의 계정과 방송으로 돌아가 결과를 확인해 주세요." : self ? messages.self_donation : unavailable || message}</p>}
     {pending && <p className="mb-3 text-xs text-zinc-400">이전 보내기 결과를 확인할 때까지 받는 사람과 금액은 바꿀 수 없어요.</p>}
     {reason === "authentication_required" && <a className="mb-3 block text-center text-amber-300" href="/api/auth/dorms/start?next=%2Froom">DoRms로 로그인</a>}
     {["consent_required", "invalid_token", "permission_expired"].includes(reason) && <a className="mb-3 block text-center text-amber-300" href="/api/auth/dorms/donation/start?next=%2Froom">도름스에서 보내기 허용</a>}

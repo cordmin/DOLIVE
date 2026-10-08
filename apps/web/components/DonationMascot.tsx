@@ -15,7 +15,7 @@ export function DonationFace() {
     <ellipse cx="25.5" cy="17" rx="1.7" ry="2.8" fill="#222222" />
     <ellipse cx="9.5" cy="23" rx="2.6" ry="1.3" fill="#eebdc8" />
     <ellipse cx="30.5" cy="23" rx="2.6" ry="1.3" fill="#eebdc8" />
-    <path d="M16.5 24Q20 26.5 23.5 24" stroke="#222222" strokeWidth="1.5" strokeLinecap="round" />
+    <path d="M16 23.5Q20 26 24 23.5" fill="none" stroke="#222222" strokeWidth="1" strokeLinecap="round" />
   </svg>;
 }
 

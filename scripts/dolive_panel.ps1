@@ -346,7 +346,7 @@ function Show-State($note) {
         $power.Text = "서버 시작"; $power.BackColor = Color "#4f46e5"
     }
     # 로고 옆 자리가 좁아서 짧게 쓰고, 자세한 안내는 마우스를 올리면 뜬다
-    if ($note) { $status.Text = "●  잘 안 됐어요"; $status.ForeColor = Color "#f87171" }
+    if ($note) { $status.Text = "●  서버 실행 실패"; $status.ForeColor = Color "#f87171" }
     $tip.SetToolTip($status, $note)
     $power.Enabled = $true
 }
