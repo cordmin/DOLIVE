@@ -42,10 +42,18 @@ export function Stage({ participants, screen, floats }: { participants: Particip
         <>
           {/* PC: 공유 화면이 들어올 자리(왼쪽 칸 전체)를 카드로 미리 잡아 두고 가운데에 안내 */}
           <div className="hidden min-h-0 w-full flex-1 items-center justify-center gap-3 rounded-xl border border-zinc-800 bg-zinc-800/40 text-2xl font-bold text-zinc-400 md:flex md:border-0 md:bg-[#1e1e21] md:hw-inset">
-            <span className="size-3 animate-pulse rounded-full bg-red-500" />
-            <span>
-              <span className="text-red-500">LIVE</span> 방송 준비 중
-            </span>
+            <div className="relative flex items-center gap-3">
+              <a
+                href="https://myboard.my/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="absolute bottom-full left-0 mb-1 whitespace-nowrap bg-linear-to-b from-[#ead39e] via-[#c9a65c] to-[#a8894d] bg-clip-text text-xs font-medium tracking-wide text-transparent transition-[filter] hover:brightness-125 focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#c9a65c]"
+              >
+                Designed By Neil
+              </a>
+              <span className="size-3 animate-pulse rounded-full bg-red-500" />
+              <span><span className="text-red-500">LIVE</span> 방송 준비 중</span>
+            </div>
           </div>
           {/* 휴대폰만 (PC는 맨 위 참여자 줄에 사진이 이미 있어서 숨김). 한 줄, 손가락으로 밀어서 본다 (스크롤바 없음)
               p-0.5: 말할 때 생기는 초록 테두리(바깥쪽 2px)가 스크롤 칸 가장자리에서 잘리지 않게 */}

@@ -196,10 +196,6 @@ function RoomView({ token }: { token: string }) {
     .filter((t) => !t.publication.isMuted)
     .at(-1);
   const room = useRoomContext();
-  // 화면공유한 사람을 먼저 고르고, 없으면 방 주인·방장 순으로 고른다.
-  const donationRecipient = screen?.participant
-    ?? participants.find((p) => p.attributes.owner === "1")
-    ?? participants.find((p) => p.attributes.roomAdmin === "1");
   usePauseOldShare();
   useDuckShareAudio();
 
@@ -452,8 +448,6 @@ function RoomView({ token }: { token: string }) {
           style={chatW ? { gridTemplateColumns: `minmax(0,1fr) min(${chatW}px,600px,50%)` } : undefined}
           className={`flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[minmax(0,1fr)_min(500px,50%)] md:grid-rows-[minmax(0,1fr)_auto] ${screen ? "phone-land:flex!" : ""}`}
         >
-          {/* 채팅 내용과 입력칸을 한 테두리로 감싼다. 그림자만 겹쳐서 버튼 누르기와 폭 조절은 그대로 */}
-          <div aria-hidden className={`pointer-events-none z-20 hidden rounded-xl md:col-start-2 md:row-span-2 md:row-start-1 md:block md:hw-inset ${hideOnLand}`} />
           {/* PC: 채팅 카드 왼쪽 가장자리. 끌면 폭이 바뀌고, 두 번 누르면 기본 폭으로. 평소엔 안 보이고 마우스를 올리면 보라색.
               위아래 끝은 채팅 카드 위아래 끝과 맞춘다 */}
           <div
@@ -477,25 +471,29 @@ function RoomView({ token }: { token: string }) {
             </aside>
 
             <Stage participants={participants} screen={screen} floats={floats} />
-            {/* 휴대폰에서 화면공유 중에 자판이 올라오면 채팅 내용 칸이 먼저 줄고, 그래도 좁으면 공유 화면도 줄어든다 */}
-            <ChatLog
-              messages={messages}
-              isAdmin={isAdmin}
-              remove={removeChat} edit={editChat}
-              // PC: 채팅 내용 + 아래 입력칸이 둥근 카드 하나로 이어진다 (구분선 없이 카드로 나눔)
-              // (PC 카드 색 #1e1e21 = 예전 zinc-900 바탕 위 zinc-800/40 과 같은 색. 판 위에서도 지금과 같아 보이게)
-              className={`${screen ? "min-h-24 flex-1" : "min-h-0 flex-1"} border-t border-zinc-800 md:col-start-2 md:row-start-1 md:min-h-0 md:rounded-t-xl md:border-0 md:bg-[#1e1e21] ${hideOnLand}`}
-            />
-          </div>
+            <div className={`flex min-h-0 flex-1 flex-col md:contents ${hideOnLand}`}>
+              {/* PC만 채팅 내용과 입력칸을 한 테두리로 감싼다. 그림자만 겹쳐서 버튼 누르기와 폭 조절은 그대로 */}
+              <div aria-hidden className="pointer-events-none z-20 hidden rounded-xl md:block md:hw-inset md:col-start-2 md:row-span-2 md:row-start-1" />
+              {/* 휴대폰에서 화면공유 중에 자판이 올라오면 채팅 내용 칸이 먼저 줄고, 그래도 좁으면 공유 화면도 줄어든다 */}
+              <ChatLog
+                messages={messages}
+                isAdmin={isAdmin}
+                remove={removeChat} edit={editChat}
+                // PC: 채팅 내용 + 아래 입력칸이 둥근 카드 하나로 이어진다 (구분선 없이 카드로 나눔)
+                // (PC 카드 색 #1e1e21 = 예전 zinc-900 바탕 위 zinc-800/40 과 같은 색. 판 위에서도 지금과 같아 보이게)
+                className={`${screen ? "min-h-24 flex-1" : "min-h-0 flex-1"} md:rounded-t-xl md:col-start-2 md:row-start-1 md:min-h-0 md:bg-[#1e1e21] ${hideOnLand}`}
+              />
 
-          <ChatInput
-            donate={() => setDonating(true)}
-            send={sendChat}
-            sendImage={sendImage}
-            react={react}
-            // PC: 경계선이 없어서 "맨 아래로" 버튼은 이 칸 위쪽 끝을 사이에 두고 보내기 버튼과 대칭 = (칸 높이 - 버튼 48px) / 2
-            className={`md:col-start-2 md:row-start-2 md:rounded-b-xl md:border-t-0 md:bg-[#1e1e21] md:pb-3 md:[--down-gap:calc(50%-24px)] ${hideOnLand}`}
-          />
+              <ChatInput
+                donate={() => setDonating(true)}
+                send={sendChat}
+                sendImage={sendImage}
+                react={react}
+                // PC: 경계선이 없어서 "맨 아래로" 버튼은 이 칸 위쪽 끝을 사이에 두고 보내기 버튼과 대칭 = (칸 높이 - 버튼 48px) / 2
+                className={`border-t-0! md:rounded-b-xl md:col-start-2 md:row-start-2 md:bg-[#1e1e21] md:pb-3 md:[--down-gap:calc(50%-24px)] ${hideOnLand}`}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -508,7 +506,7 @@ function RoomView({ token }: { token: string }) {
           </div>,
           pip.document.body,
         )}
-      {donating && <DonationDialog token={token} room={room.name} isGuest={!mine?.dorms} target={donationRecipient ? { isSelf: donationRecipient.isLocal || (!!mine?.dorms && mine.dorms === donationRecipient.attributes.dorms), identity: donationRecipient.identity, recipientId: donationRecipient.attributes.dorms ?? "", name: donationRecipient.name || donationRecipient.identity } : undefined} close={() => setDonating(false)} success={donation} />}
+      {donating && <DonationDialog token={token} room={room.name} isGuest={!mine?.dorms} close={() => setDonating(false)} success={donation} />}
       <Tooltips />
     </>
   );

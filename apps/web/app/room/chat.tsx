@@ -248,6 +248,23 @@ function LinkPreview({ url, onLoad }: { url: string; onLoad: () => void }) {
 // 같은 사람이 같은 분에 이어 보낸 말은 한 묶음이라 사진·이름은 첫 말에만, 시간은 마지막 말에만 붙인다.
 // 링크가 있으면 말풍선 아래에 첫 링크의 미리보기 카드, 사진은 말풍선 대신 사진 그대로 (누르면 화면 위에 크게)
 // memo: 하트가 날거나 누가 말할 때마다 방 화면이 다시 그려지는데, 채팅 글이 그대로면 긴 채팅 목록은 다시 그리지 않는다
+export function DonationNotice({ donation, timestamp }: { donation: NonNullable<ChatMsg["donation"]>; timestamp: number }) {
+  return <div className="mx-auto my-7 max-w-full px-2 text-center">
+    <div className="mx-auto mb-4 flex max-w-md items-center gap-4" aria-hidden="true">
+      <span className="h-px flex-1 bg-[#9f8150]/25" />
+      <span className="shrink-0 text-xs tracking-wide text-[#b69660]">도름네이션</span>
+      <span className="h-px flex-1 bg-[#9f8150]/25" />
+    </div>
+    <p className="text-[15px] leading-7 break-words text-[#b7b7bf] md:text-base">
+      <span className="font-semibold text-[#e1c78f]">{donation.senderName}님</span>이{" "}
+      <span className="font-semibold text-[#e1c78f]">{donation.recipientName}님</span>에게{" "}
+      <span className="font-semibold text-[#ead39e]">{donation.amount}도름</span>을<br />
+      도름네이션 하셨습니다
+    </p>
+    <p className="mt-2 text-[11px] text-[#777780]">{chatTime(timestamp)}</p>
+  </div>;
+}
+
 export const ChatLog = memo(function ChatLog({
   messages,
   className,
@@ -270,7 +287,7 @@ export const ChatLog = memo(function ChatLog({
   const askDel = useRef<HTMLDialogElement>(null);
   const [delTarget, setDelTarget] = useState<string | null>(null);
   const canDelete = (m: ChatMsg) => isAdmin || !!m.mine || mineIds.includes(m.identity);
-  const canEdit = (m: ChatMsg) => (!!m.mine || mineIds.includes(m.identity)) && !m.image && !m.tts;
+  const canEdit = (m: ChatMsg) => (!!m.mine || mineIds.includes(m.identity)) && !m.image && !m.tts && !m.donation;
   const hasMenu = (m: ChatMsg) => !m.image || canDelete(m); // 남의 사진은 메뉴가 없어서 브라우저 메뉴(사진 저장 등) 그대로
   function ask(id: string) {
     setDelTarget(id);
@@ -334,6 +351,7 @@ export const ChatLog = memo(function ChatLog({
       className={`overflow-y-auto p-3 text-sm ${className}`}
     >
       {messages.map((m, i) => {
+        if (m.donation) return <div key={m.id} {...openMenu(m)}><DonationNotice donation={m.donation} timestamp={m.timestamp} /></div>;
         const same = (o?: ChatMsg) => !!o && o.identity === m.identity && chatTime(o.timestamp) === chatTime(m.timestamp);
         const first = !same(messages[i - 1]);
         const last = !same(messages[i + 1]);

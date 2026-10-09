@@ -1,6 +1,7 @@
 import { DataPacket_Kind, TokenVerifier } from "livekit-server-sdk";
 import { CHAT_TOPIC, VOICE_BOT, type ChatMsg } from "@/lib/dolive";
 import { dormsCheck, findRoom, isRoomAdmin, rooms } from "@/lib/server";
+import { clearDonationTargets } from "./donationTargets";
 
 // 사람이 남아 있는 동안의 채팅 전부. 방이 비거나 서버를 끄면 지운다. 파일로 저장하지 않는다.
 // (개발 중 코드를 고쳐 다시 읽혀도 안 사라지게 globalThis 에 둔다)
@@ -10,6 +11,7 @@ export const store: Store = (g.doliveChats ??= { messages: new Map(), images: ne
 export const chatOf = (room: string) => store.messages.get(room) ?? store.messages.set(room, []).get(room)!;
 // 방송을 닫을 때(api/end) 그 방 채팅과 사진도 지운다
 export function dropRoom(room: string) {
+  clearDonationTargets(room);
   for (const m of store.messages.get(room) ?? []) {
     dropImage(m.id);
     owners.delete(m.id);
@@ -90,6 +92,8 @@ export async function roomAdminDeny(req: Request, room: string) {
 // 기록에 쌓고 방 안 모두에게 보낸다 (보낸 사람 = 서버라서, 받는 쪽은 사람이 보낸 가짜 채팅을 걸러 낼 수 있다)
 export async function post(room: string, msg: Omit<ChatMsg, "id" | "n" | "timestamp">, owner: string, id = crypto.randomUUID()) {
   const list = chatOf(room);
+  const previous = list.find((m) => m.id === id);
+  if (previous) return previous; // 같은 보내기를 다시 확인해도 알림은 한 번만 쌓는다.
   const m: ChatMsg = { ...msg, id, n: list.length, timestamp: Date.now() };
   list.push(m);
   owners.set(id, owner);
@@ -119,7 +123,7 @@ export async function remove(room: string, id: string) {
 // 글 고치기 (보낸 사람만, 글 메시지만. 사진·음성 글은 못 고친다): 기록을 바꾸고 방 안 모두에게 { edit: 고친 메시지 } 를 보낸다
 export async function edit(room: string, id: string, message: string) {
   const m = chatOf(room).find((x) => x.id === id);
-  if (!m || m.image || m.tts) return null;
+  if (!m || m.image || m.tts || m.donation) return null;
   Object.assign(m, { message, edited: true });
   await rooms
     .sendData(room, new TextEncoder().encode(JSON.stringify({ edit: m })), DataPacket_Kind.RELIABLE, { topic: CHAT_TOPIC })

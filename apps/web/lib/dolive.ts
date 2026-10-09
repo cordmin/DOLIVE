@@ -40,6 +40,7 @@ export type ChatMsg = {
   tts?: boolean; // "/글" 로 보낸 음성 글 (말풍선 앞 스피커를 누르면 /api/voice/<id> 로 다시 듣는다)
   voice?: string; // 읽은 목소리 (VOICES id). 다시 듣기도 같은 목소리로
   edited?: boolean; // 보낸 뒤 고친 글 (말풍선 옆에 "수정됨")
+  donation?: { senderName: string; recipientName: string; amount: number }; // 실제 보내기가 성공한 뒤 서버가 올리는 가운데 알림
 };
 
 // 음성 목소리 (lib/voice.ts). 바탕은 Supertonic 3 의 무료 목소리 (models/supertonic/<base>.json). 여자 2, 남자 2.

@@ -21,7 +21,7 @@ export function DonationFace() {
 
 export function DonationMascot({ small = false, variant = "01" }: { small?: boolean; variant?: DonationStyle }) {
   const name = DONATION_STYLES.find((style) => style.id === variant)?.name ?? "입체 고급형";
-  return <span className={`inline-block ${small ? "size-8" : "size-40"}`}>
+  return <span className={`inline-block ${small ? "size-8" : "size-20 md:size-40 phone-land:size-20!"}`}>
     {/* eslint-disable-next-line @next/next/no-img-element */}
     <img src={`/doreumi/donation/${variant}.webp`} alt={`${name} 우산을 손에 쥔 도름이`} width={512} height={512} className="size-full object-contain" />
   </span>;
