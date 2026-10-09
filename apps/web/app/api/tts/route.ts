@@ -2,7 +2,7 @@ import { VOICES, isVoice } from "@/lib/dolive";
 import { accessCheck } from "@/lib/server";
 import { replay } from "@/lib/voice";
 
-// 목소리 미리 듣기 (?listen=F1, WAV). 방에 들어올 수 있는 사람이면 누구나 (비회원은 비회원 방에 들어가 있을 때) (TTS 버튼 창의 스피커)
+// 목소리 미리 듣기 (?listen=F1, WAV). 방에 들어올 수 있는 사람이면 누구나 (비회원은 비회원 방에 들어가 있을 때). 목소리 선택 버튼을 누르면 재생한다.
 export async function GET(req: Request) {
   const { deny } = await accessCheck(req);
   if (deny) return deny;

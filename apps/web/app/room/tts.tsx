@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Knob } from "@/components/Knob";
-import { TTS_MODES, VOICES, playOnly, saveTts, savedTts, type TtsSettings } from "@/lib/dolive";
+import { TTS_MODES, VOICES, playOnly, stopPlaying, saveTts, savedTts, type TtsSettings } from "@/lib/dolive";
 
 const TILE = "flex min-h-[38px] items-center justify-center gap-1.5 rounded-[10px] border border-transparent bg-[#2e2e30] px-3 text-[#99969a] transition hover:text-[#e4e0da] peer-checked:border-[#75664b] peer-checked:bg-[#393631] peer-checked:text-[#d1b77f] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-[#d1b77f] peer-focus-visible:outline-offset-2";
 // 끄기: 안 읽음, 항상: 내 채팅을 모두 읽음, /입력: "/" 로 시작하는 글만 읽음
@@ -13,6 +13,7 @@ export function TtsButton() {
   const [now, setNow] = useState<TtsSettings | null>(null);
   const [mode, setMode] = useState<TtsSettings["mode"]>("off");
   useEffect(() => setMode(savedTts().mode), []);
+  useEffect(() => () => stopPlaying(), []);
 
   function open() {
     setNow(savedTts());
@@ -20,18 +21,11 @@ export function TtsButton() {
   }
   const voiceRow = (v: (typeof VOICES)[number]) => (
     <label key={v.id} className="relative block cursor-pointer">
-      <input type="radio" name="voice" value={v.id} defaultChecked={now?.voice === v.id} className="peer sr-only" />
-      <span className={TILE}><span>{v.name}</span>
-      <button
-        type="button"
-        onClick={() => playOnly(`/api/tts?listen=${v.id}`).catch((e) => e.name !== "AbortError" && alert("미리 듣기를 하지 못했어요."))}
-        aria-label={`${v.name} 미리 듣기`}
-        className="rounded p-1 text-current opacity-65 transition hover:bg-white/10 hover:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-current active:bg-white/15"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-3.5">
+      <input type="radio" name="voice" value={v.id} defaultChecked={now?.voice === v.id} onClick={() => playOnly(`/api/tts?listen=${v.id}`).catch((e) => e.name !== "AbortError" && alert("미리 듣기를 하지 못했어요."))} className="peer sr-only" />
+      <span className={TILE}>{v.name}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-3.5 opacity-65">
           <path d="M11 5 6 9H3v6h3l5 4zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
         </svg>
-      </button>
       </span>
     </label>
   );
@@ -54,7 +48,7 @@ export function TtsButton() {
       {/* 안쪽으로 파인 선택판과 금색 선택 표시 */}
       <dialog
         ref={box}
-        onClose={() => setNow(null)}
+        onClose={() => { stopPlaying(); setNow(null); }}
         className="m-auto w-[350px] max-w-[calc(100%-2rem)] rounded-[18px] border border-[#3d3b3a] bg-[#252526] p-[22px] text-[13px] text-[#d6d3cd] backdrop:bg-black/60"
       >
         {now && (

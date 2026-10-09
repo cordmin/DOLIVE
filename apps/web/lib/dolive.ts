@@ -56,8 +56,15 @@ export const VOICES: VoiceDef[] = [
 export const isVoice = (id: unknown) => VOICES.some((v) => v.id === id);
 // 목소리 미리 듣기·글 다시 듣기는 한 번에 하나만: 듣던 소리가 있으면 멈추고 새로 튼다 (여러 번 눌러도 겹치지 않게)
 let playing: HTMLAudioElement | undefined;
+export function stopPlaying() {
+  if (!playing) return;
+  playing.pause();
+  playing.removeAttribute("src");
+  playing.load();
+  playing = undefined;
+}
 export function playOnly(url: string) {
-  playing?.pause();
+  stopPlaying();
   playing = new Audio(url);
   return playing.play();
 }

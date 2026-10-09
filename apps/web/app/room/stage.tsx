@@ -1,8 +1,6 @@
 import {
   VideoTrack,
   useConnectionQualityIndicator,
-  useIsMuted,
-  useIsSpeaking,
   useLocalParticipant,
   useParticipantAttributes,
   useRoomContext,
@@ -10,7 +8,6 @@ import {
 } from "@livekit/components-react";
 import { ConnectionQuality, RoomEvent, Track, type Participant } from "livekit-client";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Avatar } from "@/components/Avatar";
 import { avatarOf, isPhone } from "@/lib/dolive";
 import { Floats, type Float } from "./reactions";
 
@@ -19,9 +16,9 @@ export function useAvatarOf(p: Participant) {
   return avatarOf(p.attributes?.avatar);
 }
 
-// 가운데 위쪽: 화면공유가 있으면 공유 화면만, 없으면 PC는 "LIVE 방송 준비 중" 카드, 휴대폰은 프로필 사진 칸.
+// 가운데 위쪽: 화면공유가 있으면 공유 화면, 없으면 "LIVE 방송 준비 중" 안내.
 // 자리가 모자라면 공유 화면이 줄어든다. 휴대폰은 채팅 내용이 그 아래, PC는 오른쪽.
-export function Stage({ participants, screen, floats }: { participants: Participant[]; screen?: TrackReference; floats: Float[] }) {
+export function Stage({ screen, floats }: { screen?: TrackReference; floats: Float[] }) {
   return (
     <div
       // PC: 위아래 두 칸을 다 써서 바닥이 오른쪽 채팅 카드 바닥과 맞는다. 공유 화면이 이 칸 크기(cqw·cqh)에 맞춰 커지게 크기를 알려 준다
@@ -40,9 +37,9 @@ export function Stage({ participants, screen, floats }: { participants: Particip
         <ScreenView screen={screen} floats={floats} />
       ) : (
         <>
-          {/* PC: 공유 화면이 들어올 자리(왼쪽 칸 전체)를 카드로 미리 잡아 두고 가운데에 안내 */}
-          <div className="hidden min-h-0 w-full flex-1 items-center justify-center gap-3 rounded-xl border border-zinc-800 bg-zinc-800/40 text-2xl font-bold text-zinc-400 md:flex md:border-0 md:bg-[#1e1e21] md:hw-inset">
-            <div className="relative flex items-center gap-3">
+          {/* 휴대폰은 공유 화면과 같은 16:9 칸, PC는 왼쪽 칸 전체 가운데에 안내. */}
+          <div className="flex aspect-video min-h-0 w-full items-center justify-center rounded-xl bg-[#1e1e21] text-xl font-bold text-zinc-400 hw-inset md:aspect-auto md:flex-1 md:text-2xl">
+            <div className="relative flex items-center gap-2 md:gap-3">
               <a
                 href="https://myboard.my/"
                 target="_blank"
@@ -51,16 +48,9 @@ export function Stage({ participants, screen, floats }: { participants: Particip
               >
                 Designed By Neil
               </a>
-              <span className="size-3 animate-pulse rounded-full bg-red-500" />
+              <span className="size-2.5 animate-pulse rounded-full bg-red-500 md:size-3" />
               <span><span className="text-red-500">LIVE</span> 방송 준비 중</span>
             </div>
-          </div>
-          {/* 휴대폰만 (PC는 맨 위 참여자 줄에 사진이 이미 있어서 숨김). 한 줄, 손가락으로 밀어서 본다 (스크롤바 없음)
-              p-0.5: 말할 때 생기는 초록 테두리(바깥쪽 2px)가 스크롤 칸 가장자리에서 잘리지 않게 */}
-          <div className="grid auto-cols-[80px] grid-flow-col gap-2 overflow-x-auto p-0.5 [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden">
-            {participants.map((p) => (
-              <Tile key={p.identity} p={p} />
-            ))}
           </div>
         </>
       )}
@@ -311,27 +301,6 @@ function ScreenView({ screen, floats }: { screen: TrackReference; floats: Float[
       {slow && (
         <span className="pointer-events-none absolute inset-x-0 bottom-2 mx-auto w-fit max-w-[calc(100%-6rem)] rounded bg-black/70 px-2 py-0.5 text-center text-xs text-amber-300 phone-land:top-2 phone-land:bottom-auto">
           {slow}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function Tile({ p }: { p: Participant }) {
-  const speaking = useIsSpeaking(p);
-  const muted = useIsMuted({ participant: p, source: Track.Source.Microphone });
-  const avatar = useAvatarOf(p);
-  return (
-    <div
-      className={`relative overflow-hidden rounded-lg bg-zinc-800 ${speaking && !muted ? "ring-2 ring-green-500" : ""}`}
-    >
-      {/* 이 카드만 사진을 자르지 않고 원래 모양 그대로 */}
-      <Avatar id={avatar} mic={!muted} round={false} className="w-full" />
-      <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 text-xs">{p.name}</span>
-      {/* 나(ME)는 카드 안쪽 왼쪽 위 (카드 밖은 잘려서) */}
-      {p.isLocal && (
-        <span className="absolute top-1 left-1 rounded-full bg-indigo-600 px-1 text-[10px] leading-[14px] font-bold">
-          ME
         </span>
       )}
     </div>

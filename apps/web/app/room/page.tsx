@@ -311,7 +311,7 @@ function RoomView({ token }: { token: string }) {
         }}
         className="m-auto w-72 rounded-xl bg-zinc-800 p-5 text-zinc-100 ring-1 ring-zinc-700 backdrop:bg-black/60"
       >
-        <p className="mb-10 text-center font-semibold">메인으로 나가시겠습니까?</p>
+        <p className="mb-5 text-center font-semibold">메인으로 나가시겠습니까?</p>
         <div className="flex gap-2">
           <button onClick={() => room.disconnect()} className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold hover:bg-red-500">
             예
@@ -470,7 +470,7 @@ function RoomView({ token }: { token: string }) {
               ))}
             </aside>
 
-            <Stage participants={participants} screen={screen} floats={floats} />
+            <Stage screen={screen} floats={floats} />
             <div className={`flex min-h-0 flex-1 flex-col md:contents ${hideOnLand}`}>
               {/* PC만 채팅 내용과 입력칸을 한 테두리로 감싼다. 그림자만 겹쳐서 버튼 누르기와 폭 조절은 그대로 */}
               <div aria-hidden className="pointer-events-none z-20 hidden rounded-xl md:block md:hw-inset md:col-start-2 md:row-span-2 md:row-start-1" />
