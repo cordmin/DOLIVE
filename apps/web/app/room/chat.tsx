@@ -601,7 +601,7 @@ export function ChatInput({
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  // 하트 버튼을 누르면 헐·ㅋ·하트 버튼이 위로 펼쳐지고, 다시 누르면 접힌다
+  // 얼굴 버튼을 누르면 스티커 목록이 위로 펼쳐지고, 다시 누르면 접힌다.
   const [picking, setPicking] = useState(false);
   const picker = useRef<HTMLDivElement>(null);
   // 펼쳐져 있을 때 버튼 말고 다른 곳을 눌러도 접힌다 (채팅분리 창에서도 되게 그 창의 문서에 단다)
@@ -710,9 +710,8 @@ export function ChatInput({
               if (file) stage(file);
             }}
           />
-          {/* 입력칸 오른쪽 안쪽 하트 버튼. 누르면 헐·ㅋ·하트가 위로 하나씩 펼쳐진다 (위에서부터 헐, ㅋ, 하트) */}
+          {/* 입력칸 오른쪽 도름이 얼굴을 누르면 위에서부터 헐·ㅋ·하트·도름이가 펼쳐진다. */}
           <div ref={picker} className="pointer-events-none absolute right-1 bottom-1 flex flex-col items-center gap-2">
-            {donate && <button type="button" tabIndex={picking ? 0 : -1} aria-label="도름네이션" aria-hidden={!picking} onClick={() => { setPicking(false); donate(); }} className={`flex size-10 items-center justify-center rounded-full bg-zinc-700 ring-1 ring-zinc-600 hover:bg-zinc-600 ${picking ? "pointer-events-auto" : "hidden"}`}><DonationFace /></button>}
             {(
               [
                 ["hul", "헐 날리기", <span key="hul" className={STICKER_TEXT.hul}>헐</span>],
@@ -728,8 +727,8 @@ export function ChatInput({
                 onClick={() => react(kind)}
                 aria-label={label}
                 aria-hidden={!picking}
-                // 접혀 있을 땐 하트 버튼 자리로 들어가 숨는다. 아래쪽(하트 버튼에 가까운 것)부터 차례로 펼쳐진다
-                style={{ transitionDelay: `${(picking ? 2 - i : i) * 40}ms`, translate: picking ? undefined : `0 ${(3 - i) * 3}rem` }}
+                // 접혀 있을 땐 얼굴 버튼 자리로 들어가 숨는다. 아래쪽부터 차례로 펼쳐진다.
+                style={{ transitionDelay: `${(picking ? 2 - i + Number(!!donate) : i) * 40}ms`, translate: picking ? undefined : `0 ${(3 - i + Number(!!donate)) * 3}rem` }}
                 className={`flex size-10 items-center justify-center rounded-full bg-zinc-700 text-lg font-black text-amber-300 ring-1 ring-zinc-600 transition-[translate,opacity,scale] duration-200 ease-out hover:bg-zinc-600 ${
                   picking ? "pointer-events-auto" : "scale-50 opacity-0"
                 }`}
@@ -737,17 +736,18 @@ export function ChatInput({
                 {face}
               </button>
             ))}
+            {donate && <button type="button" tabIndex={picking ? 0 : -1} aria-label="도름네이션" aria-hidden={!picking} onClick={() => { setPicking(false); donate(); }} className={`flex size-10 items-center justify-center rounded-full bg-zinc-700 ring-1 ring-zinc-600 hover:bg-zinc-600 ${picking ? "pointer-events-auto" : "hidden"}`}><DonationFace /></button>}
             <button
               type="button"
               onPointerDown={(e) => e.preventDefault()}
               onClick={() => setPicking(!picking)}
               aria-expanded={picking}
-              aria-label="감정 스티커"
-              data-tip="감정 스티커"
+              aria-label="도름네이션"
+              data-tip="도름네이션"
               // 동그라미는 30px. 펼쳐지는 스티커(40px) 줄 가운데에 서고, 아래를 5px 띄워 입력칸 세로 가운데에 맞춘다
               className={`pointer-events-auto mb-[5px] flex size-7.5 items-center justify-center rounded-full hover:bg-zinc-600 ${picking ? "bg-zinc-600" : "bg-zinc-700"}`}
             >
-              <Heart className="size-4 text-red-500" />
+              <span className="[&>svg]:size-5"><DonationFace /></span>
             </button>
           </div>
         </div>

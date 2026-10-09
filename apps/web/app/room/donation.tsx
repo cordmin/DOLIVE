@@ -51,8 +51,8 @@ export function DonationDialog({ token, room, target, close, success, isGuest = 
       }
       setReason(previewCase === "consent" ? "consent_required" : "");
       setMessage(previewCase === "consent" ? messages.consent_required : "");
-      setChecking(false);
-      return;
+      const timer = setTimeout(() => setChecking(false), 1000);
+      return () => clearTimeout(timer);
     }
     try { const saved = JSON.parse(sessionStorage.getItem(pendingKey) ?? "null"); if (saved?.requestId && saved?.subject) { setPending(saved); setAmount(saved.amount); } } catch { setMessage("이전 보내기 기록을 읽지 못했어요. 새로 보내지 말고 확인해 주세요."); setChecking(false); return; }
     let alive = true;
@@ -115,10 +115,7 @@ export function DonationDialog({ token, room, target, close, success, isGuest = 
     finally { locked.current = false; setBusy(false); }
   }
   return createPortal(<dialog ref={dialog} onCancel={close} className="m-auto w-80 max-w-[calc(100%-32px)] rounded-xl border border-zinc-700 bg-zinc-800 p-5 text-zinc-200 backdrop:bg-black/70">
-    {checking ? <>
-      <p role="status" className="py-4 text-center text-sm text-zinc-400">도름네이션 권한 확인 중…</p>
-      <button type="button" onClick={close} className="mt-4 flex h-11 w-full items-center justify-center rounded-full border border-zinc-600 text-zinc-300">닫기</button>
-    </> : !isGuest && reason === "consent_required" ? <>
+    {!checking && !isGuest && reason === "consent_required" ? <>
       <h2 className="mb-6 text-center font-bold">도름네이션 최초 권한 요청</h2>
       <div className="flex gap-4">
         <button type="button" onClick={close} className="flex h-11 flex-1 items-center justify-center rounded-full border border-zinc-600 text-zinc-300 transition hover:bg-zinc-700/50 hover:text-white active:scale-95">반려</button>
@@ -126,6 +123,11 @@ export function DonationDialog({ token, room, target, close, success, isGuest = 
       </div>
     </> : <>
     <h2 className="mb-4 text-center font-bold">{selected && !self && !unavailable ? `${selected.name}님에게 도름네이션 해요!` : "도름네이션"}</h2>
+    <div className="relative">
+    {checking && <div role="status" aria-label="도름네이션 확인 중" className="absolute inset-0 flex items-center justify-center">
+      <span aria-hidden className="size-8 animate-spin rounded-full border-2 border-zinc-600 border-t-[#ead39e]" />
+    </div>}
+    <div className={checking ? "invisible" : ""} inert={checking}>
     {!self && !pending && <label className="block text-sm text-zinc-400">
       받는 사람
       <select aria-label="받는 사람" value={recipientId} onChange={(e) => setRecipientId(e.target.value)} disabled={busy || !targets?.length} className="mt-2 w-full appearance-none rounded-lg border border-zinc-600 bg-zinc-900 bg-no-repeat py-2 pl-3 pr-8 text-zinc-200 focus:outline-none focus:ring-1 focus:ring-[#c9a65c]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='m2 4 4 4 4-4' fill='none' stroke='%23e4e4e7' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")", backgroundPosition: "right 10px center", backgroundSize: "12px 12px" }}>
@@ -134,17 +136,19 @@ export function DonationDialog({ token, room, target, close, success, isGuest = 
       </select>
       {targetMessage && <span role="status" className="mt-2 block">{targetMessage}</span>}
     </label>}
-    {!self && <div role="group" aria-label="보낼 도름" className="my-6 flex items-center justify-between rounded-full bg-zinc-900/60 px-5 py-5 shadow-[inset_0_2px_5px_rgb(0_0_0/0.35)]">
+    {!self && <div role="group" aria-label="보낼 도름" className="mt-6 flex items-center justify-between rounded-full bg-zinc-900/60 px-5 py-5 shadow-[inset_0_2px_5px_rgb(0_0_0/0.35)]">
       <button type="button" aria-label="금액 줄이기" disabled={!!exhaustedText || !!pending || busy || amount <= 1} onClick={() => setAmount((n) => Math.max(1, n - 1))} className="donation-step flex size-8 items-center justify-center rounded-full bg-zinc-700 text-xl text-zinc-200 disabled:opacity-40">−</button>
       <div aria-live="polite" className={`flex items-baseline gap-1.5 font-light text-[#ead39e] ${exhaustedText ? "whitespace-nowrap text-base" : "text-3xl"}`}>{exhaustedText || <><span className="[text-shadow:0_0_8px_rgb(232_196_121/0.35),0_0_20px_rgb(232_196_121/0.15)]">{amount}</span><span>도름</span></>}</div>
       <button type="button" aria-label="금액 늘리기" disabled={!!exhaustedText || !!pending || busy || amount >= 3} onClick={() => setAmount((n) => Math.min(3, n + 1))} className="donation-step flex size-8 items-center justify-center rounded-full bg-zinc-700 text-xl text-zinc-200 disabled:opacity-40">+</button>
     </div>}
-    {info && !(dailyExhausted && info === messages.daily_limit) && !(balanceExhausted && info === messages.insufficient_dorms) && <p role="status" className="mb-4 text-center text-sm text-zinc-400">{info}</p>}
+    {info && !(dailyExhausted && info === messages.daily_limit) && !(balanceExhausted && info === messages.insufficient_dorms) && <p role="status" className="mt-6 mb-4 text-center text-sm text-zinc-400">{info}</p>}
     {pending && <p className="mb-3 text-xs text-zinc-400">이전 보내기 결과를 확인할 때까지 받는 사람과 금액은 바꿀 수 없어요.</p>}
     {reason === "authentication_required" && <a className="mb-3 block text-center text-amber-300" href="/api/auth/dorms/start?next=%2Froom">DoRms로 로그인</a>}
     {["invalid_token", "permission_expired"].includes(reason) && <a className="donation-send mb-3 flex h-11 items-center justify-center rounded-full font-semibold text-[#29231a]" href="/api/auth/dorms/donation/start?next=%2Froom">도름스 보내기 허용</a>}
     {reason === "access_denied" && <a className="mb-3 block text-center text-amber-300" href="https://dorms.school/connect" target="_blank" rel="noopener noreferrer">도름스에서 연결 확인</a>}
-    <div className="mt-6 flex gap-4"><button type="button" onClick={close} className="flex h-11 flex-1 items-center justify-center rounded-full border border-zinc-600 text-zinc-300 transition hover:bg-zinc-700/50 hover:text-white active:scale-95">닫기</button>{!self && <button type="button" onClick={send} disabled={busy || !status || !selected?.recipientId || !!self || !!another || !!unavailable} className="donation-send flex h-11 flex-[2] items-center justify-center rounded-full font-semibold text-[#29231a] disabled:opacity-40">{busy ? "확인 중…" : pending ? "결과 다시 확인" : "보내기"}</button>}</div>
+    </div>
+    </div>
+    <div className="mt-6 flex gap-4"><button type="button" onClick={close} className="flex h-11 flex-1 items-center justify-center rounded-full border border-zinc-600 text-zinc-300 transition hover:bg-zinc-700/50 hover:text-white active:scale-95">닫기</button>{!self && <button type="button" onClick={send} disabled={checking || busy || !status || !selected?.recipientId || !!self || !!another || !!unavailable} className="donation-send flex h-11 flex-[2] items-center justify-center rounded-full font-semibold text-[#29231a] disabled:opacity-40">{busy ? "확인 중…" : pending ? "결과 다시 확인" : "보내기"}</button>}</div>
     </>}
   </dialog>, document.body);
 }
