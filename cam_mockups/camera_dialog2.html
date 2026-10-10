@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+*{box-sizing:border-box;margin:0}
+:root{--panel:#252526;--line:#3d3b3a;--inset:#19191b;--tile:#2e2e30;--tileText:#99969a;--label:#9f9b95;--text:#d6d3cd;--selBg:#393631;--selLine:#75664b;--gold:#d1b77f;--led:#7ed957}
+body{width:1400px;height:860px;overflow:hidden;font-family:"Pretendard","Malgun Gothic",sans-serif;color:var(--text);background:radial-gradient(120% 90% at 30% 20%,#232325,#121213)}
+.stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:56px;padding:70px 40px 30px}
+.tag{position:absolute;top:22px;left:28px;font-size:15px;font-weight:700;color:#e8b46a}
+.sub{position:absolute;top:46px;left:28px;right:28px;font-size:12px;color:#8d8983}
+.dlg{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:0 30px 80px #000a}
+.title{text-align:center;font-size:16px;font-weight:600;margin-bottom:18px}
+.inset{background:var(--inset);border-radius:13px;padding:4px;box-shadow:inset 0 2px 5px #0006}
+.seg{display:grid;gap:4px}
+.t{min-height:34px;display:flex;align-items:center;justify-content:center;gap:7px;border-radius:10px;border:1px solid transparent;color:var(--tileText);font-size:13px}
+.t.on{background:var(--selBg);border-color:var(--selLine);color:var(--gold)}
+.btns{display:flex;gap:10px;margin-top:22px}
+.b{height:38px;flex:1;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:13px}
+.b.cancel{border:1px solid #535154;color:#b5b0aa}
+.b.go{background:linear-gradient(#d6bd8d,#b79b68);color:#29231c;font-weight:700;box-shadow:inset 0 1px 0 #fff5}
+.mir{transform:scaleX(-1)}
+svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.screen{position:relative;aspect-ratio:16/9;border-radius:10px;background:linear-gradient(135deg,#2c3a52,#2a2436);overflow:hidden}
+.screen .g{position:absolute;inset:0;background:repeating-linear-gradient(0deg,#ffffff05 0 2px,transparent 2px 6px)}
+.slot{position:absolute;border:1.5px dashed #ffffff40;border-radius:6px}
+.slot.c{border-radius:50%}
+.face{position:absolute;overflow:hidden;border-radius:6px;border:2px solid var(--gold);box-shadow:0 0 0 3px #d1b77f33,0 6px 14px #0008}
+.face.c{border-radius:50%}
+.face img{width:100%;height:100%;object-fit:cover;object-position:50% 30%}
+.select{display:flex;align-items:center;justify-content:space-between;height:38px;border-radius:10px;background:var(--tile);padding:0 12px;font-size:13px;color:var(--text)}
+.phone{width:360px;height:760px;border-radius:34px;border:7px solid #050505;background:#0d0d0e;position:relative;overflow:hidden;flex:none}
+.phone .dim{position:absolute;inset:0;background:#000a}
+.phone .dlg{position:absolute;left:12px;right:12px;top:50%;transform:translateY(-50%);padding:18px}
+.knob{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:#a39f98;min-width:52px}
+.knob .l{width:6px;height:6px;border-radius:9px;background:#33312f}
+.knob.on .l{background:var(--led);box-shadow:0 0 6px #7ed95799}
+.knob .kc{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;color:#d6d3cd;background:radial-gradient(70% 40% at 50% 14%,#ffffff29,#fff0 70%),radial-gradient(circle at 50% 32%,#353537,#19191a 66%,#111112);box-shadow:inset 0 1px 0 #ffffff3d,inset 0 -2px 3px #0008,0 0 0 1px #000,0 0 0 3px #1b1b1c,0 0 0 4px #ffffff0f,0 2px 4px #0008}
+.knob.on .kc{color:var(--gold)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px}
+.chip{display:flex;align-items:center;gap:7px;height:32px;padding:0 12px;border-radius:999px;background:var(--tile);font-size:12px;color:var(--text)}
+.chip svg{width:15px;height:15px}
+.rowslot{margin-top:6px;display:flex;gap:4px;justify-content:center;padding:5px;border-radius:9px;border:1.5px dashed #ffffff26}
+.rowslot i{display:block;aspect-ratio:16/9;width:18%;border-radius:4px;background:#ffffff10}
+.rowslot.on{border:1.5px solid var(--selLine);background:var(--selBg)}
+.rowslot.on i:first-child{background:url(../assets/profile/2.webp) center 30%/cover;outline:2px solid var(--gold)}
+.badge{position:absolute;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:#1c1c1e;color:var(--gold);box-shadow:0 0 0 1px var(--selLine),0 3px 8px #000a;z-index:2}
+.badge svg{width:14px;height:14px}
+.slide{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:#a39f98}
+.slide .track{position:relative;display:flex;width:84px;height:38px;border-radius:999px;background:#141415;box-shadow:inset 0 2px 5px #000a,0 0 0 1px #000,0 0 0 3px #1b1b1c,0 0 0 4px #ffffff0f}
+.slide .track span{flex:1;display:grid;place-items:center;color:#77736e;z-index:1}
+.slide .track span.on{color:var(--gold)}
+.slide .thumb{position:absolute;top:3px;width:39px;height:32px;border-radius:999px;background:radial-gradient(circle at 50% 30%,#3a3a3c,#1d1d1e);box-shadow:inset 0 1px 0 #ffffff30,0 1px 3px #000}
+.slide .l{width:6px;height:6px;border-radius:9px;background:#33312f}
+</style></head><body>
+<script>
+const v = new URLSearchParams(location.search).get("v") || "1";
+const IMG = "../assets/profile/2.webp";
+const ic = {
+  mirror: '<path d="M12 3v1.8M12 7.6v1.8M12 12.2v1.8M12 16.8v1.8M12 21.4v.01M9 6.5 3.5 17.5H9ZM15 6.5l5.5 11H15Z"/>',
+  flip: '<path d="M5 10.5A7.2 7.2 0 0 1 17.6 7.2M18.2 3.8v3.6h-3.6M19 13.5A7.2 7.2 0 0 1 6.4 16.8M5.8 20.2v-3.6h3.6"/>',
+  cam: '<path d="m16 10 5-3v10l-5-3z"/><rect x="3" y="6" width="13" height="12" rx="2"/>',
+  chev: '<path d="m7 10 5 5 5-5"/>',
+  rect: '<rect x="4" y="7" width="16" height="10" rx="2"/>',
+  circ: '<circle cx="12" cy="12" r="7"/>',
+};
+const s = (k) => '<svg viewBox="0 0 24 24">' + ic[k] + "</svg>";
+const AT = { tl: "left:4%;top:7%", tr: "right:4%;top:7%", bl: "left:4%;bottom:7%", br: "right:4%;bottom:7%" };
+// 공유 화면 그림 + 아래 얼굴 줄 칸 (pos 가 row 면 얼굴 줄이 골라진 것). badge = 고른 얼굴에 붙은 모양 바꾸기 버튼
+function picture(pos, shape, w, badge) {
+  const c = shape === "circle" ? " c" : "";
+  const fw = shape === "circle" ? w * 0.68 : w;
+  const sz = shape === "circle" ? `width:${fw}%;aspect-ratio:1` : `width:${w}%;aspect-ratio:16/9`;
+  let corners = "";
+  for (const [k, css] of Object.entries(AT)) {
+    if (pos !== "row" && k === pos) {
+      corners += `<div class="face${c}" style="${css};${sz}"><img src="${IMG}" class="mir"></div>`;
+      if (badge) {
+        const x = k.includes("l") ? `left:calc(4% + ${fw}% - 16px)` : `right:calc(4% + ${fw}% - 16px)`;
+        const y = k.startsWith("t") ? "top:calc(7% - 8px)" : "bottom:calc(7% - 8px)";
+        corners += `<div class="badge" style="${x};${y}">${s(shape === "circle" ? "rect" : "circ")}</div>`;
+      }
+    } else corners += `<div class="slot${pos === "row" ? "" : c}" style="${css};${pos === "row" ? `width:${w}%;aspect-ratio:16/9` : sz}"></div>`;
+  }
+  return `<div class="inset" style="padding:8px"><div class="screen"><div class="g"></div>${corners}</div>
+    <div class="rowslot ${pos === "row" ? "on" : ""}"><i></i><i></i><i></i><i></i></div></div>`;
+}
+const knob = (icon, label, on) => `<div class="knob ${on ? "on" : ""}"><span class="l"></span><span class="kc">${s(icon)}</span><span>${label}</span></div>`;
+const slide = (shape, dis) => `<div class="slide" style="${dis ? "opacity:.35" : ""}"><span class="l"></span><div class="track"><div class="thumb" style="left:${shape === "rect" ? 3 : 42}px"></div><span class="${shape === "rect" ? "on" : ""}">${s("rect")}</span><span class="${shape === "circle" ? "on" : ""}">${s("circ")}</span></div><span>모양</span></div>`;
+const btns = '<div class="btns"><div class="b cancel">취소</div><div class="b go">카메라 켜기</div></div>';
+const pcCam = `<div class="select"><span style="display:flex;gap:8px;align-items:center">${s("cam")}DOCAM (Windows 가상 카메라)</span>${s("chev")}</div>`;
+const phoneCam = '<div class="inset"><div class="seg" style="grid-template-columns:1fr 1fr"><div class="t on">전면</div><div class="t">후면</div></div></div>';
+let tag = "", sub = "", pc = "", ph = "";
+
+if (v === "1") {
+  tag = "시안 C-1. 캠 고르기는 맨 위 / 얼굴 줄은 그림 아래 칸 / 모양은 버튼 하나 (누를 때마다 바뀜)";
+  sub = "모양 버튼을 누를 때마다 네모 ↔ 동그라미 (버튼 그림과 이름이 지금 모양으로 바뀜). 아래 동그란 버튼은 2개만";
+  const one = (phone) => `<div class="title">카메라 설정</div>${phone ? phoneCam : pcCam}<div style="height:14px"></div>
+    ${picture("tr", "circle", phone ? 30 : 28, false)}
+    <div style="display:flex;justify-content:center;gap:30px;margin-top:18px">${knob("mirror", "좌우 반전", true)}${knob("circ", "동그라미", true)}</div>${btns}`;
+  pc = one(false); ph = one(true);
+}
+if (v === "2") {
+  tag = "시안 C-2. 모양은 그림 속 내 얼굴에 붙은 작은 버튼 / 캠 고르기는 제목 줄 오른쪽";
+  sub = "고른 얼굴 모서리의 금색 작은 버튼을 누르면 모양이 바뀜 (그림에서 바로). 아래 동그란 버튼은 좌우 반전 하나";
+  const one = (phone) => `<div class="top"><div class="title" style="margin:0">카메라 설정</div><div class="chip">${phone ? s("flip") + "전면" : s("cam") + "DOCAM (Windows 가상 카메라)" + s("chev")}</div></div>
+    ${picture("bl", "rect", phone ? 32 : 30, true)}
+    <div style="display:flex;justify-content:center;margin-top:18px">${knob("mirror", "좌우 반전", true)}</div>${btns}`;
+  pc = one(false); ph = one(true);
+}
+if (v === "3") {
+  tag = "시안 C-3. 모양은 밀어서 바꾸는 스위치 하나 (네모 | 동그라미가 같이 보임)";
+  sub = "기계판 밀기 스위치: 두 모양이 한 칸에 같이 보이고 고른 쪽에 손잡이. 얼굴 줄을 고르면 스위치가 흐려짐(네모만). 오른쪽 휴대폰은 '얼굴 줄'을 고른 모습";
+  const one = (phone, pos, shape) => `<div class="title">카메라 설정</div>${phone ? phoneCam : pcCam}<div style="height:14px"></div>
+    ${picture(pos, shape, phone ? 30 : 28, false)}
+    <div style="display:flex;justify-content:center;gap:30px;margin-top:18px;align-items:flex-start">${knob("mirror", "좌우 반전", true)}${slide(shape, pos === "row")}</div>${btns}`;
+  pc = one(false, "br", "rect"); ph = one(true, "row", "rect");
+}
+document.body.innerHTML = `<div class="tag">${tag}</div><div class="sub">${sub}</div>
+ <div class="stage"><div class="dlg" style="width:600px">${pc}</div><div class="phone"><div class="dim"></div><div class="dlg">${ph}</div></div></div>`;
+</script></body></html>

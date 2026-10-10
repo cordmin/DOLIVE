@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+*{box-sizing:border-box;margin:0}
+:root{--panel:#252526;--line:#3d3b3a;--inset:#19191b;--tile:#2e2e30;--tileText:#99969a;--label:#9f9b95;--text:#d6d3cd;--selBg:#393631;--selLine:#75664b;--gold:#d1b77f;--led:#7ed957}
+body{width:1400px;height:860px;overflow:hidden;font-family:"Pretendard","Malgun Gothic",sans-serif;color:var(--text);
+ background:radial-gradient(120% 90% at 30% 20%,#232325,#121213)}
+.stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:56px;padding:40px}
+.tag{position:absolute;top:22px;left:28px;font-size:15px;font-weight:700;color:#e8b46a}
+.sub{position:absolute;top:46px;left:28px;font-size:12px;color:#8d8983}
+.cap{position:absolute;font-size:12px;color:#8d8983}
+.dlg{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:0 30px 80px #000a}
+.title{text-align:center;font-size:16px;font-weight:600;margin-bottom:20px}
+.label{font-size:11px;font-weight:500;color:var(--label);margin:18px 0 9px}
+.label:first-child{margin-top:0}
+.inset{background:var(--inset);border-radius:13px;padding:4px;box-shadow:inset 0 2px 5px #0006}
+.seg{display:grid;gap:4px}
+.t{min-height:36px;display:flex;align-items:center;justify-content:center;gap:7px;border-radius:10px;border:1px solid transparent;color:var(--tileText);font-size:13px}
+.t.on{background:var(--selBg);border-color:var(--selLine);color:var(--gold)}
+.t.off{opacity:.35}
+.btns{display:flex;gap:10px;margin-top:24px}
+.b{height:38px;flex:1;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:13px}
+.b.cancel{border:1px solid #535154;color:#b5b0aa}
+.b.go{background:linear-gradient(#d6bd8d,#b79b68);color:#29231c;font-weight:700;box-shadow:inset 0 1px 0 #fff5}
+.prev{position:relative;aspect-ratio:16/9;border-radius:14px;overflow:hidden;background:#000;box-shadow:inset 0 2px 6px #000a,0 0 0 1px #000}
+.prev img{width:100%;height:100%;object-fit:cover;object-position:50% 30%}
+.mir{transform:scaleX(-1)}
+.ibtn{position:absolute;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:#000a;color:#e4e0da;backdrop-filter:blur(4px)}
+.ibtn.on{color:var(--gold);box-shadow:0 0 0 1px var(--selLine)}
+svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.screen{position:relative;aspect-ratio:16/9;border-radius:10px;background:linear-gradient(135deg,#2c3a52,#2a2436);overflow:hidden}
+.screen .g{position:absolute;inset:0;background:repeating-linear-gradient(0deg,#ffffff05 0 2px,transparent 2px 6px)}
+.slot{position:absolute;border:1.5px dashed #ffffff40;border-radius:6px}
+.slot.c{border-radius:50%}
+.face{position:absolute;overflow:hidden;border-radius:6px;border:2px solid var(--gold);box-shadow:0 0 0 3px #d1b77f33,0 6px 14px #0008}
+.face.c{border-radius:50%}
+.face img{width:100%;height:100%;object-fit:cover;object-position:50% 30%}
+.row{display:flex;gap:4px;justify-content:center;margin-top:5px;padding:4px;border-radius:9px}
+.row.on{background:var(--selBg);box-shadow:0 0 0 1px var(--selLine)}
+.row i{display:block;aspect-ratio:16/9;width:19%;border-radius:4px;border:1.5px dashed #ffffff30}
+.select{display:flex;align-items:center;justify-content:space-between;height:38px;border-radius:10px;background:var(--tile);padding:0 12px;font-size:13px;color:var(--text)}
+.sw{display:flex;align-items:center;justify-content:space-between;height:38px;border-radius:10px;background:var(--tile);padding:0 12px;font-size:13px;color:var(--text)}
+.sw .k{width:38px;height:22px;border-radius:99px;background:#5b4f36;position:relative;box-shadow:inset 0 1px 3px #0008}
+.sw .k:after{content:"";position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:50%;background:var(--gold)}
+/* 휴대폰 틀 */
+.phone{width:360px;height:760px;border-radius:34px;border:7px solid #050505;background:#0d0d0e;position:relative;overflow:hidden;flex:none}
+.phone .dim{position:absolute;inset:0;background:#000a}
+.phone .dlg{position:absolute;left:12px;right:12px;top:50%;transform:translateY(-50%);padding:18px}
+/* 기계판 버튼 (PC 방 오른쪽 위 버튼과 같은 모양) */
+.knob{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:#a39f98;min-width:52px}
+.knob .l{width:6px;height:6px;border-radius:9px;background:#33312f}
+.knob.on .l{background:var(--led);box-shadow:0 0 6px #7ed95799}
+.knob .kc{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;color:#d6d3cd;background:radial-gradient(70% 40% at 50% 14%,#ffffff29,#fff0 70%),radial-gradient(circle at 50% 32%,#353537,#19191a 66%,#111112);box-shadow:inset 0 1px 0 #ffffff3d,inset 0 -2px 3px #0008,0 0 0 1px #000,0 0 0 3px #1b1b1c,0 0 0 4px #ffffff0f,0 2px 4px #0008}
+.knob.on .kc{color:var(--gold)}
+.knob.dis{opacity:.35}
+</style></head><body>
+<script>
+const v = new URLSearchParams(location.search).get("v") || "a";
+const IMG = "../assets/profile/2.webp";
+const ic = {
+  mirror: `<path d="M12 3v1.8M12 7.6v1.8M12 12.2v1.8M12 16.8v1.8M12 21.4v.01M9 6.5 3.5 17.5H9ZM15 6.5l5.5 11H15Z"/>`,
+  flip: `<path d="M5 10.5A7.2 7.2 0 0 1 17.6 7.2M18.2 3.8v3.6h-3.6M19 13.5A7.2 7.2 0 0 1 6.4 16.8M5.8 20.2v-3.6h3.6"/>`,
+  cam: `<path d="m16 10 5-3v10l-5-3z"/><rect x="3" y="6" width="13" height="12" rx="2"/>`,
+  chev: `<path d="m7 10 5 5 5-5"/>`,
+  rect: `<rect x="4" y="7" width="16" height="10" rx="2"/>`,
+  circ: `<circle cx="12" cy="12" r="7"/>`,
+  row: `<rect x="3" y="4" width="18" height="10" rx="1.5"/><path d="M4 18.5h4M10 18.5h4M16 18.5h4"/>`,
+};
+const s = (k) => `<svg viewBox="0 0 24 24">${ic[k]}</svg>`;
+// 공유 화면 그림: pos = 고른 자리, shape = rect | circle, faceW = 얼굴 폭(%)
+function screen(pos, shape, w = 24) {
+  const at = { tl: "left:4%;top:7%", tr: "right:4%;top:7%", bl: "left:4%;bottom:7%", br: "right:4%;bottom:7%" };
+  const sz = shape === "circle" ? `width:${w * 0.68}%;aspect-ratio:1` : `width:${w}%;aspect-ratio:16/9`;
+  const c = shape === "circle" ? " c" : "";
+  return `<div class="screen"><div class="g"></div>${Object.entries(at).map(([k, css]) => k === pos
+    ? `<div class="face${c}" style="${css};${sz}"><img src="${IMG}" class="mir"></div>`
+    : `<div class="slot${c}" style="${css};${sz}"></div>`).join("")}</div>`;
+}
+const btns = (go = "카메라 켜기") => `<div class="btns"><div class="b cancel">취소</div><div class="b go">${go}</div></div>`;
+const shapeSeg = (shape) => `<div class="inset"><div class="seg" style="grid-template-columns:1fr 1fr">
+  <div class="t ${shape === "rect" ? "on" : ""}">${s("rect")}네모</div><div class="t ${shape === "circle" ? "on" : ""}">${s("circ")}동그라미</div></div></div>`;
+let html = "";
+
+if (v === "a") {
+  // 시안 A: TTS 설정 창과 같은 한 줄 창. PC·휴대폰 같은 모양
+  const body = (phone) => `
+    <div class="title">카메라 설정</div>
+    <div class="prev"><img src="${IMG}" class="mir"><div class="ibtn on" style="right:8px;top:8px">${s("mirror")}</div></div>
+    <div class="label">카메라</div>
+    ${phone
+      ? `<div class="inset"><div class="seg" style="grid-template-columns:1fr 1fr"><div class="t on">전면</div><div class="t">후면</div></div></div>`
+      : `<div class="inset"><div class="seg"><div class="t on" style="justify-content:flex-start;padding:0 12px">DOCAM (Windows 가상 카메라)</div><div class="t" style="justify-content:flex-start;padding:0 12px">OBS Virtual Camera</div></div></div>`}
+    <div class="label">화면공유 시 얼굴 위치</div>
+    <div class="inset" style="padding:8px">${screen("br", "rect")}<div class="row"><i></i><i></i><i></i><i></i></div></div>
+    <div class="label">모양</div>
+    ${shapeSeg("rect")}
+    ${btns()}`;
+  html = `<div class="tag">시안 A. TTS 설정 창과 같은 결 (한 줄)</div>
+  <div class="sub">TTS 창과 같은 판·금색 선택. 좌우 반전은 미리 보기 오른쪽 위 작은 버튼. 위치 그림의 고른 자리에 내 얼굴이 실제로 들어감</div>
+  <div class="stage"><div class="dlg" style="width:380px">${body(false)}</div><div class="phone"><div class="dim"></div><div class="dlg">${body(true)}</div></div></div>`;
+}
+
+if (v === "b") {
+  // 시안 B: PC 는 두 칸. 왼쪽 = 내 캠, 오른쪽 = 시청자에게 보이는 모습
+  html = `<div class="tag">시안 B. 두 칸: 왼쪽 내 캠 / 오른쪽 시청자에게 보이는 모습</div>
+  <div class="sub">오른쪽 큰 그림이 곧 위치 고르기 (점선 자리를 누르면 얼굴이 옮겨감). 캠은 펼치는 목록 하나로 줄임</div>
+  <div class="stage">
+    <div class="dlg" style="width:760px">
+      <div class="title">카메라 설정</div>
+      <div style="display:grid;grid-template-columns:300px 1fr;gap:22px">
+        <div>
+          <div class="label">내 카메라</div>
+          <div class="prev" style="aspect-ratio:4/3"><img src="${IMG}" class="mir"></div>
+          <div class="select" style="margin-top:10px"><span style="display:flex;gap:8px;align-items:center">${s("cam")}DOCAM (Windows 가상 카메라)</span>${s("chev")}</div>
+          <div class="sw" style="margin-top:8px"><span style="display:flex;gap:8px;align-items:center">${s("mirror")}좌우 반전</span><span class="k"></span></div>
+        </div>
+        <div>
+          <div class="label">시청자 화면 (화면공유 시 얼굴 위치)</div>
+          <div class="inset" style="padding:8px">${screen("tr", "circle", 26)}<div class="row"><i></i><i></i><i></i><i></i></div></div>
+          <div class="label">모양</div>
+          ${shapeSeg("circle")}
+        </div>
+      </div>
+      ${btns()}
+    </div>
+    <div class="phone"><div class="dim"></div><div class="dlg">
+      <div class="title">카메라 설정</div>
+      <div class="prev"><img src="${IMG}" class="mir"><div class="ibtn" style="left:8px;top:8px">${s("flip")}</div><div class="ibtn on" style="right:8px;top:8px">${s("mirror")}</div></div>
+      <div class="label">시청자 화면</div>
+      <div class="inset" style="padding:6px">${screen("tr", "circle", 26)}<div class="row"><i></i><i></i><i></i><i></i></div></div>
+      <div class="label">모양</div>
+      ${shapeSeg("circle")}
+      ${btns()}
+    </div></div>
+  </div>`;
+}
+
+if (v === "c") {
+  // 시안 C: 그림 하나로 끝. 공유 화면 그림 위에 내 실제 얼굴이 떠 있고, 아래는 기계판 버튼 한 줄
+  const tools = (phone) => `<div style="display:flex;justify-content:${phone ? "space-between" : "center"};gap:${phone ? 0 : 18}px;margin-top:16px">
+      ${phone ? `<div class="knob"><span class="l"></span><span class="kc">${s("flip")}</span><span>전면</span></div>` : ""}
+      <div class="knob on"><span class="l"></span><span class="kc">${s("mirror")}</span><span>좌우 반전</span></div>
+      <div class="knob on"><span class="l"></span><span class="kc">${s("rect")}</span><span>네모</span></div>
+      <div class="knob"><span class="l"></span><span class="kc">${s("circ")}</span><span>동그라미</span></div>
+      <div class="knob"><span class="l"></span><span class="kc">${s("row")}</span><span>얼굴 줄</span></div>
+    </div>`;
+  html = `<div class="tag">시안 C. 그림 하나 + 기계판 버튼 (PC 방 오른쪽 위 버튼과 같은 모양)</div>
+  <div class="sub">공유 화면 그림 위에 실제 내 얼굴이 떠 있고, 네 구석 점선을 누르면 옮겨감. 나머지는 모두 아래 버튼 한 줄 (켜진 것은 초록 불)</div>
+  <div class="stage">
+    <div class="dlg" style="width:620px">
+      <div class="title">카메라 설정</div>
+      <div class="inset" style="padding:8px">${screen("bl", "rect", 30)}</div>
+      ${tools(false)}
+      <div class="select" style="margin-top:16px"><span style="display:flex;gap:8px;align-items:center">${s("cam")}DOCAM (Windows 가상 카메라)</span>${s("chev")}</div>
+      ${btns()}
+    </div>
+    <div class="phone"><div class="dim"></div><div class="dlg">
+      <div class="title">카메라 설정</div>
+      <div class="inset" style="padding:6px">${screen("bl", "rect", 32)}</div>
+      ${tools(true)}
+      ${btns()}
+    </div></div>
+  </div>`;
+}
+document.body.innerHTML = html;
+if (v === "a") document.body.style.height = "1000px";
+</script></body></html>

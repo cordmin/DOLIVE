@@ -18,14 +18,13 @@ import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
 import { Knob } from "@/components/Knob";
-import { Switch } from "@/components/Switch";
 import { Tooltips } from "@/components/Tooltips";
 import { VOICE_BOT, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
 import { ChatInput, ChatLog, useMessages } from "./chat";
 import { MENU_ITEM, NO_SELECT, PopMenu, useHoldMenu } from "./menu";
 import { useReactions } from "./reactions";
 import { MediaControls, SCREEN_SHARE_SOURCE, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
-import { MyFace, Stage, useAvatarOf } from "./stage";
+import { SplitTop, Stage, useAvatarOf } from "./stage";
 import { DonationDialog } from "./donation";
 
 // 방 화면은 여러 파일로 나눠 둔다: chat.tsx(채팅), stage.tsx(공유 화면·프로필 사진 칸), share.tsx(화면공유·마이크), reactions.tsx(하트·ㅋ·헐)
@@ -257,11 +256,11 @@ function RoomView({ token }: { token: string }) {
     setPip(w);
   }
   useEffect(() => () => pip?.close(), [pip]); // 방을 나가면 작은 창도 닫는다
-  // 스위치는 내가 화면공유 중일 때만 보이고, 공유를 끝내면 작은 창도 닫는다
+  // 버튼은 PC 방장이 화면공유 중일 때만 보이고 (일반 참여자는 쓸 일이 없어서), 공유를 끝내면 작은 창도 닫는다
   const { isScreenShareEnabled: sharing } = useLocalParticipant();
   useEffect(() => {
-    if (!sharing) pip?.close();
-  }, [sharing, pip]);
+    if (!sharing || !isAdmin) pip?.close(); // 방장을 넘겨도 닫힌다
+  }, [sharing, isAdmin, pip]);
   // PC와 휴대폰 모두 전체화면 버튼으로 켜고 끈다.
   const [fullscreen, setFullscreen] = useState(false);
   const [canFullscreen, setCanFullscreen] = useState(false);
@@ -344,6 +343,8 @@ function RoomView({ token }: { token: string }) {
       {/* PC: 바깥 판 없이 공유 화면과 채팅의 파인 테두리만 둔다. 휴대폰은 그대로 */}
       <div className="contents md:flex md:min-h-0 md:flex-1 md:flex-col md:gap-3.5 md:px-[18px] md:pt-3.5 md:pb-[18px]">
         <header
+          // 위 줄(로고·참여자·버튼들) 어디를 오른쪽 클릭해도 브라우저 메뉴가 뜨지 않게 (카메라 버튼·참여자는 자기 메뉴를 먼저 띄운다)
+          onContextMenu={(e) => e.preventDefault()}
           // PC 는 아래로 펼치는 참여자 목록이 잘리지 않게 overflow 를 풀어 둔다 (휴대폰은 좁아서 옆으로 밀어 본다)
           className={`${hideOnLand} flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-zinc-800 px-3 md:h-auto md:gap-4 md:overflow-visible md:border-b-0 md:px-0 text-sm whitespace-nowrap`}
         >
@@ -421,17 +422,12 @@ function RoomView({ token }: { token: string }) {
               }
             />}
             <MediaControls asked={asked} requestShare={requestShare} token={token} />
-            {docPip && sharing && (
-              <div className="hidden sm:block md:hidden">
-                <Switch label="채팅분리" on={!!pip} onChange={togglePip} />
-              </div>
-            )}
-            {docPip && sharing && (
+            {docPip && sharing && isAdmin && (
               <Knob
                 className="hidden md:flex"
                 role="switch"
                 aria-checked={!!pip}
-                label="채팅분리"
+                label="채팅 분리"
                 led={pip ? "green" : undefined}
                 onClick={() => togglePip(!pip)}
                 icon={
@@ -505,7 +501,7 @@ function RoomView({ token }: { token: string }) {
       {pip &&
         createPortal(
           <div className="flex h-dvh flex-col">
-            <MyFace />
+            <SplitTop screen={screen} />
             <ChatLog messages={messages} isAdmin={isAdmin} remove={removeChat} edit={editChat} className="min-h-0 flex-1" />
             <ChatInput send={sendChat} sendImage={sendImage} react={react} donate={() => setDonating(true)} className="" />
             <Tooltips doc={pip.document} />
