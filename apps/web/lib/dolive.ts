@@ -109,3 +109,31 @@ export function leaveForDorms(reason: unknown) {
 
 // 방송은 모두 합쳐(마스터가 만든 방 포함) 이 개수까지만. 더 많으면 서버 PC가 감당하기 어렵다 (api/rooms 가 막고, 입장 화면은 안내 창)
 export const MAX_ROOMS = 4;
+
+// 카메라(얼굴) 설정. 각자 카메라 설정 창(app/room/camera.tsx)에서 고르고 이 브라우저에 남긴다.
+// pos: 화면공유 시 얼굴 위치 (네 구석, row = 겹치지 않고 공유 화면 아래 얼굴 줄. 얼굴 줄은 네모만), shape: 구석에 띄울 모양,
+// mirror: 좌우 반전 (모두에게 거울처럼 보임), device: PC 에서 고른 캠, facing: 휴대폰 전면(user)·후면(environment).
+// pos·shape·mirror 는 카메라를 켤 때 서버가 참여자 표시(camPos·camShape·camMirror)로 적어서 모두 같게 본다 (api/cam)
+export const CAM_POS = ["br", "bl", "tr", "tl", "row"];
+export const CAM_SHAPE = ["rect", "circle"];
+export type CamSettings = { pos: string; shape: string; mirror: boolean; device?: string; facing: "user" | "environment" };
+const CAM_KEY = "dolive-cam";
+export function savedCam(): CamSettings {
+  let s: Partial<CamSettings> = {};
+  try {
+    s = JSON.parse(localStorage.getItem(CAM_KEY) ?? "{}");
+  } catch {}
+  const pos = CAM_POS.includes(s.pos!) ? s.pos! : "br";
+  return {
+    pos,
+    shape: pos !== "row" && s.shape === "circle" ? "circle" : "rect",
+    mirror: s.mirror !== false,
+    device: typeof s.device === "string" ? s.device : undefined,
+    facing: s.facing === "environment" ? "environment" : "user",
+  };
+}
+export function saveCam(s: CamSettings) {
+  try {
+    localStorage.setItem(CAM_KEY, JSON.stringify(s));
+  } catch {}
+}

@@ -9,9 +9,9 @@ import { DormsAuthError, getDormsUser, type DormsUser } from "@/lib/dormsLogin";
 // 이 PC의 통화 서버(LiveKit)에 일을 시키는 창구. 채팅 보내기·마이크 끄기·화면공유 허락에 같이 쓴다
 export const rooms = new RoomServiceClient("http://localhost:7880", process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET);
 
-// 일반 참여자는 마이크만. 방을 만든 사람이나 방장이 허락한 사람은 화면공유(+공유 소리)도 보낼 수 있다.
-export const MIC_ONLY = [TrackSource.MICROPHONE];
-export const WITH_SCREEN = [TrackSource.MICROPHONE, TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO];
+// 일반 참여자는 마이크와 카메라(얼굴)만. 방을 만든 사람이나 방장이 허락한 사람은 화면공유(+공유 소리)도 보낼 수 있다.
+export const MIC_CAM = [TrackSource.MICROPHONE, TrackSource.CAMERA];
+export const WITH_SCREEN = [...MIC_CAM, TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO];
 
 const LOOPBACK = ["localhost", "127.0.0.1", "[::1]", "::1", "::ffff:127.0.0.1"];
 

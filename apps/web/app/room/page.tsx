@@ -12,7 +12,7 @@ import {
   useIsMuted,
   useIsSpeaking,
 } from "@livekit/components-react";
-import { ConnectionError, ConnectionErrorReason, ConnectionState, DisconnectReason, Track, type Participant, type RoomOptions } from "livekit-client";
+import { ConnectionError, ConnectionErrorReason, ConnectionState, DisconnectReason, Track, VideoPresets, type Participant, type RoomOptions } from "livekit-client";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
@@ -25,17 +25,21 @@ import { ChatInput, ChatLog, useMessages } from "./chat";
 import { MENU_ITEM, NO_SELECT, PopMenu, useHoldMenu } from "./menu";
 import { useReactions } from "./reactions";
 import { MediaControls, SCREEN_SHARE_SOURCE, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
-import { Stage, useAvatarOf } from "./stage";
+import { MyFace, Stage, useAvatarOf } from "./stage";
 import { DonationDialog } from "./donation";
 
 // 방 화면은 여러 파일로 나눠 둔다: chat.tsx(채팅), stage.tsx(공유 화면·프로필 사진 칸), share.tsx(화면공유·마이크), reactions.tsx(하트·ㅋ·헐)
 
-// 영상은 화면공유뿐. 안 보이는 영상은 받지 않음(adaptiveStream).
+// 영상은 화면공유와 얼굴(카메라). 안 보이는 영상은 받지 않고, 작게 보이는 영상은 작은 화질로 받음(adaptiveStream).
 // 단, 다른 앱에 갔다 와도 바로 보이게 뒤에 숨어 있는 동안에도 계속 받는다
 // (끊었다 다시 받으면 새 그림 한 장이 올 때까지 검은 화면이 된다. 대신 숨어 있는 동안에도 데이터가 든다)
+// 얼굴은 640x360(약 0.45Mbps)과 320x180(약 0.16Mbps) 두 가지로 보내고, 서버가 보는 칸 크기에 맞는 쪽만 보낸다.
+// 서버 인터넷 올리는 속도 300Mbps 를 기준으로 잡았다: 방 4개 x 20명이 모두 화면공유 + 한 사람이 얼굴 6개(휴대폰 4개)까지 봐도 넘지 않게 (stage.tsx 의 MAX_*)
 const ROOM_OPTIONS: RoomOptions = {
   adaptiveStream: { pauseVideoInBackground: false },
   dynacast: true,
+  videoCaptureDefaults: { resolution: VideoPresets.h360.resolution },
+  publishDefaults: { videoEncoding: VideoPresets.h360.encoding, videoSimulcastLayers: [VideoPresets.h180] },
   // 수정용 서버는 내부 브라우저에서도 열리도록 기존 연결 방식을 쓴다.
   singlePeerConnection: process.env.NODE_ENV !== "development",
 };
@@ -341,7 +345,7 @@ function RoomView({ token }: { token: string }) {
       <div className="contents md:flex md:min-h-0 md:flex-1 md:flex-col md:gap-3.5 md:px-[18px] md:pt-3.5 md:pb-[18px]">
         <header
           // PC 는 아래로 펼치는 참여자 목록이 잘리지 않게 overflow 를 풀어 둔다 (휴대폰은 좁아서 옆으로 밀어 본다)
-          className={`${hideOnLand} flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b border-zinc-800 px-3 md:h-auto md:gap-4 md:overflow-visible md:border-b-0 md:px-0 text-sm whitespace-nowrap`}
+          className={`${hideOnLand} flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-zinc-800 px-3 md:h-auto md:gap-4 md:overflow-visible md:border-b-0 md:px-0 text-sm whitespace-nowrap`}
         >
           {/* 로고를 누르면 메인화면으로 돌아간다. */}
           <button type="button" onClick={() => leave.current?.showModal()} aria-label="메인화면으로 가기" className="text-base font-bold md:hidden">
@@ -400,7 +404,8 @@ function RoomView({ token }: { token: string }) {
               </div>
             </div>
           </div>
-          <div className="ml-auto mr-1.5 flex items-center gap-3 md:mr-0 md:items-end md:gap-5">
+          {/* 휴대폰: 버튼 4개(전체화면·TTS·카메라·마이크)가 375px 폭에 다 들어가게 사이를 8px 로 */}
+          <div className="ml-auto mr-1.5 flex items-center gap-2 md:mr-0 md:items-end md:gap-5">
             {canFullscreen && <Knob
               compactMobile
               label="전체화면"
@@ -415,7 +420,7 @@ function RoomView({ token }: { token: string }) {
                 </svg>
               }
             />}
-            <MediaControls asked={asked} requestShare={requestShare} />
+            <MediaControls asked={asked} requestShare={requestShare} token={token} />
             {docPip && sharing && (
               <div className="hidden sm:block md:hidden">
                 <Switch label="채팅분리" on={!!pip} onChange={togglePip} />
@@ -500,6 +505,7 @@ function RoomView({ token }: { token: string }) {
       {pip &&
         createPortal(
           <div className="flex h-dvh flex-col">
+            <MyFace />
             <ChatLog messages={messages} isAdmin={isAdmin} remove={removeChat} edit={editChat} className="min-h-0 flex-1" />
             <ChatInput send={sendChat} sendImage={sendImage} react={react} donate={() => setDonating(true)} className="" />
             <Tooltips doc={pip.document} />
@@ -535,17 +541,19 @@ function copyStyles(w: Window) {
 
 
 // 방장은 다른 사람 줄을 오른쪽 클릭(휴대폰은 꾹 누르기)하면 메뉴가 뜬다 (말풍선 메뉴와 같은 모양):
-// [공유 권한 주기](요청 없이 바로. 이미 있으면 [공유 권한 거두기], 다른 방장은 원래 있어서 안 보임) [마이크 끄기](켜져 있을 때만) [강퇴하기].
+// [공유 권한 주기](요청 없이 바로. 이미 있으면 [공유 권한 거두기], 다른 방장은 원래 있어서 안 보임) [마이크 끄기] [카메라 끄기](켜져 있을 때만) [강퇴하기].
 // 서버(api/share·mute·kick)가 방장인지 다시 확인한다. 바로 받은 공유 권한도 승인받은 것과 같아서, 공유를 끝내면 도로 거둔다 (share.tsx)
 const PERSON_ACTIONS = {
   share: { url: "/api/share", fail: "공유 권한을 바꾸지 못했어요." },
   mute: { url: "/api/mute", fail: "마이크를 끄지 못했어요." },
+  cam: { url: "/api/mute", fail: "카메라를 끄지 못했어요." },
   kick: { url: "/api/kick", fail: "내보내지 못했어요." },
   owner: { url: "/api/owner", fail: "방장을 넘기지 못했어요. 그 사람이 이미 만든 방이 있을 수 있어요." },
 };
 function PersonRow({ p, isAdmin, isOwner, token }: { p: Participant; isAdmin: boolean; isOwner: boolean; token: string }) {
   const speaking = useIsSpeaking(p);
   const muted = useIsMuted({ participant: p, source: Track.Source.Microphone });
+  const camOff = useIsMuted({ participant: p, source: Track.Source.Camera });
   const room = useRoomContext();
   const [menuAt, setMenuAt] = useState<Element | null>(null);
   const hold = useHoldMenu();
@@ -556,7 +564,7 @@ function PersonRow({ p, isAdmin, isOwner, token }: { p: Participant; isAdmin: bo
   async function act(what: keyof typeof PERSON_ACTIONS) {
     setMenuAt(null);
     const { url, fail } = PERSON_ACTIONS[what];
-    const body = { room: room.name, identity: p.identity, ...(what === "share" ? { allow: !canShare } : {}) };
+    const body = { room: room.name, identity: p.identity, ...(what === "share" ? { allow: !canShare } : {}), ...(what === "cam" ? { camera: true } : {}) };
     const r = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
     if (!r.ok) alert(fail);
   }
@@ -599,6 +607,11 @@ function PersonRow({ p, isAdmin, isOwner, token }: { p: Participant; isAdmin: bo
           {!muted && (
             <button type="button" onClick={() => act("mute")} className={MENU_ITEM}>
               마이크 끄기
+            </button>
+          )}
+          {!camOff && (
+            <button type="button" onClick={() => act("cam")} className={MENU_ITEM}>
+              카메라 끄기
             </button>
           )}
           {/* 방 주인만, 도름스 회원에게만 (비회원은 다음에 알아볼 수가 없어서) */}

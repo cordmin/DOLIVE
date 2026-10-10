@@ -1,4 +1,4 @@
-import { MIC_ONLY, WITH_SCREEN, rooms } from "@/lib/server";
+import { MIC_CAM, WITH_SCREEN, rooms } from "@/lib/server";
 import { roomAdminDeny } from "@/lib/chat";
 
 // 방장만: 그 사람에게 화면공유를 허락(allow: true)하거나 도로 거둔다(allow: false)
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
         canSubscribe: true,
         canPublish: true,
         canPublishData: true,
-        canPublishSources: allow ? WITH_SCREEN : MIC_ONLY,
+        canPublishSources: allow ? WITH_SCREEN : MIC_CAM,
       },
     });
     return Response.json({ ok: true });

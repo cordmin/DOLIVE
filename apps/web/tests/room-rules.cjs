@@ -94,7 +94,7 @@ const B = { id: "b", name: "다라" };
   // 일반 회원: 마이크만, 방장 아님. 비밀번호 방은 비밀번호가 맞아야
   user = A;
   let t = await claims(await ticket("옛 방", "암호"));
-  assert.deepEqual(t.c.video.canPublishSources, ["microphone"]);
+  assert.deepEqual(t.c.video.canPublishSources, ["microphone", "camera"]);
   assert.equal(t.c.attributes.roomAdmin, "");
   assert.equal(t.res.headers.get("set-cookie"), null);
   assert.equal((await ticket("옛 방", "틀림")).status, 403);
@@ -110,7 +110,7 @@ const B = { id: "b", name: "다라" };
   t = await claims(await ticket("가나의 방"));
   assert.equal(t.c.attributes.roomAdmin, "1");
   assert.equal(t.c.attributes.owner, "1");
-  assert.deepEqual(t.c.video.canPublishSources, ["microphone", "screen_share", "screen_share_audio"]);
+  assert.deepEqual(t.c.video.canPublishSources, ["microphone", "camera", "screen_share", "screen_share_audio"]);
   user = B;
   assert.equal((await ticket("가나의 방")).status, 403);
   assert.equal((await claims(await ticket("가나의 방", "1234"))).c.attributes.roomAdmin, "");
@@ -149,7 +149,7 @@ const B = { id: "b", name: "다라" };
   assert.equal((await ownerApi.POST(req("/api/owner", "POST", { room: "가나의 방", identity: "b#1" }))).status, 204);
   assert.equal(server.findRoom("가나의 방").owner, "b");
   const changed = updated.map((u) => [u.id, u.attributes.roomAdmin, u.attributes.owner, u.permission.canPublishSources.length]).sort();
-  assert.deepEqual(changed, [["a#1", "", "", 1], ["b#1", "1", "1", 3]]);
+  assert.deepEqual(changed, [["a#1", "", "", 2], ["b#1", "1", "1", 4]]);
 
   // 고치기·지우기: 새 주인(B)이 할 수 있다. 이름을 바꾸면 옛 방은 닫는다. 방은 지워야 없어진다
   user = B;

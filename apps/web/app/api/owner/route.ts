@@ -1,5 +1,5 @@
 import { whoSent } from "@/lib/chat";
-import { MIC_ONLY, WITH_SCREEN, findRoom, roomList, rooms, saveRooms } from "@/lib/server";
+import { MIC_CAM, WITH_SCREEN, findRoom, roomList, rooms, saveRooms } from "@/lib/server";
 
 // 방장 넘기기 { room, identity }: 방을 만든 사람만, 그 방 안의 도름스 회원에게 (비회원은 다음에 알아볼 수가 없어서 안 된다).
 // 넘기면 그 사람이 방 주인이 된다 (나갔다 들어와도 방장, 방 설정·지우기도 그 사람). 옛 주인은 일반 참여자가 된다 (마스터·운영진이면 방장 노릇은 그대로)
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
     const staff = p.attributes.admin === "1"; // 마스터·운영진은 원래 다 보낼 수 있고 방장 노릇도 그대로
     await rooms.updateParticipant(room, p.identity, {
       attributes: { owner: isNext ? "1" : "", roomAdmin: isNext || staff ? "1" : "" },
-      ...(staff ? {} : { permission: { canSubscribe: true, canPublish: true, canPublishData: true, canPublishSources: isNext ? WITH_SCREEN : MIC_ONLY } }),
+      ...(staff ? {} : { permission: { canSubscribe: true, canPublish: true, canPublishData: true, canPublishSources: isNext ? WITH_SCREEN : MIC_CAM } }),
     });
   }
   return new Response(null, { status: 204 });

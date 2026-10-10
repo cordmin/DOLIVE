@@ -1,7 +1,7 @@
 import { AccessToken } from "livekit-server-sdk";
 import { clearEmptyRoom, keepImage } from "@/lib/chat";
 import { AVATARS, CUSTOM, DORMS, isAvatar } from "@/lib/dolive";
-import { GUEST_COOKIE, MIC_ONLY, WITH_SCREEN, dormsCheck, findRoom, isLocal, isStaff, roomDeny } from "@/lib/server";
+import { GUEST_COOKIE, MIC_CAM, WITH_SCREEN, dormsCheck, findRoom, isLocal, isStaff, roomDeny } from "@/lib/server";
 
 const JPEG = "data:image/jpeg;base64,";
 
@@ -54,8 +54,8 @@ export async function POST(req: Request) {
     canPublish: true,
     canSubscribe: true,
     canPublishData: true,
-    // 마스터·운영진은 다 보낼 수 있고, 만든 사람은 화면공유까지, 나머지는 마이크만 (화면공유는 방장이 허락하면 /api/share 가 풀어 준다)
-    ...(admin ? {} : { canPublishSources: owner ? WITH_SCREEN : MIC_ONLY }),
+    // 마스터·운영진은 다 보낼 수 있고, 만든 사람은 화면공유까지, 나머지는 마이크·카메라만 (화면공유는 방장이 허락하면 /api/share 가 풀어 준다)
+    ...(admin ? {} : { canPublishSources: owner ? WITH_SCREEN : MIC_CAM }),
   });
 
   // 3단계(바깥 접속)에서 LIVEKIT_PUBLIC_URL=wss://<도메인> 을 넣는다. 서버 PC에서 들어온 사람만 localhost.

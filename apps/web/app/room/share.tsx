@@ -3,6 +3,7 @@ import { ScreenSharePresets, RoomEvent, Track, type Participant, type RemotePart
 import { useEffect, useState } from "react";
 import { Knob } from "@/components/Knob";
 import { VOICE_BOT, VOICE_ON } from "@/lib/dolive";
+import { CameraKnob } from "./camera";
 import { TtsButton } from "./tts";
 
 // 화면공유는 720p와 낮은 화질을 같이 보내고,
@@ -123,10 +124,10 @@ export function useShareRequests(isAdmin: boolean, participants: Participant[], 
   return { waiting, answer, asked, requestShare };
 }
 
-// 위쪽 오른쪽: 화면공유(PC만) + 마이크 스위치. 넓은 PC 화면(md 이상)은 같은 일을 하는 동그란 기계 버튼(Knob)으로 따로 그린다
+// 위쪽 오른쪽: 화면공유(PC만) + TTS + 카메라 + 마이크 스위치. 넓은 PC 화면(md 이상)은 같은 일을 하는 동그란 기계 버튼(Knob)으로 따로 그린다
 // 화면공유 버튼: 방장은 바로 공유. 다른 사람은 [화면공유 -> 요청 중... -> (방장 승인) -> 지금 공유하기] 순서.
 // (승인이 나도 공유 고르는 창은 본인이 버튼을 눌러야 열린다 - 브라우저 규칙)
-export function MediaControls({ asked, requestShare }: { asked: boolean; requestShare: () => void }) {
+export function MediaControls({ asked, requestShare, token }: { asked: boolean; requestShare: () => void; token: string }) {
   const { localParticipant: me, isMicrophoneEnabled, isScreenShareEnabled } = useLocalParticipant();
   const canShare = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
   const sources = useLocalParticipantPermissions()?.canPublishSources ?? [];
@@ -213,6 +214,7 @@ export function MediaControls({ asked, requestShare }: { asked: boolean; request
         />
       )}
       <TtsButton />
+      <CameraKnob token={token} />
       {/* 마이크: 휴대폰은 켜짐·꺼짐을 링과 빗금으로 표시한다. */}
       <Knob
         compactMobile
@@ -232,3 +234,4 @@ export function MediaControls({ asked, requestShare }: { asked: boolean; request
     </>
   );
 }
+

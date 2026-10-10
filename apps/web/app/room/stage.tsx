@@ -1,14 +1,17 @@
 import {
   VideoTrack,
   useConnectionQualityIndicator,
+  useIsSpeaking,
   useLocalParticipant,
   useParticipantAttributes,
   useRoomContext,
+  useTracks,
   type TrackReference,
 } from "@livekit/components-react";
 import { ConnectionQuality, RoomEvent, Track, type Participant } from "livekit-client";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { avatarOf, isPhone } from "@/lib/dolive";
+import { gridFit, pageOf, rowFit } from "@/lib/faces";
 import { Floats, type Float } from "./reactions";
 
 export function useAvatarOf(p: Participant) {
@@ -16,9 +19,16 @@ export function useAvatarOf(p: Participant) {
   return avatarOf(p.attributes?.avatar);
 }
 
-// 가운데 위쪽: 화면공유가 있으면 공유 화면, 없으면 "LIVE 방송 준비 중" 안내.
+// 가운데 위쪽: 화면공유가 있으면 공유 화면, 없으면 카메라 켠 사람들 얼굴 바둑판, 아무도 없으면 "LIVE 방송 준비 중" 안내.
+// 화면공유 중이면 공유하는 사람 얼굴은 공유 화면 구석에(방송인처럼, 그 사람이 고른 자리·모양), 나머지 얼굴은 공유 화면 아래 한 줄.
 // 자리가 모자라면 공유 화면이 줄어든다. 휴대폰은 채팅 내용이 그 아래, PC는 오른쪽.
 export function Stage({ screen, floats }: { screen?: TrackReference; floats: Float[] }) {
+  const cams = useCams();
+  const sharer = screen?.participant;
+  const me = useLocalParticipant().localParticipant;
+  const sharerPos = useParticipantAttributes({ participant: sharer ?? me }).attributes?.camPos;
+  const onScreen = sharer && sharerPos !== "row" ? cams.find((c) => c.participant.identity === sharer.identity) : undefined;
+  const row = cams.filter((c) => c !== onScreen);
   return (
     <div
       // PC: 위아래 두 칸을 다 써서 바닥이 오른쪽 채팅 카드 바닥과 맞는다. 공유 화면이 이 칸 크기(cqw·cqh)에 맞춰 커지게 크기를 알려 준다
@@ -26,15 +36,21 @@ export function Stage({ screen, floats }: { screen?: TrackReference; floats: Flo
     >
       {screen?.participant.isLocal ? (
         // 내가 공유 중이면 내 공유 화면은 보여 주지 않는다. 모니터를 공유할 때 이 창이 다시 찍혀서
-        // 화면 속에 화면이 끝없이 생기는 것을 막고, 공유 영역 가운데에 안내를 보여 준다.
-        <div className="flex min-h-32 flex-1 items-center justify-center rounded-xl md:min-h-0 md:bg-[#1e1e21] md:hw-inset">
+        // 화면 속에 화면이 끝없이 생기는 것을 막고, 공유 영역 가운데에 안내를 보여 준다. 내 얼굴은 남들에게 보이는 자리에 미리 보여 준다
+        <div className="relative flex min-h-32 flex-1 items-center justify-center rounded-xl md:min-h-0 md:bg-[#1e1e21] md:hw-inset">
           <p className="max-w-full rounded-lg bg-indigo-600/15 px-4 py-3 text-center text-sm leading-relaxed text-indigo-100 ring-1 ring-indigo-500/40">
             화면 공유 기능이 켜졌습니다.<br />
             현재 내 화면이 송출되고 있습니다.
           </p>
+          {onScreen && <FaceOverlay cam={onScreen} />}
         </div>
       ) : screen ? (
-        <ScreenView screen={screen} floats={floats} />
+        // 아래 얼굴 줄이 생기면 공유 화면이 남은 높이 안에서 가장 크게 (휴대폰은 그대로)
+        <div className="contents md:flex md:min-h-0 md:flex-1 md:[container-type:size]">
+          <ScreenView screen={screen} floats={floats} face={onScreen} />
+        </div>
+      ) : cams.length ? (
+        <FaceGrid cams={cams} />
       ) : (
         <>
           {/* 휴대폰은 공유 화면과 같은 16:9 칸, PC는 왼쪽 칸 전체 가운데에 안내. */}
@@ -54,9 +70,125 @@ export function Stage({ screen, floats }: { screen?: TrackReference; floats: Flo
           </div>
         </>
       )}
+      {screen && row.length > 0 && <FaceRow cams={row} />}
       {/* 남의 공유 화면이 없으면 이 칸 안에서 띄운다 (있으면 공유 화면 안에서. 전체화면에서도 보이게) */}
       {!(screen && !screen.participant.isLocal) && <Floats floats={floats} />}
     </div>
+  );
+}
+
+// ---- 얼굴(카메라)
+// 한 사람이 동시에 받는 얼굴 수. 서버 인터넷 300Mbps 기준 (page.tsx ROOM_OPTIONS). 작은 칸은 작은 화질로 받는다
+const MAX_ROW = 6; // 공유 화면 아래 줄 (+ 공유하는 사람 얼굴 1)
+const MAX_GRID = 9; // 공유가 없을 때 바둑판
+const MAX_PHONE = 4; // 휴대폰은 데이터·배터리를 아끼게 어디서나 4칸
+const GAP = 8;
+const phone = () => typeof window !== "undefined" && isPhone();
+
+// 카메라를 켠 사람들: 나 먼저, 그다음 들어온 순서 (말할 때마다 자리가 바뀌면 정신없어서 그대로 둔다)
+function useCams() {
+  const cams = useTracks([Track.Source.Camera]).filter((t) => !t.publication.isMuted);
+  return [...cams.filter((c) => c.participant.isLocal), ...cams.filter((c) => !c.participant.isLocal)];
+}
+
+// 채팅분리 창 맨 위: 화면공유하는 동안 게임·웹 위에 떠 있는 그 창에서 내 얼굴이 다른 사람에게 어떻게 보이는지 본다
+// (고른 모양·좌우 반전 그대로). 카메라가 꺼져 있으면 안 보인다
+// ponytail: 모니터 전체를 공유하면 이 창도 같이 찍혀서 시청자에게 얼굴이 두 번 보인다 (채팅분리 창과 같은 사정). 창 하나만 공유하면 괜찮다
+export function MyFace() {
+  const mine = useCams().find((c) => c.participant.isLocal);
+  const a = useParticipantAttributes({ participant: useLocalParticipant().localParticipant }).attributes;
+  if (!mine) return null;
+  const circle = a?.camShape === "circle" && a?.camPos !== "row";
+  return (
+    <div className="flex shrink-0 justify-center p-2">
+      <Face cam={mine} name={false} round={circle ? "rounded-full" : "rounded-lg"} className={`relative ${circle ? "aspect-square w-1/2" : "aspect-video w-full"}`} />
+    </div>
+  );
+}
+
+// 칸 크기를 재는 상자 (창 크기·채팅 폭이 바뀌면 다시 잰다)
+function useBoxSize() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height }));
+    ro.observe(ref.current!);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, size] as const;
+}
+
+// 얼굴 한 칸: 칸에 맞게 가운데를 잘라 꽉 채운다. 좌우 반전은 그 사람이 카메라 설정에서 고른 대로 모두(나 포함) 같게. 말하는 중은 초록 테두리
+// className 에는 자리 잡는 법(relative/absolute)까지 넣는다 (둘 다 붙으면 어느 쪽이 이길지 몰라서)
+function Face({ cam, style, className = "relative", round = "rounded-lg", name = true }: { cam: TrackReference; style?: CSSProperties; className?: string; round?: string; name?: boolean }) {
+  const speaking = useIsSpeaking(cam.participant);
+  const mirror = useParticipantAttributes({ participant: cam.participant }).attributes?.camMirror === "1";
+  return (
+    <div style={style} className={`shrink-0 overflow-hidden bg-zinc-800 ${round} ${className}`}>
+      <VideoTrack trackRef={cam} className={`size-full object-cover ${mirror ? "-scale-x-100" : ""}`} />
+      {speaking && <span className="pointer-events-none absolute inset-0 rounded-[inherit] ring-2 ring-green-500 ring-inset" />}
+      {name && (
+        <span className="absolute bottom-1 left-1 max-w-[calc(100%-0.5rem)] truncate rounded bg-black/60 px-1.5 text-[11px] leading-4 text-zinc-100">
+          {cam.participant.name}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// 칸이 모자랄 때 마지막 칸. 누르면 다음 얼굴들
+function More({ more, next, style }: { more: number; next: () => void; style: CSSProperties }) {
+  return (
+    <button type="button" onClick={next} style={style} data-tip="다른 얼굴 보기" className="shrink-0 rounded-lg bg-zinc-800 text-sm text-zinc-200 hover:bg-zinc-700">
+      +{more}명
+    </button>
+  );
+}
+
+// 공유 화면 아래 한 줄: 모든 칸이 줄 높이를 다 쓰고, 폭은 줄을 꽉 채우게 나눈다 (한 칸이 16:9 보다 넓어지면 거기서 멈추고 가운데로)
+// PC 줄 높이: 16:9 공유 화면이 폭에 꽉 차고 남는 높이를 다 쓴다 (빈 여백 대신 얼굴을 크게). 최소 84px(또는 칸 높이의 14%), 최대 180px
+function FaceRow({ cams }: { cams: TrackReference[] }) {
+  const [ref, { w, h }] = useBoxSize();
+  const [page, setPage] = useState(0);
+  const { shown, tw } = rowFit(Math.min(cams.length, phone() ? MAX_PHONE : MAX_ROW), w, h, GAP);
+  const { faces, more } = pageOf(cams, shown, page);
+  return (
+    <div ref={ref} className="flex h-16 shrink-0 justify-center gap-2 md:h-[clamp(max(84px,14cqh),calc(100cqh-100cqw*9/16-8px),180px)] phone-land:hidden">
+      {w > 0 && faces.map((c) => <Face key={c.participant.identity} cam={c} style={{ width: tw }} />)}
+      {w > 0 && more > 0 && <More more={more} next={() => setPage(page + 1)} style={{ width: tw }} />}
+    </div>
+  );
+}
+
+// 공유가 없을 때: 얼굴 바둑판. 사람 수에 맞춰 한 줄 칸 수와 칸 모양(3:4 ~ 16:9)을 골라 자리를 꽉 채운다 (lib/faces.ts)
+// 휴대폰은 "LIVE 방송 준비 중" 과 같은 16:9 칸 안에
+function FaceGrid({ cams }: { cams: TrackReference[] }) {
+  const [ref, { w, h }] = useBoxSize();
+  const [page, setPage] = useState(0);
+  const { faces, more } = pageOf(cams, phone() ? MAX_PHONE : MAX_GRID, page);
+  const { tw, th } = gridFit(faces.length + (more ? 1 : 0), w, h, GAP);
+  const size = { width: tw, height: th };
+  return (
+    <div ref={ref} className="flex aspect-video min-h-0 w-full flex-wrap content-center justify-center gap-2 md:aspect-auto md:flex-1">
+      {w > 0 && faces.map((c) => <Face key={c.participant.identity} cam={c} style={size} />)}
+      {w > 0 && more > 0 && <More more={more} next={() => setPage(page + 1)} style={size} />}
+    </div>
+  );
+}
+
+// 화면공유하는 사람 얼굴을 공유 화면 구석에 (방송인처럼). 자리·모양은 그 사람이 카메라 메뉴에서 고른 대로 (api/cam)
+// 공유 화면 크기에 맞춰 같이 커지고 줄어서, 전체화면이나 휴대폰에서도 같은 자리·같은 비율로 보인다. 화면 누르기·쓸기는 그대로 통과
+const CORNER: Record<string, string> = { br: "right-[2%] bottom-[2%]", bl: "left-[2%] bottom-[2%]", tr: "right-[2%] top-[2%]", tl: "left-[2%] top-[2%]" };
+function FaceOverlay({ cam }: { cam: TrackReference }) {
+  const a = useParticipantAttributes({ participant: cam.participant }).attributes;
+  const circle = a?.camShape === "circle";
+  return (
+    <Face
+      cam={cam}
+      name={false}
+      round={circle ? "rounded-full" : "rounded-lg"}
+      className={`pointer-events-none absolute z-[5] shadow-lg shadow-black/50 ${CORNER[a?.camPos ?? ""] ?? CORNER.br} ${circle ? "aspect-square w-[16%]" : "aspect-video w-[22%]"}`}
+    />
   );
 }
 
@@ -89,7 +221,7 @@ function useSlowNotice(screen: TrackReference) {
   return null;
 }
 
-function ScreenView({ screen, floats }: { screen: TrackReference; floats: Float[] }) {
+function ScreenView({ screen, floats, face }: { screen: TrackReference; floats: Float[]; face?: TrackReference }) {
   const slow = useSlowNotice(screen);
   const [full, setFull] = useState(false);
   const [pip, setPip] = useState(false);
@@ -243,6 +375,7 @@ function ScreenView({ screen, floats }: { screen: TrackReference; floats: Float[
         }}
         className="size-full object-contain"
       />
+      {face && <FaceOverlay cam={face} />}
       <Floats floats={floats} />
       {/* 팝업 윈도우(PiP) 버튼, 오른쪽 위 */}
       {canPip && (
