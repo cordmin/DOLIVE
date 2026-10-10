@@ -88,16 +88,16 @@ function canShare(p: Participant) {
   return !!s && (s.length === 0 || s.includes(SCREEN_SHARE_SOURCE));
 }
 
-// 참여자 표시·권한이 바뀌면 다시 그린다 (useTracks 는 영상이 바뀔 때만 다시 그려서)
+// 참여자 표시·권한·마이크가 바뀌면 다시 그린다 (useTracks 는 카메라 영상이 바뀔 때만 다시 그려서)
 function useRoomTick() {
   const room = useRoomContext();
   const [, setTick] = useState(0);
   useEffect(() => {
     const bump = () => setTick((n) => n + 1);
-    room.on(RoomEvent.ParticipantAttributesChanged, bump).on(RoomEvent.ParticipantPermissionsChanged, bump);
-    return () => {
-      room.off(RoomEvent.ParticipantAttributesChanged, bump).off(RoomEvent.ParticipantPermissionsChanged, bump);
-    };
+    // 표시·권한, 그리고 마이크 켜고 끄기 (얼굴 순서)
+    const events = [RoomEvent.ParticipantAttributesChanged, RoomEvent.ParticipantPermissionsChanged, RoomEvent.TrackMuted, RoomEvent.TrackUnmuted, RoomEvent.TrackPublished, RoomEvent.TrackUnpublished, RoomEvent.LocalTrackPublished, RoomEvent.LocalTrackUnpublished] as const;
+    events.forEach((e) => room.on(e, bump));
+    return () => events.forEach((e) => void room.off(e, bump));
   }, [room]);
 }
 
@@ -109,10 +109,13 @@ const MAX_PHONE = 4; // 휴대폰은 데이터·배터리를 아끼게 어디서
 const GAP = 8;
 const phone = () => typeof window !== "undefined" && isPhone();
 
-// 카메라를 켠 사람들: 나 먼저, 그다음 들어온 순서 (말할 때마다 자리가 바뀌면 정신없어서 그대로 둔다)
+// 카메라를 켠 사람들: 나 먼저, 그다음 마이크를 켠 사람, 나머지는 들어온 순서 (위쪽 참여자 줄과 같은 규칙).
+// 말하는 순간마다 바꾸지는 않는다 (정신없어서). 마이크를 켜고 끌 때만 자리가 바뀐다
 function useCams() {
+  useRoomTick();
   const cams = useTracks([Track.Source.Camera]).filter((t) => !t.publication.isMuted);
-  return [...cams.filter((c) => c.participant.isLocal), ...cams.filter((c) => !c.participant.isLocal)];
+  const rank = (c: TrackReference) => (c.participant.isLocal ? 2 : c.participant.isMicrophoneEnabled ? 1 : 0);
+  return [...cams].sort((a, b) => rank(b) - rank(a));
 }
 
 // 채팅 분리 창 맨 위 화면 (page.tsx). 화면공유하는 방장이 게임·웹을 하면서 지켜본다. 마우스를 올리면 위 가운데에 고르기 버튼:
