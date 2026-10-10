@@ -23,6 +23,7 @@ import { VOICE_BOT, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
 import { ChatInput, ChatLog, useMessages } from "./chat";
 import { MENU_ITEM, NO_SELECT, PopMenu, useHoldMenu } from "./menu";
 import { useReactions } from "./reactions";
+import { CAM_CAPTURE } from "./camera";
 import { MediaControls, SCREEN_SHARE_SOURCE, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
 import { SplitTop, Stage, useAvatarOf } from "./stage";
 import { DonationDialog } from "./donation";
@@ -32,12 +33,12 @@ import { DonationDialog } from "./donation";
 // 영상은 화면공유와 얼굴(카메라). 안 보이는 영상은 받지 않고, 작게 보이는 영상은 작은 화질로 받음(adaptiveStream).
 // 단, 다른 앱에 갔다 와도 바로 보이게 뒤에 숨어 있는 동안에도 계속 받는다
 // (끊었다 다시 받으면 새 그림 한 장이 올 때까지 검은 화면이 된다. 대신 숨어 있는 동안에도 데이터가 든다)
-// 얼굴은 640x360(약 0.45Mbps)과 320x180(약 0.16Mbps) 두 가지로 보내고, 서버가 보는 칸 크기에 맞는 쪽만 보낸다.
+// 얼굴은 640x360(약 0.45Mbps, 1초 20장)과 320x180(약 0.16Mbps) 두 가지로 보내고, 서버가 보는 칸 크기에 맞는 쪽만 보낸다.
 // 서버 인터넷 올리는 속도 300Mbps 를 기준으로 잡았다: 방 4개 x 20명이 모두 화면공유 + 한 사람이 얼굴 6개(휴대폰 4개)까지 봐도 넘지 않게 (stage.tsx 의 MAX_*)
 const ROOM_OPTIONS: RoomOptions = {
   adaptiveStream: { pauseVideoInBackground: false },
   dynacast: true,
-  videoCaptureDefaults: { resolution: VideoPresets.h360.resolution },
+  videoCaptureDefaults: { resolution: CAM_CAPTURE },
   publishDefaults: { videoEncoding: VideoPresets.h360.encoding, videoSimulcastLayers: [VideoPresets.h180] },
   // 수정용 서버는 내부 브라우저에서도 열리도록 기존 연결 방식을 쓴다.
   singlePeerConnection: process.env.NODE_ENV !== "development",

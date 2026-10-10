@@ -773,7 +773,7 @@ export function ChatInput({
         onPointerDown={(e) => e.preventDefault()} // 눌러도 입력칸에서 손이 안 떨어지게
         aria-label="보내기"
         data-tip="보내기"
-        className="group flex size-[52px] shrink-0 items-center justify-center disabled:opacity-40"
+        className="group flex size-[52px] shrink-0 cursor-pointer items-center justify-center disabled:opacity-40"
       >
         <span className="hw-cap size-[44px]! transition group-hover:brightness-125 group-active:translate-y-px group-disabled:brightness-100">
         {/* 위로 날아오르는 종이비행기 */}

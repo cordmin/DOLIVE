@@ -24,7 +24,7 @@ export default function Example() {
           <input aria-label="메시지 입력" value={text} onChange={e=>setText(e.target.value)} placeholder="메시지 입력" className="min-w-0 flex-1 bg-transparent px-2 py-3 text-sm outline-none"/>
           <span className="mr-2 flex size-7.5 shrink-0 items-center justify-center rounded-full bg-zinc-700 [&>svg]:size-5"><DonationFace /></span>
         </div>
-        <button type="submit" aria-label="보내기" disabled={!text.trim()} onPointerDown={e=>e.preventDefault()} className="group flex size-[52px] shrink-0 items-center justify-center disabled:opacity-40">
+        <button type="submit" aria-label="보내기" disabled={!text.trim()} onPointerDown={e=>e.preventDefault()} className="group flex size-[52px] shrink-0 cursor-pointer items-center justify-center disabled:opacity-40">
           <span className="hw-cap size-[44px]! transition group-hover:brightness-125 group-active:translate-y-px group-disabled:brightness-100"><Plane /></span>
         </button>
       </form>

@@ -200,14 +200,14 @@ function useBoxSize() {
 
 // 얼굴 한 칸: 칸에 맞게 가운데를 잘라 꽉 채운다. 좌우 반전은 그 사람이 카메라 설정에서 고른 대로 모두(나 포함) 같게. 말하는 중은 초록 테두리
 // className 에는 자리 잡는 법(relative/absolute)까지 넣는다 (둘 다 붙으면 어느 쪽이 이길지 몰라서)
-function Face({ cam, style, className = "relative", round = "rounded-lg", name = true }: { cam: TrackReference; style?: CSSProperties; className?: string; round?: string; name?: boolean }) {
+function Face({ cam, style, className = "relative", round = "rounded-lg", name = true, speakingBorder = true }: { cam: TrackReference; style?: CSSProperties; className?: string; round?: string; name?: boolean; speakingBorder?: boolean }) {
   const speaking = useIsSpeaking(cam.participant);
   const mirror = useParticipantAttributes({ participant: cam.participant }).attributes?.camMirror === "1";
   return (
     <div style={style} className={`shrink-0 overflow-hidden bg-zinc-800 ${round} ${className}`}>
       {/* 엣지·크롬이 영상 위에 저절로 붙이는 "화면 속 화면" 버튼은 안 띄운다 */}
       <VideoTrack trackRef={cam} disablePictureInPicture className={`size-full object-cover ${mirror ? "-scale-x-100" : ""}`} />
-      {speaking && <span className="pointer-events-none absolute inset-0 rounded-[inherit] ring-2 ring-green-500 ring-inset" />}
+      {speakingBorder && speaking && <span className="pointer-events-none absolute inset-0 rounded-[inherit] ring-2 ring-green-500 ring-inset" />}
       {name && (
         <span className="absolute bottom-1 left-1 max-w-[calc(100%-0.5rem)] truncate rounded bg-black/60 px-1.5 text-[11px] leading-4 text-zinc-100">
           {cam.participant.name}
@@ -267,6 +267,7 @@ function FaceOverlay({ cam }: { cam: TrackReference }) {
     <Face
       cam={cam}
       name={false}
+      speakingBorder={false}
       round={circle ? "rounded-full" : "rounded-lg"}
       className={`pointer-events-none absolute z-[5] shadow-lg shadow-black/50 ${CORNER[a?.camPos ?? ""] ?? CORNER.br} ${circle ? "aspect-square w-[16%]" : "aspect-video w-[22%]"}`}
     />

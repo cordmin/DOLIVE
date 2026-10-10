@@ -65,7 +65,7 @@ function Button($text, $x, $y, $w, $h, $size) {
 $form = New-Object Windows.Forms.Form
 $form.Text = "DOLIVE"
 $form.Icon = New-Object Drawing.Icon (Join-Path $PSScriptRoot "icons\dolive.ico")
-$form.ClientSize = "308,292"
+$form.ClientSize = "308,422"
 $form.FormBorderStyle = "FixedSingle"; $form.MaximizeBox = $false; $form.StartPosition = "CenterScreen"
 $form.BackColor = Color "#18181b"
 # 창 제목 줄도 어둡게 (윈도우 11)
@@ -109,7 +109,7 @@ $spinTimer.Add_Tick({ $spin.Tag = ($spin.Tag + 12) % 360; $spin.Invalidate() })
 $power = Button "" 24 92 260 58 15
 
 $line = New-Object Windows.Forms.Label
-$line.Location = "24,174"; $line.Size = "260,1"; $line.BackColor = Color "#3f3f46"
+$line.Location = "24,304"; $line.Size = "260,1"; $line.BackColor = Color "#3f3f46"
 $form.Controls.Add($line)
 
 # DOLIVE 설정 창 (관리자(방장) 줄 톱니바퀴) = 방송 관리자(운영진) 목록. 방송 목록은 입장 화면에서 만들고 고친다 (마스터 = 이 PC).
@@ -328,18 +328,73 @@ function LinkRow($title, $url, $y, [switch]$Staff) {
     }
 }
 # 관리자(방장) = 이 PC / 클라이언트 = 친구들 주소 (도름스 로그인해야 들어간다. 방송 관리자(운영진)와 채팅방은 톱니바퀴에서 정한다)
-LinkRow "관리자(방장)" $hostUrl 194 -Staff
-LinkRow "클라이언트" $friendsUrl 238
+LinkRow "관리자(방장)" $hostUrl 324 -Staff
+LinkRow "클라이언트" $friendsUrl 368
 
 # 켜고 끄는 일은 뒤에서 start_dolive.ps1 로 (그동안 창이 멈추지 않게)
 $job = @{ proc = $null; wantOn = $false }
-function IsOn { [bool](Get-Process livekit-server -ErrorAction SilentlyContinue) }
+$health = @{ results = @(); worker = $null; pending = $null; next = [datetime]::MinValue; previousOk = $false }
+$serviceRows = @{}
+$serviceIndex = 0
+foreach ($service in @(@{ id = 'livekit'; name = '통화' }, @{ id = 'web'; name = '웹 화면' }, @{ id = 'caddy'; name = '접속' })) {
+    $y = 166 + $serviceIndex * 34
+    [void](Label $service.name 24 ($y + 6) 10 '#d4d4d8')
+    $stateLabel = Label '확인 중' 86 ($y + 7) 9 '#a1a1aa'
+    $repair = Button '켜기' 214 $y 70 28 9
+    $repair.BackColor = Color '#3f3f46'; $repair.Tag = $service.id; $repair.Enabled = $false
+    $repair.Add_Click({
+        param($s)
+        if ($job.proc) { return }
+        $job.proc = Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSScriptRoot\recover_dolive.ps1`" -Service $($s.Tag)" -WindowStyle Hidden -PassThru -RedirectStandardOutput "$logs\repair.out.log" -RedirectStandardError "$logs\repair.err.log"
+        $serviceRows[$s.Tag].label.Text = '켜는 중'; $s.Enabled = $false; $power.Enabled = $false
+        foreach ($row in $serviceRows.Values) { $row.button.Enabled = $false }
+    })
+    $serviceRows[$service.id] = @{ label = $stateLabel; button = $repair; name = $service.name }
+    $serviceIndex++
+}
+function IsOn { [bool]($health.results | Where-Object { $_.state -ne 'off' }) }
+
+function Check-Services {
+    if ($health.pending -and $health.pending.IsCompleted) {
+        try {
+            $health.results = @($health.worker.EndInvoke($health.pending))
+            if ($health.worker.HadErrors -or $health.results.Count -ne 3) { throw '상태 확인 실패' }
+            foreach ($result in $health.results) {
+                $row = $serviceRows[$result.id]
+                $row.label.Text = switch ($result.state) { 'ok' { '켜짐 · 정상' }; 'off' { '꺼짐' }; default { '켜짐 · 응답 없음' } }
+                $row.label.ForeColor = Color $(switch ($result.state) { 'ok' { '#4ade80' }; 'off' { '#a1a1aa' }; default { '#f87171' } })
+                $row.button.Text = $(if ($result.state -eq 'off') { '켜기' } else { '다시 켜기' })
+                $row.button.Enabled = -not $job.proc -and $result.state -ne 'ok'
+            }
+            $allOk = @($health.results | Where-Object { $_.state -eq 'ok' }).Count -eq 3
+            if ($health.previousOk -and -not $allOk -and -not $job.proc) {
+                $bad = ($health.results | Where-Object { $_.state -ne 'ok' } | ForEach-Object { $serviceRows[$_.id].name }) -join ', '
+                $tray.ShowBalloonTip(5000, 'DOLIVE 상태 이상', "$bad 프로그램을 확인해 주세요. 서버 창에서 다시 켤 수 있어요.", 'Warning')
+            }
+            $health.previousOk = $allOk
+        } catch {
+            $health.results = @()
+            foreach ($row in $serviceRows.Values) { $row.label.Text = '확인 실패'; $row.label.ForeColor = Color '#f87171'; $row.button.Enabled = $false }
+        }
+        finally { $health.worker.Dispose(); $health.worker = $null; $health.pending = $null; $health.next = (Get-Date).AddSeconds(3) }
+    }
+    if (-not $health.pending -and (Get-Date) -ge $health.next) {
+        $health.worker = [PowerShell]::Create()
+        [void]$health.worker.AddScript('. $args[0]; Get-DoliveHealth').AddArgument("$PSScriptRoot\server_health.ps1")
+        $health.pending = $health.worker.BeginInvoke()
+    }
+}
 
 function Show-State($note) {
     if ($job.proc) { return }
     $spinTimer.Stop(); $spin.Visible = $false; $status.Left = $sx
+    if ($health.results.Count -ne 3) {
+        $status.Text = '확인 중'; $status.ForeColor = Color '#a1a1aa'; $power.Enabled = $false
+        return
+    }
     if (IsOn) {
-        $status.Text = "●  LIVE ON"; $status.ForeColor = Color "#4ade80"
+        $allOk = @($health.results | Where-Object { $_.state -eq 'ok' }).Count -eq 3
+        $status.Text = $(if ($allOk) { '●  LIVE ON' } else { '●  일부 이상' }); $status.ForeColor = Color $(if ($allOk) { '#4ade80' } else { '#f87171' })
         $power.Text = "서버 종료"; $power.BackColor = Color "#3f3f46"
     } else {
         $status.Text = "●  LIVE OFF"; $status.ForeColor = Color "#a1a1aa"
@@ -349,6 +404,7 @@ function Show-State($note) {
     if ($note) { $status.Text = "●  서버 실행 실패"; $status.ForeColor = Color "#f87171" }
     $tip.SetToolTip($status, $note)
     $power.Enabled = $true
+    $tray.Text = "DOLIVE - $($status.Text)"
 }
 
 $power.Add_Click({
@@ -357,6 +413,7 @@ $power.Add_Click({
     $status.ForeColor = Color "#facc15"
     $status.Left = $sx + 26; $spin.Visible = $true; $spinTimer.Start()
     $power.Enabled = $false
+    foreach ($row in $serviceRows.Values) { $row.button.Enabled = $false }
     $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$starter`"" + $(if ($job.wantOn) { "" } else { " -Stop" })
     $job.proc = Start-Process powershell -ArgumentList $argList -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput "$logs\panel.out.log" -RedirectStandardError "$logs\panel.err.log"
@@ -390,10 +447,12 @@ $timer.Add_Tick({
     if ($wake.WaitOne(0)) { Show-Panel }
     if ($job.proc -and $job.proc.HasExited) {
         $job.proc = $null
-        Show-State $(if ((IsOn) -ne $job.wantOn) { "server\logs 폴더를 확인해 주세요" })
-    } elseif (-not $job.proc -and $status.ForeColor.ToArgb() -ne (Color "#f87171").ToArgb()) {
+        $health.next = [datetime]::MinValue
+        Show-State
+    } elseif (-not $job.proc) {
         Show-State  # 다른 곳에서 켜고 꺼도 따라가게
     }
+    Check-Services
 })
 $timer.Start()
 
@@ -401,3 +460,4 @@ Show-State
 # ShowDialog는 창을 숨기면 끝나버려서, 숨겨도 계속 도는 Application.Run을 쓴다
 [Windows.Forms.Application]::Run($form)
 $tray.Dispose()
+if ($health.worker) { $health.worker.Stop(); $health.worker.Dispose() }

@@ -1,10 +1,11 @@
 import { useLocalParticipant, useLocalParticipantPermissions } from "@livekit/components-react";
-import { Room, Track, VideoPresets, createLocalVideoTrack, type LocalVideoTrack, type VideoCaptureOptions } from "livekit-client";
+import { Room, Track, createLocalVideoTrack, type LocalVideoTrack, type VideoCaptureOptions } from "livekit-client";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Knob } from "@/components/Knob";
 import { isPhone, saveCam, savedCam, type CamSettings } from "@/lib/dolive";
 import { useHoldMenu } from "./menu";
 import { SCREEN_SHARE_SOURCE } from "./share";
+import { applyBlur } from "@/lib/cameraBlur";
 
 // 카메라(얼굴). 버튼을 누르면 바로 켜지 않고 카메라 설정 창부터 띄운다 (내 모습이 준비 없이 나가지 않게).
 // 창 안에서 미리 보며 캠·화면공유 시 얼굴 위치·모양·좌우 반전을 고르고 [카메라 켜기]를 눌러야 모두에게 보인다.
@@ -14,21 +15,17 @@ import { SCREEN_SHARE_SOURCE } from "./share";
 const FACING = /front|back|rear|facing/i;
 // PC 캠 이름 뒤에 붙는 장치 번호 "(046d:0825)" 는 뺀다
 const camName = (d: MediaDeviceInfo, i: number) => d.label.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, "") || `카메라 ${i + 1}`;
+// 캠은 640x360, 1초에 20장 (30장으로 올려 봤지만 블러 문제가 장 수 탓이 아니어서 되돌림)
+export const CAM_CAPTURE = { width: 640, height: 360, frameRate: 20 };
 const capture = (c: CamSettings, facing: boolean): VideoCaptureOptions => ({
-  resolution: VideoPresets.h360.resolution,
+  resolution: CAM_CAPTURE,
   ...(facing ? { facingMode: c.facing } : c.device ? { deviceId: c.device } : {}),
 });
 
 // 블러 처리 (PC 만): LiveKit 공식 부품 @livekit/track-processors 가 내 브라우저 안에서 사람 뒤 배경을 흐리게 한 뒤 보낸다 (서버 부담 없음).
-// 사람 오려내기 모델과 실행 파일은 그 부품이 정한 공개 저장소(jsdelivr·구글)에서 각자 브라우저가 받는다 (우리 서버 인터넷을 안 씀).
+// 가로형 사람 찾기 모델과 실행 파일은 구글·jsdelivr에서 각자 브라우저가 받는다 (우리 서버 인터넷을 안 씀).
 // 그 부품은 블러를 처음 켤 때만 불러온다 (안 쓰는 사람은 안 받음)
 // ponytail: 휴대폰은 무겁고 아이폰 확인이 안 돼서 뺐다. 넣으려면 아래 phone 확인만 풀고 휴대폰에서 시험
-async function applyBlur(t: LocalVideoTrack, on: boolean) {
-  if (!on) return t.getProcessor() && t.stopProcessor();
-  const { BackgroundBlur, supportsBackgroundProcessors } = await import("@livekit/track-processors");
-  if (!supportsBackgroundProcessors()) throw new Error("이 브라우저는 블러를 못 씀");
-  if (!t.getProcessor()) await t.setProcessor(BackgroundBlur(12));
-}
 
 export function CameraKnob({ token }: { token: string }) {
   const { localParticipant: me, isCameraEnabled } = useLocalParticipant();
@@ -86,18 +83,17 @@ const SPOTS = [
   ["br", "오른쪽 아래", "right-[4%] bottom-[7%]"],
 ];
 const ICON = "size-[17px] fill-none stroke-current stroke-[1.8] [stroke-linecap:round] [stroke-linejoin:round]";
-// 블러 처리 그림: 사람 + 양옆에 흩어진 점
+// 블러 처리 그림: 물방울 (흐림·번짐) — 사용자가 고른 시안 2번 (cam_mockups/아이콘_후보.png)
 const BlurIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden className={ICON}>
-    <circle cx="12" cy="9" r="3.2" />
-    <path d="M6.5 20a5.5 5.5 0 0 1 11 0" />
-    <path d="M3 7v.01M3 12v.01M3 17v.01M5.5 4.5v.01M21 7v.01M21 12v.01M21 17v.01M18.5 4.5v.01" strokeWidth="2.6" />
+    <path d="M12 21.5a6.5 6.5 0 0 0 6.5-6.5c0-1.9-.9-3.6-2.8-5.1S12.4 6.2 12 3.5c-.4 2.7-1.8 4.9-3.7 6.4C6.4 11.4 5.5 13.1 5.5 15A6.5 6.5 0 0 0 12 21.5Z" />
+    <path d="M9 15.5a3 3 0 0 0 3 3" />
   </svg>
 );
-// DOCAM 의 좌우 반전 그림 (가운데 점선 + 마주 보는 삼각형)
+// 좌우 반전 그림: 서로 엇갈린 두 화살표 — 사용자가 고른 시안 5번
 const MirrorIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden className={ICON}>
-    <path d="M12 3v1.8M12 7.6v1.8M12 12.2v1.8M12 16.8v1.8M12 21.4v.01M9 6.5 3.5 17.5H9ZM15 6.5l5.5 11H15Z" />
+    <path d="M16 3l4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" />
   </svg>
 );
 
@@ -110,6 +106,7 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
   const keep = useRef<LocalVideoTrack | undefined>(undefined); // 창을 닫을 때 끌 미리 보기 (켜기를 누르면 비운다)
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [blurBusy, setBlurBusy] = useState(false);
   const live = isCameraEnabled ? (me.getTrackPublication(Track.Source.Camera)?.track as LocalVideoTrack | undefined) : undefined;
   const track = live ?? preview;
   const facing = (typeof window !== "undefined" && isPhone()) || devices.some((d) => FACING.test(d.label));
@@ -126,24 +123,39 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
     box.current?.showModal();
     const first = savedCam();
     const phone = isPhone();
+    let closed = false;
     if (!isCameraEnabled)
       createLocalVideoTrack(capture(first, phone)).then(
         (t) => {
+          if (closed) { t.stop(); return; }
           keep.current = t;
           setPreview(t);
-          if (!phone && first.blur) applyBlur(t, true).catch(() => setError("이 브라우저에서는 블러 처리를 쓸 수 없어요."));
+          if (!phone && first.blur) void prepareBlur(t, true);
         },
         () => setError("카메라를 열 수 없어요. 다른 프로그램이 캠을 쓰고 있거나 권한이 막혀 있어요."),
       );
     // 캠 이름은 카메라를 한 번 허락한 뒤에 보여서, 미리 보기를 연 다음에 읽는다
     const t = setTimeout(() => Room.getLocalDevices("videoinput", false).then(setDevices, () => {}), 800);
     return () => {
+      closed = true;
       clearTimeout(t);
       keep.current?.stop();
     };
     // 창이 열릴 때 한 번만
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 블러가 준비되는 동안은 켜기와 다른 캠 고르기를 기다린다.
+  async function prepareBlur(t: LocalVideoTrack, on: boolean) {
+    setBlurBusy(true);
+    try {
+      await applyBlur(t, on);
+    } catch {
+      setError("이 브라우저에서는 블러 처리를 쓸 수 없어요.");
+    } finally {
+      setBlurBusy(false);
+    }
+  }
 
   // 위치·모양·좌우 반전: 저장하고, 켜져 있으면 바로 모두에게
   function set(c: CamSettings) {
@@ -153,15 +165,17 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
   }
   // 캠 바꾸기: 미리 보기든 보내는 중이든 그 캠으로 다시 연다. 휴대폰 후면은 거울이 어색해서 좌우 반전을 끄고, 전면은 켠다
   async function pickCam(c: CamSettings) {
+    if (busy || blurBusy) return;
     set(c);
     await track?.restartTrack(capture(c, facing)).catch(() => setError("그 카메라를 열 수 없어요."));
   }
   // 블러 처리: 미리 보기든 보내는 중이든 바로 켜고 끈다
   function toggleBlur() {
+    if (blurBusy || busy) return;
     const blur = !cam.blur;
     set({ ...cam, blur });
     setError("");
-    if (track) applyBlur(track, blur).catch(() => setError("이 브라우저에서는 블러 처리를 쓸 수 없어요."));
+    if (track) void prepareBlur(track, blur);
   }
   // 기계판 버튼 하나 (좌우 반전·블러 처리). 켜짐은 금색, 꺼짐은 어두운 회색 (모양 스위치의 안 고른 쪽과 같은 색)
   const knob = (label: string, on: boolean, onClick: () => void, icon: ReactNode) => (
@@ -192,6 +206,9 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
     if (!t) return;
     setBusy(true);
     try {
+      if (bgOk) {
+        await applyBlur(t, cam.blur);
+      }
       await tell(cam);
       const old = me.getTrackPublication(Track.Source.Camera)?.track; // 방장이 꺼 둔(멈춘) 예전 카메라
       if (old) await me.unpublishTrack(old);
@@ -288,9 +305,10 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
           </button>
         </div>
 
-        {/* 기계판 버튼 (방 오른쪽 위 버튼과 같은 모양): 좌우 반전, 모양 밀기 스위치 (얼굴 줄은 네모만이라 흐려짐), 블러 처리(PC) */}
+        {/* 기계판 버튼 (방 오른쪽 위 버튼과 같은 모양): 좌우 반전, 블러 처리(PC, 가운데), 모양 밀기 스위치 (얼굴 줄은 네모만이라 흐려짐) */}
         <div className={`mt-[18px] flex items-start justify-center ${bgOk ? "gap-6" : "gap-[30px]"}`}>
           {knob("좌우 반전", cam.mirror, () => set({ ...cam, mirror: !cam.mirror }), <MirrorIcon />)}
+          {bgOk && knob("블러 처리", cam.blur, toggleBlur, <BlurIcon />)}
           <div role="radiogroup" aria-label="모양" className={`flex flex-col items-center gap-1.5 ${row ? "opacity-35" : ""}`}>
             <div className="relative flex h-[38px] w-[84px] rounded-full bg-[#141415] shadow-[inset_0_2px_5px_#000a,0_0_0_1px_#000,0_0_0_3px_#1b1b1c,0_0_0_4px_#ffffff0f]">
               <span className={`absolute top-[3px] h-8 w-[39px] rounded-full bg-[radial-gradient(circle_at_50%_30%,#3a3a3c,#1d1d1e)] shadow-[inset_0_1px_0_#ffffff30,0_1px_3px_#000] transition-[left] duration-200 ${circle ? "left-[42px]" : "left-[3px]"}`} />
@@ -313,7 +331,6 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
             </div>
             <span className="text-[11px] text-[#a39f98]">모양</span>
           </div>
-          {bgOk && knob("블러 처리", cam.blur, toggleBlur, <BlurIcon />)}
         </div>
         </>
       ) : (
@@ -341,7 +358,7 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
         ) : (
           <button
             type="button"
-            disabled={!preview || busy}
+            disabled={!preview || busy || blurBusy}
             onClick={start}
             className="h-[38px] flex-1 rounded-full bg-linear-to-b from-[#d6bd8d] to-[#b79b68] font-semibold text-[#29231c] shadow-[inset_0_1px_0_#fff5] transition hover:brightness-110 active:brightness-95 disabled:opacity-50"
           >
