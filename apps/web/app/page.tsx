@@ -365,9 +365,15 @@ export default function Home() {
         disabled={!name.trim() || !room}
         className="dolive-button dolive-entry flex h-16 items-center justify-center rounded-lg bg-indigo-600 px-4 py-4 text-xl font-semibold hover:bg-indigo-500 disabled:opacity-40"
       ><span className="dolive-button-cap text-white">
-        {/* 실제 글자 픽셀의 위끝과 아래끝을 맞춘 큰 원본을 작게 보여 준다. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/live-entry-label.png" alt="LIVE 입장" width={487} height={96} className="block h-[18.666px] w-auto" />
+        {/* 글자 모양과 크기는 유지하고 LIVE만 타이틀 로고와 같은 빨간색으로 칠한다. */}
+        <span role="img" aria-label="LIVE 입장" className="block" style={{
+          width: 94.691,
+          height: 18.666,
+          maskImage: "url(/live-entry-label.png)",
+          maskSize: "100% 100%",
+          maskRepeat: "no-repeat",
+          background: "linear-gradient(to right, var(--color-red-500) 52.3614%, #fff 52.3614%)",
+        }} />
       </span></button>
       {/* Esc 나 [확인]으로 닫힌다 */}
       <dialog
