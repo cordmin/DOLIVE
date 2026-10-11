@@ -31,6 +31,16 @@ assert.deepEqual(rowFit(5, 900, 128, 8), { shown: 5, tw: 173 });
 assert.equal(rowFit(20, 900, 128, 8).shown, 8);
 assert.equal(rowFit(3, 0, 128, 8).shown, 1);
 
+// 휴대폰 아래 줄은 5칸. 작은 휴대폰에서도 줄 밖으로 나가지 않는다
+for (const w of [304, 344, 396]) {
+  const row = rowFit(5, w, 64, 8);
+  assert.equal(row.shown, 5);
+  assert.ok(row.tw * 5 + 8 * 4 <= w);
+  assert.ok(row.tw / 64 >= 3 / 4);
+}
+assert.deepEqual(pageOf([1, 2, 3, 4, 5], 5, 0), { faces: [1, 2, 3, 4, 5], more: 0 });
+assert.deepEqual(pageOf([1, 2, 3, 4, 5, 6], 5, 0), { faces: [1, 2, 3, 4], more: 2 });
+
 // "+N명": 7명을 4칸에 = 3명 + "+4명", 누를 때마다 다음 3명, 끝나면 처음으로
 const list = [1, 2, 3, 4, 5, 6, 7];
 assert.deepEqual(pageOf(list, 4, 0), { faces: [1, 2, 3], more: 4 });

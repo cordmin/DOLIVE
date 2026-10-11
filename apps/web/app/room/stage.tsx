@@ -105,17 +105,27 @@ function useRoomTick() {
 // 한 사람이 동시에 받는 얼굴 수. 서버 인터넷 300Mbps 기준 (page.tsx ROOM_OPTIONS). 작은 칸은 작은 화질로 받는다
 const MAX_ROW = 6; // 공유 화면 아래 줄 (+ 공유하는 사람 얼굴 1)
 const MAX_GRID = 9; // 공유가 없을 때 바둑판
-const MAX_PHONE = 4; // 휴대폰은 데이터·배터리를 아끼게 어디서나 4칸
+const MAX_PHONE = 4; // 휴대폰 얼굴 바둑판
+const MAX_PHONE_ROW = 5; // 휴대폰 공유 화면 아래 줄
 const GAP = 8;
 const phone = () => typeof window !== "undefined" && isPhone();
 
-// 카메라를 켠 사람들: 나 먼저, 그다음 마이크를 켠 사람, 나머지는 들어온 순서 (위쪽 참여자 줄과 같은 규칙).
-// 말하는 순간마다 바꾸지는 않는다 (정신없어서). 마이크를 켜고 끌 때만 자리가 바뀐다
+// 카메라를 켠 사람들: 나 → 말하는 사람 → 마이크 켠 사람 → 나머지. 같은 순위면 들어온 순서
 function useCams() {
   useRoomTick();
-  const cams = useTracks([Track.Source.Camera]).filter((t) => !t.publication.isMuted);
-  const rank = (c: TrackReference) => (c.participant.isLocal ? 2 : c.participant.isMicrophoneEnabled ? 1 : 0);
+  const cams = useTracks([Track.Source.Camera], { updateOnlyOn: [RoomEvent.ActiveSpeakersChanged] }).filter((t) => !t.publication.isMuted);
+  const rank = (c: TrackReference) => (c.participant.isLocal ? 3 : c.participant.isSpeaking ? 2 : c.participant.isMicrophoneEnabled ? 1 : 0);
   return [...cams].sort((a, b) => rank(b) - rank(a));
+}
+
+// 다른 얼굴들을 보는 중 새로 말하는 사람이 생기면 첫 묶음으로 돌아온다. 소리 크기만 바뀔 때는 그대로
+function useFacePage(cams: TrackReference[]) {
+  const speakers = JSON.stringify(cams.filter((c) => c.participant.isSpeaking).map((c) => c.participant.identity).sort());
+  const [view, setView] = useState({ page: 0, speakers });
+  if (view.speakers !== speakers) {
+    setView({ page: speakers === "[]" ? view.page : 0, speakers });
+  }
+  return [view.page, () => setView({ page: view.page + 1, speakers })] as const;
 }
 
 // 채팅 분리 창 맨 위 화면 (page.tsx). 화면공유하는 방장이 게임·웹을 하면서 지켜본다. 마우스를 올리면 위 가운데에 고르기 버튼:
@@ -226,17 +236,17 @@ function More({ more, next, style }: { more: number; next: () => void; style: CS
   );
 }
 
-// 공유 화면 아래 한 줄: 모든 칸이 줄 높이를 다 쓰고, 폭은 줄을 꽉 채우게 나눈다 (한 칸이 16:9 보다 넓어지면 거기서 멈추고 가운데로)
+// 공유 화면 아래 한 줄: 모든 칸이 줄 높이를 다 쓰고, 폭은 16:9 까지만 넓어진다. PC와 휴대폰 모두 왼쪽부터 놓는다
 // PC 줄 높이: 16:9 공유 화면이 폭에 꽉 차고 남는 높이를 다 쓴다 (빈 여백 대신 얼굴을 크게). 최소 84px(또는 칸 높이의 14%), 최대 180px
 function FaceRow({ cams }: { cams: TrackReference[] }) {
   const [ref, { w, h }] = useBoxSize();
-  const [page, setPage] = useState(0);
-  const { shown, tw } = rowFit(Math.min(cams.length, phone() ? MAX_PHONE : MAX_ROW), w, h, GAP);
+  const [page, next] = useFacePage(cams);
+  const { shown, tw } = rowFit(Math.min(cams.length, phone() ? MAX_PHONE_ROW : MAX_ROW), w, h, GAP);
   const { faces, more } = pageOf(cams, shown, page);
   return (
-    <div ref={ref} className="flex h-16 shrink-0 justify-center gap-2 md:h-[clamp(max(84px,14cqh),calc(100cqh-100cqw*9/16-8px),180px)] phone-land:hidden">
+    <div ref={ref} className="flex h-16 shrink-0 justify-start gap-2 md:h-[clamp(max(84px,14cqh),calc(100cqh-100cqw*9/16-8px),180px)] phone-land:hidden">
       {w > 0 && faces.map((c) => <Face key={c.participant.identity} cam={c} style={{ width: tw }} />)}
-      {w > 0 && more > 0 && <More more={more} next={() => setPage(page + 1)} style={{ width: tw }} />}
+      {w > 0 && more > 0 && <More more={more} next={next} style={{ width: tw }} />}
     </div>
   );
 }
@@ -245,14 +255,14 @@ function FaceRow({ cams }: { cams: TrackReference[] }) {
 // 휴대폰은 "LIVE 방송 준비 중" 과 같은 16:9 칸 안에
 function FaceGrid({ cams }: { cams: TrackReference[] }) {
   const [ref, { w, h }] = useBoxSize();
-  const [page, setPage] = useState(0);
+  const [page, next] = useFacePage(cams);
   const { faces, more } = pageOf(cams, phone() ? MAX_PHONE : MAX_GRID, page);
   const { tw, th } = gridFit(faces.length + (more ? 1 : 0), w, h, GAP);
   const size = { width: tw, height: th };
   return (
     <div ref={ref} className="flex aspect-video min-h-0 w-full flex-wrap content-center justify-center gap-2 md:aspect-auto md:flex-1">
       {w > 0 && faces.map((c) => <Face key={c.participant.identity} cam={c} style={size} />)}
-      {w > 0 && more > 0 && <More more={more} next={() => setPage(page + 1)} style={size} />}
+      {w > 0 && more > 0 && <More more={more} next={next} style={size} />}
     </div>
   );
 }
