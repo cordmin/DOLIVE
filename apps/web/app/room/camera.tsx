@@ -2,7 +2,8 @@ import { useLocalParticipant, useLocalParticipantPermissions } from "@livekit/co
 import { Room, Track, createLocalVideoTrack, type LocalVideoTrack, type VideoCaptureOptions } from "livekit-client";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Knob } from "@/components/Knob";
-import { isPhone, saveCam, savedCam, type CamSettings } from "@/lib/dolive";
+import { isPhone, saveCam, savedCam, camWidth, type CamSettings } from "@/lib/dolive";
+import { CameraSize } from "./camera-size";
 import { useHoldMenu } from "./menu";
 import { SCREEN_SHARE_SOURCE } from "./share";
 import { applyBlur } from "@/lib/cameraBlur";
@@ -43,6 +44,7 @@ export function CameraKnob({ token }: { token: string }) {
         role="switch"
         aria-checked={isCameraEnabled}
         label="카메라"
+        data-tip="우클릭(설정)"
         led={isCameraEnabled ? "green" : undefined}
         onClick={() => (isCameraEnabled ? off() : setOpen(true))}
         icon={
@@ -115,9 +117,16 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
   const canShare = sources.length === 0 || sources.includes(SCREEN_SHARE_SOURCE);
   const bgOk = typeof window !== "undefined" && !isPhone(); // 배경 효과는 PC 만
 
-  // 서버가 모두에게 내 얼굴 자리·모양·좌우 반전을 적어 준다 (api/cam)
-  const tell = (c: CamSettings) =>
-    fetch("/api/cam", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ pos: c.pos, shape: c.shape, mirror: c.mirror }) });
+  // 빠르게 돌려도 마지막 크기가 남도록 순서대로 알린다.
+  const requests = useRef<Promise<void>>(Promise.resolve());
+  function tell(c: CamSettings) {
+    const next = requests.current.catch(() => {}).then(async () => {
+      const res = await fetch("/api/cam", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ pos: c.pos, shape: c.shape, mirror: c.mirror, size: c.size }) });
+      if (!res.ok) throw new Error("카메라 설정 실패");
+    });
+    requests.current = next;
+    return next;
+  }
 
   useEffect(() => {
     box.current?.showModal();
@@ -161,7 +170,7 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
   function set(c: CamSettings) {
     setCam(c);
     saveCam(c);
-    if (isCameraEnabled) tell(c);
+    if (isCameraEnabled) void tell(c).catch(() => setError("카메라 설정을 바꾸지 못했어요. 다시 해 주세요."));
   }
   // 캠 바꾸기: 미리 보기든 보내는 중이든 그 캠으로 다시 연다. 휴대폰 후면은 거울이 어색해서 좌우 반전을 끄고, 전면은 켠다
   async function pickCam(c: CamSettings) {
@@ -227,7 +236,8 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
 
   const row = cam.pos === "row";
   const circle = !row && cam.shape === "circle";
-  const face = circle ? "aspect-square w-[19%] rounded-full" : "aspect-video w-[28%] rounded-md";
+  const face = circle ? "aspect-square rounded-full" : "aspect-video rounded-md";
+  const faceWidth = `${camWidth(cam.size, circle)}%`;
   // 고른 자리에 들어가는 내 얼굴 (다른 사람에게 보이는 모습 그대로, 좌우 반전 포함)
   const myFace = track ? <Preview track={track} mirror={cam.mirror} /> : null;
   const blurNotice = blurBusy && (
@@ -286,12 +296,13 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
           <div className="relative aspect-video overflow-hidden rounded-[10px] bg-linear-135 from-[#2c3a52] to-[#2a2436]">
             {SPOTS.map(([id, name, at]) =>
               !row && cam.pos === id ? (
-                <div key={id} className={`absolute ${at} ${face} overflow-hidden border-2 border-[#d1b77f] bg-black shadow-[0_0_0_3px_#d1b77f33,0_6px_14px_#0008]`}>{myFace}</div>
+                <div key={id} style={{ width: faceWidth }} className={`absolute ${at} ${face} overflow-hidden border-2 border-[#d1b77f] bg-black shadow-[0_0_0_3px_#d1b77f33,0_6px_14px_#0008]`}>{myFace}</div>
               ) : (
                 <button
                   key={id}
                   type="button"
                   aria-label={`화면공유 시 얼굴 위치: ${name}`}
+                  style={row ? undefined : { width: faceWidth }}
                   onClick={() => set({ ...cam, pos: id })}
                   className={`absolute ${at} ${row ? "aspect-video w-[28%] rounded-md" : face} border-[1.5px] border-dashed border-white/25 transition hover:border-white/60 hover:bg-white/10`}
                 />
@@ -316,7 +327,7 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
         </div>
 
         {/* 기계판 버튼 (방 오른쪽 위 버튼과 같은 모양): 좌우 반전, 블러 처리(PC, 가운데), 모양 밀기 스위치 (얼굴 줄은 네모만이라 흐려짐) */}
-        <div className={`mt-[18px] flex items-start justify-center ${bgOk ? "gap-6" : "gap-[30px]"}`}>
+        <div className={`mt-[18px] flex items-start justify-center ${bgOk ? "gap-[18px]" : "gap-[30px]"}`}>
           {knob("좌우 반전", cam.mirror, () => set({ ...cam, mirror: !cam.mirror }), <MirrorIcon />)}
           {bgOk && knob("블러 처리", cam.blur, toggleBlur, <BlurIcon />)}
           <div role="radiogroup" aria-label="모양" className={`flex flex-col items-center gap-1.5 ${row ? "opacity-35" : ""}`}>
@@ -341,6 +352,7 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
             </div>
             <span className="text-[11px] text-[#a39f98]">모양</span>
           </div>
+          {bgOk && <CameraSize value={cam.size} disabled={row} change={size => { if (size !== cam.size) set({ ...cam, size }); }} />}
         </div>
         </>
       ) : (
@@ -363,7 +375,7 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
           닫기
         </span></button>
         {isCameraEnabled ? (
-          <button type="button" onClick={stop} className="dolive-button dolive-danger h-[38px] flex-1 rounded-full bg-linear-to-b from-[#d0665b] to-[#a8443b] font-semibold text-[#fff4f1] shadow-[inset_0_1px_0_#fff4,0_1px_2px_#0006] transition hover:brightness-110 active:brightness-95"><span className="dolive-button-cap">
+          <button type="button" onClick={stop} className="dolive-button h-[38px] flex-1 rounded-full font-semibold transition hover:brightness-110 active:brightness-95"><span className="dolive-button-cap text-white">
             카메라 끄기
           </span></button>
         ) : (

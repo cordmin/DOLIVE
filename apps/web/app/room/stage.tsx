@@ -10,7 +10,7 @@ import {
 } from "@livekit/components-react";
 import { ConnectionQuality, RoomEvent, Track } from "livekit-client";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
-import { isPhone } from "@/lib/dolive";
+import { isPhone, camWidth } from "@/lib/dolive";
 import { gridFit, pageOf, rowFit } from "@/lib/faces";
 import { Floats, type Float } from "./reactions";
 
@@ -296,7 +296,8 @@ function FaceOverlay({ cam }: { cam: TrackReference }) {
       name={false}
       speakingBorder={false}
       round={circle ? "rounded-full" : "rounded-lg"}
-      className={`pointer-events-none absolute z-[5] shadow-lg shadow-black/50 ${CORNER[a?.camPos ?? ""] ?? CORNER.br} ${circle ? "aspect-square w-[16%]" : "aspect-video w-[22%]"}`}
+      style={{ width: `${camWidth(Number(a?.camSize), circle)}%` }}
+      className={`pointer-events-none absolute z-[5] shadow-lg shadow-black/50 ${CORNER[a?.camPos ?? ""] ?? CORNER.br} ${circle ? "aspect-square" : "aspect-video"}`}
     />
   );
 }

@@ -116,8 +116,13 @@ export const MAX_ROOMS = 4;
 // pos·shape·mirror 는 카메라를 켤 때 서버가 참여자 표시(camPos·camShape·camMirror)로 적어서 모두 같게 본다 (api/cam)
 export const CAM_POS = ["br", "bl", "tr", "tl", "row"];
 export const CAM_SHAPE = ["rect", "circle"];
+export const CAM_SIZES = [2, 3, 4];
+// 예전에 저장한 1·5단계는 남아 있는 가장 가까운 크기로 옮긴다.
+export const camSize = (size: unknown) => typeof size === "number" && Number.isInteger(size) && size >= 1 && size <= 5 ? Math.max(2, Math.min(4, size)) : 3;
+// 3단계가 기존 크기. 공유 화면 너비에 대한 백분율이라 전체화면에서도 같은 비율이다.
+export const camWidth = (size: unknown, circle: boolean) => (circle ? 16 : 22) + (camSize(size) - 3) * (circle ? 3 : 4);
 // blur: 배경 블러 처리. PC 에서만 쓴다 (app/room/camera.tsx)
-export type CamSettings = { pos: string; shape: string; mirror: boolean; device?: string; facing: "user" | "environment"; blur: boolean };
+export type CamSettings = { pos: string; shape: string; mirror: boolean; device?: string; facing: "user" | "environment"; blur: boolean; size: number };
 const CAM_KEY = "dolive-cam";
 export function savedCam(): CamSettings {
   let s: Partial<CamSettings> = {};
@@ -131,6 +136,7 @@ export function savedCam(): CamSettings {
     device: typeof s.device === "string" ? s.device : undefined,
     facing: s.facing === "environment" ? "environment" : "user",
     blur: s.blur === true,
+    size: camSize(s.size),
   };
 }
 export function saveCam(s: CamSettings) {

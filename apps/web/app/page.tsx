@@ -174,7 +174,7 @@ export default function Home() {
     if (!form.old || room === form.old) setRoom(title);
     loadRooms();
   }
-  // [방 지우기] → "방을 삭제하시겠습니까?" 창에서 [예]면 지운다 (안에 있던 사람은 바로 나가진다)
+  // [삭제] → 확인 창에서 [예]면 지운다 (안에 있던 사람은 바로 나가진다)
   async function deleteRoom() {
     await fetch(`/api/rooms?room=${encodeURIComponent(form.old!)}`, { method: "DELETE" }).catch(() => null);
     askDelete.current?.close();
@@ -472,16 +472,12 @@ export default function Home() {
           </div>
           {form.error && <p className="-my-2 h-4 text-center text-xs text-red-400">{form.error}</p>}
           <div className="mt-1 flex gap-2 border-t border-zinc-700 pt-5">
-            {form.old && (
-              <button type="button" onClick={() => askDelete.current?.showModal()} className="dolive-button dolive-danger rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold hover:bg-red-500"><span className="dolive-button-cap">
-                방 지우기
-              </span></button>
-            )}
             <button disabled={!form.name.trim()} className="dolive-button dolive-primary flex-1 rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500 disabled:opacity-40"><span className="dolive-button-cap text-white">
               {form.old ? "저장" : "만들기"}
             </span></button>
-            <button type="button" onClick={() => roomDlg.current?.close()} className="dolive-button dolive-danger flex-1 rounded-lg bg-zinc-700 py-2 text-sm font-semibold hover:bg-zinc-600"><span className="dolive-button-cap">
-              닫기
+            <button type="button" onClick={() => form.old ? askDelete.current?.showModal() : roomDlg.current?.close()} className="dolive-button dolive-danger flex-1 rounded-lg bg-zinc-700 py-2 text-sm font-semibold hover:bg-zinc-600"><span className="dolive-button-cap">
+              {form.old && <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mr-1.5 size-4"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" /></svg>}
+              {form.old ? "삭제" : "닫기"}
             </span></button>
           </div>
         </form>
@@ -491,7 +487,7 @@ export default function Home() {
         ref={askDelete}
         className="m-auto w-72 rounded-xl bg-zinc-800 p-5 text-zinc-100 ring-1 ring-zinc-700 backdrop:bg-black/60"
       >
-        <p className="mb-10 text-center font-semibold">방을 삭제하시겠습니까?</p>
+        <p className="mb-10 text-center font-semibold">현재 채팅방을 삭제하시겠습니까?</p>
         <div className="flex gap-2">
           <button onClick={deleteRoom} className="dolive-button dolive-danger flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold hover:bg-red-500"><span className="dolive-button-cap">
             예
