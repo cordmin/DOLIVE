@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
 import { PhotoCrop } from "@/components/PhotoCrop";
 import { AVATARS, CUSTOM, DORMS, MAX_ROOMS, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
+import { ROOM_ENTRY_KEY } from "@/lib/roomHistory";
 
 // 방송 목록 한 줄 (api/rooms GET). guest = 비회원도 들어옴, canEdit = 내가 고칠 수 있는 방(내가 만든 방, 마스터는 모든 방. 그때만 password 가 온다)
 type Broadcast = { name: string; locked: boolean; guest: boolean; onAir: boolean; canEdit: boolean; password?: string };
@@ -71,6 +72,7 @@ export default function Home() {
   // sessionStorage는 브라우저에만 있어서 화면이 뜬 뒤(effect)에 읽어야 서버 화면과 어긋나지 않는다
   useEffect(() => {
     // 닉네임은 다시 꺼내 쓰지 않는다 (로그인하면 도름스 닉네임, 로그아웃이면 빈칸. 예전에 쓴 닉네임이 남아 보이지 않게).
+    sessionStorage.removeItem(ROOM_ENTRY_KEY);
     // sessionStorage "name" 은 입장할 때 채팅방(app/room)에 넘겨주는 용도로만 쓴다
     let photo: string | null = null;
     try {
@@ -133,6 +135,7 @@ export default function Home() {
   function go(password: string) {
     sessionStorage.setItem("room", room);
     sessionStorage.setItem("password", password);
+    sessionStorage.setItem(ROOM_ENTRY_KEY, "1");
     // 휴대폰은 입장하면서 주소창·아래 버튼 줄·시계 줄을 모두 숨긴다 (누른 순간에만 허락돼서 여기서. 아이폰은 막혀 있어 그냥 넘어간다).
     // 시계 줄만 남기는 설정(navigationUI "show")은 시계 줄은 그대로 숨기고 아래 버튼 줄만 화면 위에 덮어 입력칸을 가려서 안 쓴다
     if (isPhone()) document.documentElement.requestFullscreen?.().catch(() => {});

@@ -27,6 +27,8 @@ import { CAM_CAPTURE } from "./camera";
 import { MediaControls, SCREEN_SHARE_SOURCE, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
 import { SplitTop, Stage, useAvatarOf } from "./stage";
 import { DonationDialog } from "./donation";
+import { usePhoneAudio } from "./phone-audio";
+import { ROOM_ENTRY_KEY, leaveRoomHistory, watchRoomBack } from "@/lib/roomHistory";
 
 // 방 화면은 여러 파일로 나눠 둔다: chat.tsx(채팅), stage.tsx(공유 화면·프로필 사진 칸), share.tsx(화면공유·마이크), reactions.tsx(하트·ㅋ·헐)
 
@@ -99,7 +101,7 @@ export default function RoomPage() {
 
   useEffect(() => {
     const name = sessionStorage.getItem("name");
-    if (!name) {
+    if (!name || sessionStorage.getItem(ROOM_ENTRY_KEY) !== "1") {
       router.replace("/");
       return;
     }
@@ -111,7 +113,11 @@ export default function RoomPage() {
       .then(async (r) => (r.ok ? r.json() : Promise.reject((await r.json().catch(() => null))?.reason)))
       .then((c) => alive && setConn(c))
       // 도름스 확인에 막히면 다시 로그인하거나 안내 화면으로, 그 밖의 실패(방송이 닫혔거나 비밀번호가 바뀜 등)는 첫 화면으로
-      .catch((reason) => alive && !leaveForDorms(reason) && router.replace("/"));
+      .catch((reason) => {
+        if (!alive) return;
+        sessionStorage.removeItem(ROOM_ENTRY_KEY);
+        if (!leaveForDorms(reason)) router.replace("/");
+      });
     return () => {
       alive = false;
     };
@@ -121,11 +127,12 @@ export default function RoomPage() {
   // 먼저 서버에 물어보고 답이 없으면 이 자리에서 "방송이 끝났어요"를 보여 준다
   const [ended, setEnded] = useState<"" | "end" | "kick">(""); // end = 방송이 끝남, kick = 방장이 내보냄(api/kick)
   function goHome() {
+    sessionStorage.removeItem(ROOM_ENTRY_KEY);
     fetch("/", { method: "HEAD", cache: "no-store", signal: AbortSignal.timeout(3000) }).then(
       (r) => {
         if (!r.ok) return setEnded("end");
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); // 입장할 때 켠 전체화면도 끝낸다
-        router.push("/");
+        leaveRoomHistory(() => router.replace("/"));
       },
       () => setEnded("end"),
     );
@@ -155,9 +162,12 @@ export default function RoomPage() {
       options={ROOM_OPTIONS}
       // 방장이 서버를 끄면서 방을 닫았으면(api/end) 물어볼 것 없이 바로 "방송이 끝났어요"
       // 방장이 내보냈으면(api/kick) "방에서 내보내졌어요"
-      onDisconnected={(reason) =>
-        reason === DisconnectReason.ROOM_DELETED ? setEnded("end") : reason === DisconnectReason.PARTICIPANT_REMOVED ? setEnded("kick") : goHome()
-      }
+      onDisconnected={(reason) => {
+        sessionStorage.removeItem(ROOM_ENTRY_KEY);
+        if (reason === DisconnectReason.ROOM_DELETED) setEnded("end");
+        else if (reason === DisconnectReason.PARTICIPANT_REMOVED) setEnded("kick");
+        else goHome();
+      }}
       onError={(e) => {
         // 다시 붙는 중에 [예]로 내가 끊은 건 오류가 아니다 (바로 "방송이 끝났어요" 화면이 뜬다)
         if (e instanceof ConnectionError && e.reason === ConnectionErrorReason.Cancelled) return;
@@ -182,7 +192,8 @@ export default function RoomPage() {
 //         [참여자 한 줄              | 메시지 입력칸]
 function RoomView({ token }: { token: string }) {
   // 이 방의 방장 노릇(마스터·운영진·방을 만든 사람)과 방 주인. 방장을 넘기면 서버가 표시를 바꿔서 바로 바뀐다 (api/owner)
-  const mine = useParticipantAttributes({ participant: useLocalParticipant().localParticipant }).attributes;
+  const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
+  const mine = useParticipantAttributes({ participant: localParticipant }).attributes;
   const isAdmin = mine?.roomAdmin === "1";
   const isOwner = mine?.owner === "1";
   // 나는 늘 맨 앞(왼쪽), 그다음 마이크를 켠 사람, 나머지는 들어온 순서 그대로. 마이크를 켜고 끄면 바로 자리가 바뀐다.
@@ -200,6 +211,7 @@ function RoomView({ token }: { token: string }) {
     .filter((t) => !t.publication.isMuted)
     .at(-1);
   const room = useRoomContext();
+  usePhoneAudio(room, isMicrophoneEnabled);
   usePauseOldShare();
   useDuckShareAudio();
 
@@ -292,19 +304,18 @@ function RoomView({ token }: { token: string }) {
   }, [room]);
 
   // 뒤로가기를 누르면 바로 나가지 않고 "메인으로 나가시겠습니까?" 창을 먼저 띄운다.
-  // 같은 주소를 한 칸 더 쌓아 두고, 뒤로가기로 그 칸이 빠지면 창을 연다
+  // 확인창용 기록은 한 칸만 두고, 퇴장할 때 함께 정리한다.
   const leave = useRef<HTMLDialogElement>(null);
-  const wentBack = useRef(false);
+  const backGuard = useRef<ReturnType<typeof watchRoomBack> | null>(null);
   useEffect(() => {
-    history.pushState(history.state, "");
-    const onBack = () => { wentBack.current = true; leave.current?.showModal(); };
-    window.addEventListener("popstate", onBack);
-    return () => window.removeEventListener("popstate", onBack);
+    const guard = watchRoomBack(() => {
+      if (!leave.current?.open) leave.current?.showModal();
+    }, () => leave.current?.close());
+    backGuard.current = guard;
+    return () => { guard.dispose(); backGuard.current = null; };
   }, []);
   function stay() {
-    leave.current?.close();
-    if (wentBack.current) history.pushState(history.state, ""); // 뒤로가기로 빠진 칸만 다시 채운다.
-    wentBack.current = false;
+    backGuard.current?.stay();
   }
 
   return (

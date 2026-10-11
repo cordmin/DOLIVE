@@ -1,6 +1,6 @@
 "use client";
 import { useDataChannel } from "@livekit/components-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DonationMascot, DONATION_STYLES, type DonationStyle } from "@/components/DonationMascot";
 
 // 하트·ㅋ·헐 날리기. 기록은 남기지 않고, 그 순간 방에 있는 사람 화면에만 띄운다
@@ -21,6 +21,21 @@ export function useReactions() {
   // 한 번 누르면 7개가 여기저기서 조금씩 늦게 차례로 올라간다. 마구 눌러도 한꺼번에 70개까지만
   const [floats, setFloats] = useState<Float[]>([]);
   const seen = useRef(new Set<string>());
+  const sound = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => () => {
+    sound.current?.pause();
+    sound.current = null;
+  }, []);
+  function playDonationSound() {
+    // 3초 동안 한 번만 튼다. 새 알림은 소리를 겹치거나 다시 시작하지 않는다.
+    if (sound.current) return;
+    const audio = new Audio("/donation-bubbles.mp3");
+    sound.current = audio;
+    const clear = () => { if (sound.current === audio) sound.current = null; };
+    audio.onended = clear;
+    audio.onerror = clear;
+    audio.play().catch(clear);
+  }
   function donation(result: { transferId: string; amount: number }) {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.transferId) || ![1, 2, 3].includes(result.amount) || seen.current.has(result.transferId)) return;
     seen.current.add(result.transferId);
@@ -32,6 +47,7 @@ export function useReactions() {
     const fresh: Float[] = Array.from({ length: result.amount }, (_, i) => ({ id: floatId++, kind: "donation", x: 15 + Math.random() * 60, delay: i * 0.18,
       variant: DONATION_STYLES[(choice + i) % DONATION_STYLES.length].id, sway: 3 + rhythm * 1.5, phase: (rhythm * 3 + i * 0.7) % 3.6 }));
     setFloats((items) => [...items, ...fresh]);
+    playDonationSound();
     setTimeout(() => setFloats((items) => items.filter((item) => !fresh.includes(item))), 10000);
   }
   useDataChannel("dolive-donation", (msg) => {
