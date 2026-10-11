@@ -13,6 +13,19 @@ export const rooms = new RoomServiceClient("http://localhost:7880", process.env.
 export const MIC_CAM = [TrackSource.MICROPHONE, TrackSource.CAMERA];
 export const WITH_SCREEN = [...MIC_CAM, TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO];
 
+// 권한을 바꿀 때는 나머지 허용도 함께 적는다. 공유 허락과 방장 넘기기에 같이 쓴다.
+export const publishPermission = (screen: boolean) => ({
+  canSubscribe: true,
+  canPublish: true,
+  canPublishData: true,
+  canPublishSources: screen ? WITH_SCREEN : MIC_CAM,
+});
+
+// 채팅과 비회원 쿠키의 입장권 모두 같은 서명 확인을 거친다. 확인 실패는 입장권 없음으로 본다.
+export const verifyRoomToken = (token?: string) => token
+  ? new TokenVerifier(process.env.LIVEKIT_API_KEY!, process.env.LIVEKIT_API_SECRET!).verify(token).catch(() => null)
+  : Promise.resolve(null);
+
 const LOOPBACK = ["localhost", "127.0.0.1", "[::1]", "::1", "::ffff:127.0.0.1"];
 
 // 서버 PC에서 localhost로 직접 들어온 사람.
@@ -122,7 +135,7 @@ export async function accessCheck(req: Request) {
   const checked = await dormsCheck(req);
   if (checked.deny?.status !== 401) return checked;
   const token = (await cookies()).get(GUEST_COOKIE)?.value;
-  const c = token ? await new TokenVerifier(process.env.LIVEKIT_API_KEY!, process.env.LIVEKIT_API_SECRET!).verify(token).catch(() => null) : null;
+  const c = await verifyRoomToken(token);
   const room = c?.video?.room;
   if (c?.sub && room && findRoom(room)?.guest && (await rooms.getParticipant(room, c.sub).catch(() => null))) return {};
   return checked;

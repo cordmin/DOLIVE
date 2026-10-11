@@ -1,6 +1,6 @@
-import { DataPacket_Kind, TokenVerifier } from "livekit-server-sdk";
+import { DataPacket_Kind } from "livekit-server-sdk";
 import { CHAT_TOPIC, VOICE_BOT, type ChatMsg } from "@/lib/dolive";
-import { dormsCheck, findRoom, isRoomAdmin, rooms } from "@/lib/server";
+import { dormsCheck, findRoom, isRoomAdmin, rooms, verifyRoomToken } from "@/lib/server";
 import { clearDonationTargets } from "./donationTargets";
 
 // 사람이 남아 있는 동안의 채팅 전부. 방이 비거나 서버를 끄면 지운다. 파일로 저장하지 않는다.
@@ -62,9 +62,7 @@ export function keepImage(id: string, type: string, data: Uint8Array) {
 // 비회원(입장권의 dorms 가 빈칸)은 "비회원도" 방에서만 도름스 로그인 없이 통과한다
 export async function whoSent(req: Request) {
   const token = req.headers.get("authorization")?.replace(/^Bearer /, "");
-  const c = token
-    ? await new TokenVerifier(process.env.LIVEKIT_API_KEY!, process.env.LIVEKIT_API_SECRET!).verify(token).catch(() => null)
-    : null;
+  const c = await verifyRoomToken(token);
   const room = c?.video?.room;
   if (!c?.sub || !room) return { deny: new Response(null, { status: 401 }) };
   const { user, deny } = await dormsCheck(req, { room, identity: c.sub });

@@ -77,15 +77,37 @@ async function main() {
   assert.equal((await login.getDormsUser()).id, subject);
   assert.equal(login.safeDormsNext("//elsewhere.example"), "/");
   const donation = load("lib/dormsDonation.ts", { "next/headers": next, "./dormsLogin": login });
-  await assert.rejects(donation.getDonationStatus(), { reason: "consent_required" });
+  await assert.rejects(donation.getDonationStatus(), { reason: "connection_required" });
   const allow = await donation.beginDonation("https://test.example/", "/room");
   const donationFlow = JSON.parse(Buffer.from(allow.flow, "base64url"));
   assert.equal(new URL(allow.authorizeUrl).searchParams.get("code_challenge"), createHash("sha256").update(donationFlow.verifier).digest("base64url"));
   await assert.rejects(donation.finishDonation("https://test.example/", "code", "wrong", allow.flow), { reason: "authentication_required" });
   const allowed = await donation.finishDonation("https://test.example/", "code", donationFlow.state, allow.flow);
+  const callback = load("app/api/auth/dorms/donation/callback/route.ts", {
+    "@/lib/server": { publicUrl: () => "https://test.example/" },
+    "../../../../../../lib/dormsDonation": donation,
+    "../../../../../../lib/dormsLogin": login,
+  });
+  const callbackResponse = await callback.GET({
+    nextUrl: new URL(`https://test.example/api/auth/dorms/donation/callback?code=code&state=${donationFlow.state}`),
+    cookies: { get: () => ({ value: allow.flow }) },
+  });
+  assert.equal(callbackResponse.headers.get("location"), "https://test.example/room");
+  assert.equal(callbackResponse.cookies.get(donation.DONATION_FLOW_COOKIE).value, "");
+  jar.set(donation.DONATION_COOKIE, callbackResponse.cookies.get(donation.DONATION_COOKIE).value);
+  assert.equal((await donation.getDonationStatus()).dailyRemaining, 3);
   jar.set(donation.DONATION_COOKIE, allowed.value);
   assert.equal(donation.donationCookieOptions(100).httpOnly, true);
   assert.equal((await donation.getDonationStatus()).dailyRemaining, 3);
+  // 이미 허용한 사람이 브라우저 허용증만 잃어도 최초 동의로 오해하지 않는다.
+  jar.delete(donation.DONATION_COOKIE);
+  await assert.rejects(donation.getDonationStatus(), { reason: "connection_required" });
+  const reconnect = await donation.beginDonation("https://test.example/", "/room");
+  const reconnectFlow = JSON.parse(Buffer.from(reconnect.flow, "base64url"));
+  const restored = await donation.finishDonation("https://test.example/", "already-consented-code", reconnectFlow.state, reconnect.flow);
+  jar.set(donation.DONATION_COOKIE, restored.value);
+  assert.equal((await donation.getDonationStatus()).dailyRemaining, 3);
+  assert.equal(sends, 0, "재연결만으로 도름을 보내지 않음");
   const participant = () => ({ sid: "PA_receiver", identity: "receiver", name: "시험 받는 사람", attributes: { dorms: member ? recipient : "", roomAdmin: host ? "1" : "" }, tracks: [{ source: sdk.TrackSource.SCREEN_SHARE, muted: !sharing }] });
   const server = { findRoom: () => ({ owner: owner ? recipient : "" }), rooms: { listParticipants: async () => present ? [participant()] : [], getParticipant: async () => participant(), sendData: async (_room, data, _kind, options) => (options.topic === "dolive-donation" ? announcements : chatAnnouncements).push(JSON.parse(new TextDecoder().decode(data))) }, publicUrl: () => "https://test.example/" };
   const targets = load("lib/donationTargets.ts", { "./server": server });

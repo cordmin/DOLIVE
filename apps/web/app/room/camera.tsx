@@ -83,7 +83,7 @@ const SPOTS = [
   ["br", "오른쪽 아래", "right-[4%] bottom-[7%]"],
 ];
 const ICON = "size-[17px] fill-none stroke-current stroke-[1.8] [stroke-linecap:round] [stroke-linejoin:round]";
-// 블러 처리 그림: 물방울 (흐림·번짐) — 사용자가 고른 시안 2번 (cam_mockups/아이콘_후보.png)
+// 블러 처리 그림: 물방울 (흐림·번짐) — 사용자가 고른 시안 2번
 const BlurIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden className={ICON}>
     <path d="M12 21.5a6.5 6.5 0 0 0 6.5-6.5c0-1.9-.9-3.6-2.8-5.1S12.4 6.2 12 3.5c-.4 2.7-1.8 4.9-3.7 6.4C6.4 11.4 5.5 13.1 5.5 15A6.5 6.5 0 0 0 12 21.5Z" />

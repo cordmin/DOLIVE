@@ -127,7 +127,7 @@
   color: #aba8a4;
   font-weight: 600;
 }
-.tts-rail .peer:checked + .tts-choice, .tts-rail .tts-choice:hover { color: #fff; }
+.tts-rail .peer:checked + .tts-choice, .tts-rail .tts-choice[aria-checked="true"], .tts-rail .tts-choice:hover { color: #fff; }
 .tts-choice > .dolive-button-cap { display: inline-flex; align-items: center; gap: inherit; }
 @media (hover: hover) and (pointer: fine) {
   .dolive-button:hover:not(:disabled)::after { filter: brightness(1.24); }

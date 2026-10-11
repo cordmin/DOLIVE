@@ -7,7 +7,7 @@ const TILE = "tts-choice relative flex min-h-[38px] items-center justify-center 
 const MODE_TEXT: Record<TtsSettings["mode"], string> = { off: "끄기", always: "항상", slash: "/입력" };
 
 // 위 줄 마이크 스위치 왼쪽의 TTS 버튼. 누르면 내 음성 설정 창 (입력 방식, 목소리). 관리자도 똑같다.
-// 이 브라우저에만 기억하고, 글을 보낼 때마다 같이 보내서(chat.tsx) 저장하자마자 다음 글부터 적용된다
+// 이 브라우저에만 기억하고, 글을 보낼 때마다 같이 보내서(messages.ts) 저장하자마자 다음 글부터 적용된다
 export function TtsButton() {
   const box = useRef<HTMLDialogElement>(null);
   const [now, setNow] = useState<TtsSettings | null>(null);

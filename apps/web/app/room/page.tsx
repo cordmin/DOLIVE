@@ -9,28 +9,29 @@ import {
   useParticipants,
   useRoomContext,
   useTracks,
-  useIsMuted,
-  useIsSpeaking,
 } from "@livekit/components-react";
 import { ConnectionError, ConnectionErrorReason, ConnectionState, DisconnectReason, Track, VideoPresets, type Participant, type RoomOptions } from "livekit-client";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
-import { Avatar } from "@/components/Avatar";
 import { Knob } from "@/components/Knob";
 import { Tooltips } from "@/components/Tooltips";
 import { VOICE_BOT, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
-import { ChatInput, ChatLog, useMessages } from "./chat";
-import { MENU_ITEM, NO_SELECT, PopMenu, useHoldMenu } from "./menu";
+import { ChatInput, ChatLog } from "./chat";
 import { useReactions } from "./reactions";
 import { CAM_CAPTURE } from "./camera";
-import { MediaControls, SCREEN_SHARE_SOURCE, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
-import { SplitTop, Stage, useAvatarOf } from "./stage";
+import { MediaControls, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
+import { SplitTop, Stage } from "./stage";
 import { DonationDialog } from "./donation";
+import { donationReturning, DONATION_RETURN_KEY } from "./donation-connection";
 import { usePhoneAudio } from "./phone-audio";
+import { PersonRow } from "./participants";
+import { useMessages } from "./messages";
+import { useSplitChat } from "./split-chat";
 import { ROOM_ENTRY_KEY, leaveRoomHistory, watchRoomBack } from "@/lib/roomHistory";
 
-// 방 화면은 여러 파일로 나눠 둔다: chat.tsx(채팅), stage.tsx(공유 화면·프로필 사진 칸), share.tsx(화면공유·마이크), reactions.tsx(하트·ㅋ·헐)
+// 방 화면: chat.tsx(채팅 화면), messages.ts(채팅 주고받기), participants.tsx(참여자·관리 메뉴), split-chat.ts(채팅 분리 창).
+// stage.tsx(공유 화면·얼굴), share.tsx(화면공유·마이크), camera.tsx(카메라), reactions.tsx(하트·ㅋ·헐).
 
 // 영상은 화면공유와 얼굴(카메라). 안 보이는 영상은 받지 않고, 작게 보이는 영상은 작은 화질로 받음(adaptiveStream).
 // 단, 다른 앱에 갔다 와도 바로 보이게 뒤에 숨어 있는 동안에도 계속 받는다
@@ -96,8 +97,23 @@ function usePhoneLandscape() {
 export default function RoomPage() {
   const router = useRouter();
   const [conn, setConn] = useState<Conn>();
+  const leavingPage = useRef(false);
   useFitVisibleHeight();
   usePhoneLandscape();
+
+  useEffect(() => {
+    // 도름스 허용이나 새로고침으로 화면을 떠날 때는 퇴장 처리로 이동을 가로막지 않는다.
+    const leaving = () => { leavingPage.current = true; };
+    const returned = () => { leavingPage.current = false; };
+    window.addEventListener("beforeunload", leaving);
+    window.addEventListener("pagehide", leaving);
+    window.addEventListener("pageshow", returned);
+    return () => {
+      window.removeEventListener("beforeunload", leaving);
+      window.removeEventListener("pagehide", leaving);
+      window.removeEventListener("pageshow", returned);
+    };
+  }, []);
 
   useEffect(() => {
     const name = sessionStorage.getItem("name");
@@ -163,6 +179,7 @@ export default function RoomPage() {
       // 방장이 서버를 끄면서 방을 닫았으면(api/end) 물어볼 것 없이 바로 "방송이 끝났어요"
       // 방장이 내보냈으면(api/kick) "방에서 내보내졌어요"
       onDisconnected={(reason) => {
+        if (leavingPage.current && reason === DisconnectReason.CLIENT_INITIATED) return;
         sessionStorage.removeItem(ROOM_ENTRY_KEY);
         if (reason === DisconnectReason.ROOM_DELETED) setEnded("end");
         else if (reason === DisconnectReason.PARTICIPANT_REMOVED) setEnded("kick");
@@ -216,7 +233,10 @@ function RoomView({ token }: { token: string }) {
   useDuckShareAudio();
 
   const { floats, react, donation } = useReactions();
-  const [donating, setDonating] = useState(false);
+  const [donating, setDonating] = useState(() => donationReturning(room.name));
+  useEffect(() => {
+    if (donationReturning(room.name)) sessionStorage.removeItem(DONATION_RETURN_KEY);
+  }, [room.name]);
   const { waiting, answer, asked, requestShare } = useShareRequests(isAdmin, participants, token);
 
   // PC 채팅 카드 폭(px). 왼쪽 가장자리를 끌어서 바꾸고, 이 브라우저에만 기억한다. null = 기본 폭
@@ -255,27 +275,8 @@ function RoomView({ token }: { token: string }) {
     handle.addEventListener("pointerup", up);
   }
 
-  // 채팅분리: 화면공유 하는 사람은 다른 프로그램을 보여 주느라 이 창을 못 보니까,
-  // 늘 맨 위에 떠 있는 작은 창(크롬·엣지 PC만 됨)에 채팅을 띄운다.
-  // 창 제목 줄의 주소와 창 투명도는 브라우저가 정하는 거라 바꿀 수 없다
-  const docPip = typeof window !== "undefined" ? (window as { documentPictureInPicture?: DocPip }).documentPictureInPicture : undefined;
-  const [pip, setPip] = useState<Window | null>(null);
-  async function togglePip(on: boolean) {
-    if (!on || !docPip) { pip?.close(); return true; }
-    if (pip && !pip.closed) return true;
-    const w = await docPip.requestWindow({ width: 360, height: 560, disallowReturnToOpener: true }).catch(() => null);
-    if (!w) { alert("채팅 창을 띄울 수 없어요."); return false; }
-    copyStyles(w);
-    w.addEventListener("pagehide", () => setPip(null)); // 작은 창의 X를 눌러 닫았을 때
-    setPip(w);
-    return true;
-  }
-  useEffect(() => () => pip?.close(), [pip]); // 방을 나가면 작은 창도 닫는다
-  // 버튼은 PC 방장이 화면공유 중일 때만 보이고 (일반 참여자는 쓸 일이 없어서), 공유를 끝내면 작은 창도 닫는다
   const { isScreenShareEnabled: sharing } = useLocalParticipant();
-  useEffect(() => {
-    if (!sharing || !isAdmin) pip?.close(); // 방장을 넘겨도 닫힌다
-  }, [sharing, isAdmin, pip]);
+  const { pip, docPip, togglePip } = useSplitChat(sharing, isAdmin);
   // PC와 휴대폰 모두 전체화면 버튼으로 켜고 끈다.
   const [fullscreen, setFullscreen] = useState(false);
   const [canFullscreen, setCanFullscreen] = useState(false);
@@ -331,10 +332,10 @@ function RoomView({ token }: { token: string }) {
         <p className="mb-5 text-center font-semibold">메인으로 나가시겠습니까?</p>
         {/* 버튼의 얇은 테두리까지 포함해, 사이 간격과 아래 여백을 맞춘다. */}
         <div className="flex gap-[21px]">
-          <button onClick={() => room.disconnect()} className="dolive-button dolive-danger flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold hover:bg-red-500"><span className="dolive-button-cap">
+          <button onClick={() => room.disconnect()} className="dolive-button flex-1 rounded-lg bg-zinc-700 py-2 text-sm font-semibold hover:bg-zinc-600"><span className="dolive-button-cap">
             예
           </span></button>
-          <button onClick={stay} className="dolive-button flex-1 rounded-lg bg-zinc-700 py-2 text-sm hover:bg-zinc-600"><span className="dolive-button-cap">
+          <button onClick={stay} className="dolive-button dolive-danger flex-1 rounded-lg bg-red-600 py-2 text-sm hover:bg-red-500"><span className="dolive-button-cap">
             아니오
           </span></button>
         </div>
@@ -528,115 +529,3 @@ function RoomView({ token }: { token: string }) {
     </>
   );
 }
-
-type DocPip = { requestWindow(size: { width: number; height: number; disallowReturnToOpener?: boolean }): Promise<Window> };
-
-// 작은 창은 빈 페이지라서, 이 페이지의 꾸밈(색·글꼴·배치)을 그대로 옮겨 준다
-function copyStyles(w: Window) {
-  for (const s of document.styleSheets) {
-    try {
-      const el = w.document.createElement("style");
-      el.textContent = [...s.cssRules].map((r) => r.cssText).join("\n");
-      w.document.head.append(el);
-    } catch {
-      // 다른 주소에서 온 꾸밈은 내용을 못 읽어서 주소째 붙인다
-      const el = w.document.createElement("link");
-      el.rel = "stylesheet";
-      el.href = s.href ?? "";
-      w.document.head.append(el);
-    }
-  }
-  w.document.documentElement.className = document.documentElement.className;
-  w.document.body.className = document.body.className;
-}
-
-
-// 방장은 다른 사람 줄을 오른쪽 클릭(휴대폰은 꾹 누르기)하면 메뉴가 뜬다 (말풍선 메뉴와 같은 모양):
-// [공유 권한 주기](요청 없이 바로. 이미 있으면 [공유 권한 거두기], 다른 방장은 원래 있어서 안 보임) [마이크 끄기] [카메라 끄기](켜져 있을 때만) [강퇴하기].
-// 서버(api/share·mute·kick)가 방장인지 다시 확인한다. 바로 받은 공유 권한도 승인받은 것과 같아서, 공유를 끝내면 도로 거둔다 (share.tsx)
-const PERSON_ACTIONS = {
-  share: { url: "/api/share", fail: "공유 권한을 바꾸지 못했어요." },
-  mute: { url: "/api/mute", fail: "마이크를 끄지 못했어요." },
-  cam: { url: "/api/mute", fail: "카메라를 끄지 못했어요." },
-  kick: { url: "/api/kick", fail: "내보내지 못했어요." },
-  owner: { url: "/api/owner", fail: "방장을 넘기지 못했어요. 그 사람이 이미 만든 방이 있을 수 있어요." },
-};
-function PersonRow({ p, isAdmin, isOwner, token }: { p: Participant; isAdmin: boolean; isOwner: boolean; token: string }) {
-  const speaking = useIsSpeaking(p);
-  const muted = useIsMuted({ participant: p, source: Track.Source.Microphone });
-  const camOff = useIsMuted({ participant: p, source: Track.Source.Camera });
-  const room = useRoomContext();
-  const [menuAt, setMenuAt] = useState<Element | null>(null);
-  const hold = useHoldMenu();
-  const hasMenu = isAdmin && !p.isLocal;
-  const otherAdmin = p.attributes?.roomAdmin === "1";
-  const canShare = !!p.permissions?.canPublishSources.includes(SCREEN_SHARE_SOURCE);
-
-  async function act(what: keyof typeof PERSON_ACTIONS) {
-    setMenuAt(null);
-    const { url, fail } = PERSON_ACTIONS[what];
-    const body = { room: room.name, identity: p.identity, ...(what === "share" ? { allow: !canShare } : {}), ...(what === "cam" ? { camera: true } : {}) };
-    const r = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
-    if (!r.ok) alert(fail);
-  }
-
-  return (
-    // 사진 + 이름. 마이크는 사진 구석 점, 말하는 중은 초록 테두리.
-    // PC 맨 위 줄: 평소 사진은 38px, 펼치면 47px. 이름은 오른쪽 버튼 설명과 같은 11px
-    // 휴대폰 목록: 나는 사진 아래에 걸친 ME (이름 옆에 붙이면 이름이 잘려서). PC 는 내 닉네임을 금색으로 표시
-    <div
-      {...(hasMenu ? hold(setMenuAt) : {})}
-      className={`${hasMenu ? NO_SELECT : ""} flex items-center gap-2 rounded p-1 hover:bg-zinc-800 md:w-[4.5rem] md:shrink-0 md:flex-col md:gap-1.5`}
-    >
-      <div className="relative shrink-0">
-        <Avatar
-          id={useAvatarOf(p)}
-          talking={speaking && !muted}
-          mic={!muted}
-          px={47}
-          className="w-10 md:w-[38px] md:transition-[width] md:duration-300 md:ease-out md:strip-open:w-[47px]"
-        />
-        {p.isLocal && (
-          <span className="absolute -bottom-1.5 left-1/2 md:hidden -translate-x-1/2 rounded-full bg-indigo-600 px-1 text-[10px] leading-[14px] font-bold ring-2 ring-zinc-900">
-            ME
-          </span>
-        )}
-      </div>
-      {/* PC 는 내 닉네임만 호박빛 금색으로 구분한다 */}
-      <div
-        className={`min-w-0 truncate text-sm md:w-full md:text-center md:text-[11px] ${p.isLocal ? "md:text-[#e8b46a]" : "md:text-[#a39f98]"}`}
-      >
-        {p.name}
-      </div>
-      {hasMenu && (
-        <PopMenu at={menuAt} onClose={() => setMenuAt(null)}>
-          {!otherAdmin && (
-            <button type="button" onClick={() => act("share")} className={MENU_ITEM}>
-              {canShare ? "공유 권한 거두기" : "공유 권한 주기"}
-            </button>
-          )}
-          {!muted && (
-            <button type="button" onClick={() => act("mute")} className={MENU_ITEM}>
-              마이크 끄기
-            </button>
-          )}
-          {!camOff && (
-            <button type="button" onClick={() => act("cam")} className={MENU_ITEM}>
-              카메라 끄기
-            </button>
-          )}
-          {/* 방 주인만, 도름스 회원에게만 (비회원은 다음에 알아볼 수가 없어서) */}
-          {isOwner && !!p.attributes?.dorms && (
-            <button type="button" onClick={() => act("owner")} className={MENU_ITEM}>
-              방장 넘기기
-            </button>
-          )}
-          <button type="button" onClick={() => act("kick")} className={`${MENU_ITEM} text-red-400`}>
-            강퇴하기
-          </button>
-        </PopMenu>
-      )}
-    </div>
-  );
-}
-

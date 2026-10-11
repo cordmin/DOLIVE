@@ -5,6 +5,7 @@ import { Knob } from "@/components/Knob";
 import { VOICE_BOT, VOICE_ON } from "@/lib/dolive";
 import { CameraKnob } from "./camera";
 import { TtsButton } from "./tts";
+import { MicrophoneKnob } from "./microphone";
 
 // 화면공유는 720p와 낮은 화질을 같이 보내고,
 // 보는 사람 인터넷이 느려서 끊기면 서버가 그 사람에게만 낮은 쪽으로 자동으로 바꿔 보낸다.
@@ -128,7 +129,7 @@ export function useShareRequests(isAdmin: boolean, participants: Participant[], 
 // 화면공유 버튼: 방장은 바로 공유. 다른 사람은 [화면공유 -> 요청 중... -> (방장 승인) -> 지금 공유하기] 순서.
 // (승인이 나도 공유 고르는 창은 본인이 버튼을 눌러야 열린다 - 브라우저 규칙)
 export function MediaControls({ asked, requestShare, token }: { asked: boolean; requestShare: () => void; token: string }) {
-  const { localParticipant: me, isMicrophoneEnabled, isScreenShareEnabled } = useLocalParticipant();
+  const { localParticipant: me, isScreenShareEnabled } = useLocalParticipant();
   const canShare = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
   const sources = useLocalParticipantPermissions()?.canPublishSources ?? [];
   const allowed = sources.length === 0 || sources.includes(SCREEN_SHARE_SOURCE); // 빈 목록 = 다 보낼 수 있음(방장)
@@ -215,22 +216,7 @@ export function MediaControls({ asked, requestShare, token }: { asked: boolean; 
       )}
       <TtsButton />
       <CameraKnob token={token} />
-      {/* 마이크: 휴대폰은 켜짐·꺼짐을 링과 빗금으로 표시한다. */}
-      <Knob
-        compactMobile
-        role="switch"
-        aria-checked={isMicrophoneEnabled}
-        label="마이크"
-        led={isMicrophoneEnabled ? "green" : "red"}
-        onClick={() => run(() => me.setMicrophoneEnabled(!isMicrophoneEnabled), "마이크")}
-        icon={
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden className="size-[17px]">
-            <rect x="9" y="3" width="6" height="11" rx="3" />
-            <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-            {!isMicrophoneEnabled && <path className="md:hidden" d="M20 4 4 20" stroke="#ffffff" strokeWidth="2.2" />}
-          </svg>
-        }
-      />
+      <MicrophoneKnob />
     </>
   );
 }

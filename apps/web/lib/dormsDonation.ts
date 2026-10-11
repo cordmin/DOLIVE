@@ -62,9 +62,9 @@ export async function finishDonation(requestUrl: string, code: string | null, st
 async function credential() {
   const current = await session();
   const saved = decode<Credential>((await cookies()).get(DONATION_COOKIE)?.value);
-  // 처음 허용과 허용 기간이 끝난 경우를 화면에서 따로 알려 준다.
+  // 이 브라우저의 허용증이 없다는 것만으로 도름스에서 처음 허용하는 회원이라고 판단하지 않는다.
   if (saved && (saved.session !== current.hash || (Number.isInteger(saved.expiresAt) && saved.expiresAt <= now()))) throw new DormsDonationError("permission_expired", 403);
-  if (!saved || saved.session !== current.hash || !Number.isInteger(saved.expiresAt) || saved.expiresAt <= now() || typeof saved.token !== "string" || saved.token.length < 32 || saved.token.length > 1024) throw new DormsDonationError("consent_required", 403);
+  if (!saved || saved.session !== current.hash || !Number.isInteger(saved.expiresAt) || saved.expiresAt <= now() || typeof saved.token !== "string" || saved.token.length < 32 || saved.token.length > 1024) throw new DormsDonationError("connection_required", 403);
   return { token: saved.token, subject: current.user.id };
 }
 function balances(body: Record<string, unknown>) {

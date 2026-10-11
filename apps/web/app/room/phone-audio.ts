@@ -2,13 +2,19 @@ import { useEffect } from "react";
 import type { Room } from "livekit-client";
 import { isPhone } from "@/lib/dolive";
 
+// 권한을 묻거나 마이크를 잡기 전에 통화용 소리임을 알린다.
+export function preparePhoneMicrophone(enabled: boolean) {
+  if (!isPhone()) return;
+  const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+  if (session) session.type = enabled ? "play-and-record" : "playback";
+}
+
 // 휴대폰에 계속 듣는 소리임을 알린다. 브라우저가 연결 자체를 멈추는 것까지 막지는 못한다.
 export function usePhoneAudio(room: Room, microphone: boolean) {
   useEffect(() => {
     if (!isPhone()) return;
     const audioSession = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
     const previousType = audioSession?.type;
-    if (audioSession) audioSession.type = microphone ? "play-and-record" : "playback";
     const mediaSession = navigator.mediaSession;
     const previousMetadata = mediaSession?.metadata;
     if (mediaSession && typeof MediaMetadata !== "undefined") {
@@ -26,5 +32,6 @@ export function usePhoneAudio(room: Room, microphone: boolean) {
       if (audioSession && previousType !== undefined) audioSession.type = previousType;
       if (mediaSession) mediaSession.metadata = previousMetadata ?? null;
     };
-  }, [room, microphone]);
+  }, [room]);
+  useEffect(() => preparePhoneMicrophone(microphone), [room, microphone]);
 }

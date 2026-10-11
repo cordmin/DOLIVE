@@ -8,22 +8,15 @@ import {
   useTracks,
   type TrackReference,
 } from "@livekit/components-react";
-import { ConnectionQuality, RoomEvent, Track, type Participant } from "livekit-client";
+import { ConnectionQuality, RoomEvent, Track } from "livekit-client";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
-import { avatarOf, isPhone } from "@/lib/dolive";
+import { isPhone } from "@/lib/dolive";
 import { gridFit, pageOf, rowFit } from "@/lib/faces";
 import { Floats, type Float } from "./reactions";
-import { SCREEN_SHARE_SOURCE } from "./share";
 
-export function useAvatarOf(p: Participant) {
-  useParticipantAttributes({ participant: p });
-  return avatarOf(p.attributes?.avatar);
-}
-
-// 가운데 위쪽: 화면공유가 있으면 공유 화면, 없으면 "LIVE 방송 준비 중" 안내.
+// 가운데 위쪽: 화면공유가 있으면 공유 화면, 없으면 얼굴 바둑판. 켜진 카메라도 없으면 "LIVE 방송 준비 중" 안내.
 // 화면공유 중이면 공유하는 사람 얼굴은 공유 화면 구석에(방송인처럼, 그 사람이 고른 자리·모양), 나머지 얼굴은 공유 화면 아래 한 줄.
-// 공유가 없을 때: 방장(화면공유를 할 수 있는 사람)이 구석 자리로 카메라를 켰으면 안내 화면을 공유 화면처럼 쓰고 그 구석에 얼굴을 띄운다
-// (나머지 얼굴은 아래 한 줄). 그런 방장이 없으면 카메라 켠 사람들 얼굴 바둑판.
+// 공유가 없을 때는 얼굴 위치 설정과 관계없이 카메라 켠 사람들 모두 얼굴 바둑판.
 // 자리가 모자라면 공유 화면이 줄어든다. 휴대폰은 채팅 내용이 그 아래, PC는 오른쪽.
 export function Stage({ screen, floats, confirmShare }: { screen?: TrackReference; floats: Float[]; confirmShare: () => Promise<boolean> }) {
   const cams = useCams();
@@ -32,7 +25,7 @@ export function Stage({ screen, floats, confirmShare }: { screen?: TrackReferenc
   const corner = (c: TrackReference) => c.participant.attributes?.camPos !== "row";
   const onScreen = screen
     ? cams.find((c) => c.participant.identity === screen.participant.identity && corner(c))
-    : cams.find((c) => canShare(c.participant) && corner(c));
+    : undefined;
   const row = cams.filter((c) => c !== onScreen);
   return (
     <div
@@ -52,7 +45,7 @@ export function Stage({ screen, floats, confirmShare }: { screen?: TrackReferenc
             )}
           </ScreenView>
         </div>
-      ) : cams.length && !onScreen ? (
+      ) : cams.length ? (
         <FaceGrid cams={cams} />
       ) : (
         <>
@@ -70,11 +63,10 @@ export function Stage({ screen, floats, confirmShare }: { screen?: TrackReferenc
               <span className="size-2.5 animate-pulse rounded-full bg-red-500 md:size-3" />
               <span><span className="text-red-500">LIVE</span> 방송 준비 중</span>
             </div>
-            {onScreen && <FaceOverlay cam={onScreen} />}
           </div>
         </>
       )}
-      {(screen || onScreen) && row.length > 0 && <FaceRow cams={row} />}
+      {screen && row.length > 0 && <FaceRow cams={row} />}
       {/* 공유 화면이 없으면 이 칸 안에서 띄운다. 있으면 공유 화면 안에서 띄운다. */}
       {!screen && <Floats floats={floats} />}
     </div>
@@ -117,12 +109,6 @@ function ShareNotice({ confirm, close }: { confirm: () => Promise<boolean>; clos
         <button ref={button} type="button" disabled={busy} onClick={accept} className="dolive-button dolive-danger mt-10 h-[42px] w-36 rounded-[12px] border border-[#75664b] bg-[#393631] text-sm text-white transition hover:bg-[#454037] disabled:opacity-50"><span className="dolive-button-cap text-white">닫기</span></button>
       </dialog>
   );
-}
-
-// 화면공유를 할 수 있는 사람 (방장·허락받은 사람. 빈 목록 = 다 보낼 수 있음)
-function canShare(p: Participant) {
-  const s = p.permissions?.canPublishSources;
-  return !!s && (s.length === 0 || s.includes(SCREEN_SHARE_SOURCE));
 }
 
 // 참여자 표시·권한·마이크가 바뀌면 다시 그린다 (useTracks 는 카메라 영상이 바뀔 때만 다시 그려서)

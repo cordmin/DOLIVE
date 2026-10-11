@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 
-// 말풍선 메뉴(chat.tsx)와 참여자 메뉴(page.tsx PersonRow)가 같이 쓰는 작은 메뉴
+// 말풍선 메뉴(chat.tsx)와 참여자 메뉴(participants.tsx)가 같이 쓰는 작은 메뉴
 
 // 메뉴 한 칸. 칸 사이(9px)의 한가운데에 짧은 세로선 (첫 칸 빼고 왼쪽에 before 로 그린다)
 export const MENU_ITEM =

@@ -7,19 +7,22 @@ function setup(phone, microphone, supported = true) {
   const document = new EventTarget(); document.visibilityState = 'visible';
   const window = new EventTarget();
   const navigator = supported ? { audioSession: { type: 'auto' }, mediaSession: { metadata: { title: '이전 소리' } } } : {};
-  let cleanup, plays = 0;
+  const cleanups = []; let plays = 0;
   const context = { exports: {}, navigator, document, window, MediaMetadata: class { constructor(value) { Object.assign(this, value); } }, require(name) {
-    if (name === 'react') return { useEffect(effect) { cleanup = effect(); } };
+    if (name === 'react') return { useEffect(effect) { const cleanup = effect(); if (cleanup) cleanups.push(cleanup); } };
     if (name === '@/lib/dolive') return { isPhone: () => phone };
     throw new Error(name);
   } };
   vm.runInNewContext(code, context);
   context.exports.usePhoneAudio({ name: '시험 방송', startAudio() { plays++; return Promise.resolve(); } }, microphone);
-  return { navigator, document, window, cleanup, plays: () => plays };
+  return { navigator, document, window, cleanup: cleanups.length ? () => cleanups.reverse().forEach((c) => c()) : undefined, prepare: context.exports.preparePhoneMicrophone, plays: () => plays };
 }
 for (const microphone of [false, true]) {
   const s = setup(true, microphone);
   assert.equal(s.navigator.audioSession.type, microphone ? 'play-and-record' : 'playback');
+  s.prepare(true);
+  assert.equal(s.navigator.audioSession.type, 'play-and-record');
+  s.prepare(microphone);
   assert.equal(s.navigator.mediaSession.metadata.artist, '시험 방송');
   s.document.visibilityState = 'hidden'; s.document.dispatchEvent(new Event('visibilitychange'));
   assert.equal(s.plays(), 0);

@@ -11,6 +11,7 @@ const env = { LIVEKIT_API_KEY: "test", LIVEKIT_API_SECRET: "test-secret-test-sec
 let file = "비회원 방\t\tguest\n옛 방\t암호\tstaff"; // 마지막 줄 = 예전 형식(운영 권한 칸)도 회원만으로 읽힌다
 let written = null;
 let user; // 지금 로그인한 도름스 회원 (없으면 비회원)
+let guestToken;
 const people = new Map(); // 방 이름 → 통화 서버에 있는 사람들
 const updated = [];
 const ended = [];
@@ -49,13 +50,14 @@ const fakeFs = {
 };
 const server = load("lib/server.ts", {
   "node:fs": fakeFs,
-  "next/headers": { cookies: async () => ({ get: () => undefined }) },
+  "next/headers": { cookies: async () => ({ get: () => guestToken ? { value: guestToken } : undefined }) },
   "@/lib/dormsLogin": { DormsAuthError, getDormsUser: async () => user },
   "livekit-server-sdk": { ...sdk, RoomServiceClient: lk },
 });
 let sender = {};
 const chat = { clearEmptyRoom: async () => false, keepImage: () => {}, endRoom: async (n) => void ended.push(n), whoSent: async () => sender };
 const dolive = load("lib/dolive.ts", {});
+const chatAuth = load("lib/chat.ts", { "@/lib/server": server, "@/lib/dolive": dolive, "./donationTargets": { clearDonationTargets: () => {} } });
 const token = load("app/api/token/route.ts", { "@/lib/server": server, "@/lib/chat": chat, "@/lib/dolive": dolive });
 const roomsApi = load("app/api/rooms/route.ts", { "@/lib/server": server, "@/lib/chat": chat, "@/lib/dolive": dolive });
 const ownerApi = load("app/api/owner/route.ts", { "@/lib/server": server, "@/lib/chat": chat });
@@ -89,6 +91,27 @@ const B = { id: "b", name: "다라" };
   const g = await claims(await ticket("비회원 방"));
   assert.equal(g.c.attributes.dorms, "");
   assert.match(g.res.headers.get("set-cookie"), /^dolive_guest=/);
+  // 공통 입장권 확인: 서명이 틀리거나 입장권이 없으면 거절. 옛 입장권도 퇴장 뒤에는 쓸 수 없다.
+  assert.equal(await server.verifyRoomToken(), null);
+  assert.equal(await server.verifyRoomToken("가짜 입장권"), null);
+  assert.equal((await server.verifyRoomToken(g.body.token)).sub, g.c.sub);
+  const parts = g.body.token.split(".");
+  parts[2] = (parts[2][0] === "a" ? "b" : "a") + parts[2].slice(1);
+  assert.equal(await server.verifyRoomToken(parts.join(".")), null);
+  const guestRequest = req("/api/chat", "GET");
+  guestRequest.headers.set("authorization", `Bearer ${g.body.token}`);
+  assert.equal((await chatAuth.whoSent(guestRequest)).deny.status, 403);
+  people.set("비회원 방", [{ identity: g.c.sub }]);
+  assert.equal((await chatAuth.whoSent(guestRequest)).room, "비회원 방");
+  guestToken = g.body.token;
+  assert.equal((await server.accessCheck(guestRequest)).deny, undefined);
+  people.delete("비회원 방");
+  assert.equal((await chatAuth.whoSent(guestRequest)).deny.status, 403);
+  assert.equal((await server.accessCheck(guestRequest)).deny.status, 401);
+  guestToken = undefined;
+  // 전체 권한을 갱신해도 마이크·카메라·채팅 허용은 그대로다.
+  assert.deepEqual(plain(server.publishPermission(false)), { canSubscribe: true, canPublish: true, canPublishData: true, canPublishSources: [sdk.TrackSource.MICROPHONE, sdk.TrackSource.CAMERA] });
+  assert.deepEqual(plain(server.publishPermission(true).canPublishSources), [sdk.TrackSource.MICROPHONE, sdk.TrackSource.CAMERA, sdk.TrackSource.SCREEN_SHARE, sdk.TrackSource.SCREEN_SHARE_AUDIO]);
   assert.equal((await roomsApi.PUT(req("/api/rooms", "PUT", { name: "비회원이 만든 방" }))).status, 401);
 
   // 일반 회원: 마이크만, 방장 아님. 비밀번호 방은 비밀번호가 맞아야

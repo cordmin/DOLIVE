@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DonationResult, DonationStatus } from "@/lib/dormsDonation";
 import type { DonationRecipient } from "@/lib/donationTargets";
+import { DONATION_CONNECT_HREF, finishDonationConnection, rememberDonationReturn, restoreDonationConnection } from "./donation-connection";
 
 const messages: Record<string, string> = {
   approval_required: "도름네이션을 신청하고 승인을 받아야 사용할 수 있어요.",
@@ -10,8 +11,9 @@ const messages: Record<string, string> = {
   approval_suspended: "도름네이션 사용이 중단되어 있어요.",
   authentication_required: "도름스로 로그인해 주세요.",
   consent_required: "처음 한 번 도름스에서 보내기를 허용해 주세요.",
-  invalid_token: "보내기 권한이 끝났어요. 도름스에서 다시 허용해 주세요.",
-  permission_expired: "보내기 허용 기간이 끝났어요. 도름스에서 다시 허용해 주세요.",
+  connection_required: "도름네이션 연결을 다시 확인해 주세요. 브라우저가 연결 기록을 저장하지 못했을 수 있어요.",
+  invalid_token: "도름네이션 연결을 다시 확인해 주세요.",
+  permission_expired: "도름네이션 연결을 다시 확인해 주세요.",
   access_denied: "허용이 취소되었거나 사용이 막혔어요. 도름스에서 확인해 주세요.",
   insufficient_dorms: "사용할 수 있는 도름이 부족해요.",
   insufficient_balance: "사용할 수 있는 도름이 부족해요.",
@@ -65,8 +67,11 @@ export function DonationDialog({ token, room, target, close, success, isGuest = 
     fetch("/api/auth/dorms/donation/status", { cache: "no-store" }).then(async (response) => {
       const body = await response.json();
       if (!alive) return;
-      if (!response.ok) { setReason(body.reason); setMessage(messages[body.reason] ?? "도름스에 연결하지 못했어요. 잠시 뒤 다시 확인해 주세요."); }
-      else { setStatus(body); setMessage(""); }
+      if (!response.ok) {
+        if (restoreDonationConnection(body.reason, room)) return;
+        setReason(body.reason); setMessage(messages[body.reason] ?? "도름스에 연결하지 못했어요. 잠시 뒤 다시 확인해 주세요.");
+      }
+      else { finishDonationConnection(room); setStatus(body); setMessage(""); }
     }).catch(() => { if (alive) setMessage("도름스에 연결하지 못했어요. 잠시 뒤 다시 확인해 주세요."); }).finally(() => { if (alive) setChecking(false); });
     return () => { alive = false; };
   }, []);
@@ -119,7 +124,7 @@ export function DonationDialog({ token, room, target, close, success, isGuest = 
       <h2 className="mb-6 text-center font-bold">도름네이션 최초 권한 요청</h2>
       <div className="flex gap-4">
         <button type="button" onClick={close} className="dolive-button dolive-danger flex h-11 flex-1 items-center justify-center rounded-full border border-zinc-600 text-zinc-300 transition hover:bg-zinc-700/50 hover:text-white active:scale-95"><span className="dolive-button-cap">반려</span></button>
-        {example ? <button type="button" className="dolive-button dolive-primary donation-send flex h-11 flex-1 items-center justify-center rounded-full font-semibold text-[#29231a]" onClick={() => { setStatus({ subject: "예시 보낸 사람", availableBalance: 8, dailyRemaining: 3, resetsAt: "예시" }); setReason(""); setMessage(""); }}><span className="dolive-button-cap">허용</span></button> : <a className="dolive-button dolive-primary donation-send flex h-11 flex-1 items-center justify-center rounded-full font-semibold text-[#29231a]" href="/api/auth/dorms/donation/start?next=%2Froom"><span className="dolive-button-cap">허용</span></a>}
+        {example ? <button type="button" className="dolive-button dolive-primary donation-send flex h-11 flex-1 items-center justify-center rounded-full font-semibold text-[#29231a]" onClick={() => { setStatus({ subject: "예시 보낸 사람", availableBalance: 8, dailyRemaining: 3, resetsAt: "예시" }); setReason(""); setMessage(""); }}><span className="dolive-button-cap">허용</span></button> : <a className="dolive-button dolive-primary donation-send flex h-11 flex-1 items-center justify-center rounded-full font-semibold text-[#29231a]" href={DONATION_CONNECT_HREF} onClick={() => rememberDonationReturn(room)}><span className="dolive-button-cap">허용</span></a>}
       </div>
     </> : <>
     <h2 className="mb-4 text-center font-bold">{selected && !self && !unavailable ? `${selected.name}님에게 도름네이션 해요!` : "도름네이션"}</h2>
@@ -144,11 +149,14 @@ export function DonationDialog({ token, room, target, close, success, isGuest = 
     {info && !(dailyExhausted && info === messages.daily_limit) && !(balanceExhausted && info === messages.insufficient_dorms) && <p role="status" className="mt-6 mb-4 text-center text-sm text-zinc-400">{info}</p>}
     {pending && <p className="mb-3 text-xs text-zinc-400">이전 보내기 결과를 확인할 때까지 받는 사람과 금액은 바꿀 수 없어요.</p>}
     {reason === "authentication_required" && <a className="mb-3 block text-center text-amber-300" href="/api/auth/dorms/start?next=%2Froom">DoRms로 로그인</a>}
-    {["invalid_token", "permission_expired"].includes(reason) && <a className="dolive-button dolive-primary donation-send mb-3 flex h-11 items-center justify-center rounded-full font-semibold text-[#29231a]" href="/api/auth/dorms/donation/start?next=%2Froom"><span className="dolive-button-cap">도름스 보내기 허용</span></a>}
+    {["connection_required", "invalid_token", "permission_expired"].includes(reason) && <a className="dolive-button dolive-primary donation-send mb-3 flex h-11 items-center justify-center rounded-full font-semibold text-[#29231a]" href={DONATION_CONNECT_HREF} onClick={() => rememberDonationReturn(room)}><span className="dolive-button-cap">연결 다시 확인</span></a>}
     {reason === "access_denied" && <a className="mb-3 block text-center text-amber-300" href="https://dorms.school/connect" target="_blank" rel="noopener noreferrer">도름스에서 연결 확인</a>}
     </div>
     </div>
-    <div className="mt-6 flex gap-4"><button type="button" onClick={close} className="dolive-button dolive-danger flex h-11 flex-1 items-center justify-center rounded-full border border-zinc-600 text-zinc-300 transition hover:bg-zinc-700/50 hover:text-white active:scale-95"><span className="dolive-button-cap">닫기</span></button>{!self && <button type="button" onClick={send} disabled={checking || busy || !status || !selected?.recipientId || !!self || !!another || !!unavailable} className="dolive-button dolive-primary donation-send flex h-11 flex-[2] items-center justify-center rounded-full font-semibold text-[#29231a] disabled:opacity-40"><span className="dolive-button-cap">{busy ? "확인 중…" : pending ? "결과 다시 확인" : "보내기"}</span></button>}</div>
+    <div className="mt-6 flex gap-4">
+      {!self && <button type="button" onClick={send} disabled={checking || busy || !status || !selected?.recipientId || !!self || !!another || !!unavailable} className="dolive-button dolive-primary donation-send flex h-11 flex-1 items-center justify-center rounded-full font-semibold text-[#29231a] disabled:opacity-40"><span className="dolive-button-cap text-white">{busy ? "확인 중…" : pending ? "결과 다시 확인" : "보내기"}</span></button>}
+      <button type="button" onClick={close} className="dolive-button dolive-danger flex h-11 flex-1 items-center justify-center rounded-full border border-zinc-600 text-zinc-300 transition hover:bg-zinc-700/50 hover:text-white active:scale-95"><span className="dolive-button-cap">닫기</span></button>
+    </div>
     </>}
   </dialog>, document.body);
 }

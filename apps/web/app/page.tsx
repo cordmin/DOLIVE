@@ -417,7 +417,7 @@ export default function Home() {
           </div>
         </form>
       </dialog>
-      {/* 방 만들기·설정: Esc 나 [취소]로 닫힌다. 고르는 칸(입장 권한)은 어두운 홈 안에서 고른 쪽만 밝게 (아래 버튼들과 다르게 보이게) */}
+      {/* 방 만들기·설정: Esc 나 [닫기]로 닫힌다. 고르는 칸(입장 권한)은 어두운 홈 안에서 고른 쪽만 밝게 (아래 버튼들과 다르게 보이게) */}
       <dialog
         ref={roomDlg}
         className="m-auto w-80 max-w-[calc(100%-2rem)] rounded-xl bg-zinc-800 p-5 text-zinc-100 ring-1 ring-zinc-700 backdrop:bg-black/60"
@@ -471,11 +471,11 @@ export default function Home() {
                 방 지우기
               </span></button>
             )}
-            <button type="button" onClick={() => roomDlg.current?.close()} className="dolive-button dolive-danger flex-1 rounded-lg bg-zinc-700 py-2 text-sm font-semibold hover:bg-zinc-600"><span className="dolive-button-cap">
-              취소
-            </span></button>
             <button disabled={!form.name.trim()} className="dolive-button dolive-primary flex-1 rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500 disabled:opacity-40"><span className="dolive-button-cap text-white">
               {form.old ? "저장" : "만들기"}
+            </span></button>
+            <button type="button" onClick={() => roomDlg.current?.close()} className="dolive-button dolive-danger flex-1 rounded-lg bg-zinc-700 py-2 text-sm font-semibold hover:bg-zinc-600"><span className="dolive-button-cap">
+              닫기
             </span></button>
           </div>
         </form>

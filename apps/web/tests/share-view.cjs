@@ -8,14 +8,14 @@ const source = ts.createSourceFile("stage.tsx", fs.readFileSync(path.join(__dirn
 const names = ["Stage", "ShareNotice", "SplitTop"];
 const code = source.statements.filter((s) => ts.isFunctionDeclaration(s) && names.includes(s.name?.text)).map((s) => s.getText(source)).join("\n");
 const js = ts.transpileModule(code, { compilerOptions: { jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS } }).outputText;
-let states = [], cursor = 0, saved = null, effects = [];
+let states = [], cursor = 0, saved = null, effects = [], cams = [];
 const useState = (initial) => {
   const i = cursor++;
   if (!(i in states)) states[i] = typeof initial === "function" ? initial() : initial;
   return [states[i], (value) => states[i] = value];
 };
 const hooks = new Function("React", "useState", "useRef", "useEffect", "useCams", "useRoomTick", "useLocalParticipant", "localStorage", "SPLIT_KEY", "ScreenView", "FaceOverlay", "FaceRow", "FaceGrid", "Floats", "VideoTrack", "Face", `const exports = {}; ${js}\nreturn { Stage, ShareNotice, SplitTop };`)(
-  React, useState, () => ({ current: null }), (effect) => effects.push(effect), () => [], () => {}, () => ({ localParticipant: { attributes: {} } }),
+  React, useState, () => ({ current: null }), (effect) => effects.push(effect), () => cams, () => {}, () => ({ localParticipant: { attributes: {} } }),
   { getItem: () => saved, setItem: (_, value) => saved = value }, "dolive-split-view",
   "ScreenView", "FaceOverlay", "FaceRow", "FaceGrid", "Floats", "VideoTrack", "Face",
 );
@@ -29,8 +29,24 @@ const textContent = (node) => typeof node === "string" || typeof node === "numbe
 const button = (tree, text) => find(tree, "button").find((n) => textContent(n).trim() === text);
 
 (async () => {
+  const hostCam = { participant: { identity: "방장", attributes: { camPos: "br" }, permissions: { canPublishSources: [1, 2, 3] } } };
+  const guestCam = { participant: { identity: "참여자", attributes: { camPos: "row" } } };
+  cams = [hostCam, guestCam];
+  let tree = render("Stage", { floats: [], confirmShare: async () => true });
+  assert.equal(find(tree, "FaceGrid")[0].props.cams, cams);
+  assert.equal(find(tree, "FaceRow").length, 0);
+  assert.equal(textContent(tree).includes("방송 준비 중"), false);
+  tree = render("Stage", { screen: { participant: hostCam.participant, publication: { trackSid: "방장 공유" } }, floats: [], confirmShare: async () => true });
+  assert.equal(find(tree, "ScreenView")[0].props.face, hostCam);
+  assert.deepEqual(find(tree, "FaceRow")[0].props.cams, [guestCam]);
+  assert.equal(find(tree, "FaceGrid").length, 0);
+  tree = render("Stage", { floats: [], confirmShare: async () => true });
+  assert.equal(find(tree, "FaceGrid")[0].props.cams, cams); // 공유를 끝내면 모두 바둑판으로 복귀
+  cams = [];
+  assert.ok(textContent(render("Stage", { floats: [], confirmShare: async () => true })).includes("방송 준비 중"));
+  states = [];
   const local = { participant: { isLocal: true }, publication: { trackSid: "공유1" } };
-  let tree = render("Stage", { screen: local, floats: [], confirmShare: async () => true });
+  tree = render("Stage", { screen: local, floats: [], confirmShare: async () => true });
   assert.equal(find(tree, "ScreenView").length, 1); // 내 공유 영상도 표시
   let notice = nodes(tree).find((n) => n.type === hooks.ShareNotice);
   assert.ok(notice);
