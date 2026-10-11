@@ -144,16 +144,16 @@ export function PhotoCrop({
         />
       </div>
       <div className="flex w-60 gap-2">
-        <button onClick={onCancel} className="flex-1 rounded-lg bg-zinc-800 py-3 hover:bg-zinc-700">
+        <button onClick={onCancel} className="dolive-button dolive-danger flex-1 rounded-lg bg-zinc-800 py-3 hover:bg-zinc-700"><span className="dolive-button-cap">
           취소
-        </button>
+        </span></button>
         <button
           onClick={done}
           disabled={!size}
-          className="flex-1 rounded-lg bg-indigo-600 py-3 font-semibold hover:bg-indigo-500 disabled:opacity-40"
-        >
+          className="dolive-button dolive-primary flex-1 rounded-lg bg-indigo-600 py-3 font-semibold hover:bg-indigo-500 disabled:opacity-40"
+        ><span className="dolive-button-cap">
           완료
-        </button>
+        </span></button>
       </div>
     </div>
   );

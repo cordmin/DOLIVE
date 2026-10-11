@@ -461,10 +461,10 @@ export const ChatLog = memo(function ChatLog({
               className="mb-4 block w-full resize-none rounded-xl bg-zinc-900 p-3 text-base outline-none focus:ring-2 focus:ring-indigo-500"
             />
             <div className="flex gap-2">
-              <button className="flex-1 rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500">저장</button>
-              <button type="button" onClick={() => editBox.current?.close()} className="flex-1 rounded-lg bg-zinc-700 py-2 text-sm hover:bg-zinc-600">
+              <button className="dolive-button dolive-primary flex-1 rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500"><span className="dolive-button-cap">저장</span></button>
+              <button type="button" onClick={() => editBox.current?.close()} className="dolive-button dolive-danger flex-1 rounded-lg bg-zinc-700 py-2 text-sm hover:bg-zinc-600"><span className="dolive-button-cap">
                 취소
-              </button>
+              </span></button>
             </div>
           </form>
         )}
@@ -483,13 +483,13 @@ export const ChatLog = memo(function ChatLog({
               if (delTarget) remove(delTarget);
               askDel.current?.close();
             }}
-            className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold hover:bg-red-500"
-          >
+            className="dolive-button dolive-danger flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold hover:bg-red-500"
+          ><span className="dolive-button-cap">
             삭제
-          </button>
-          <button onClick={() => askDel.current?.close()} className="flex-1 rounded-lg bg-zinc-700 py-2 text-sm hover:bg-zinc-600">
+          </span></button>
+          <button onClick={() => askDel.current?.close()} className="dolive-button dolive-danger flex-1 rounded-lg bg-zinc-700 py-2 text-sm hover:bg-zinc-600"><span className="dolive-button-cap">
             취소
-          </button>
+          </span></button>
         </div>
       </dialog>
 

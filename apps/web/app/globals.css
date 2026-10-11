@@ -1,5 +1,145 @@
 @import "tailwindcss";
 
+/* 긴 버튼: 바깥 고리는 고정하고 몸체와 글자만 함께 눌린다. */
+.dolive-button-cap { display: contents; }
+.dolive-button.dolive-button {
+  --button-top: #373739;
+  --button-bottom: #1c1c1e;
+  --button-ink: #d6d3cd;
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+  border-color: transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--button-ink);
+  font-weight: 600;
+  box-shadow: none;
+  transform: none;
+  filter: none;
+}
+.dolive-button.dolive-primary { --button-ink: #d1b77f; }
+.dolive-button.dolive-entry {
+  --button-top: #2d2d30;
+  --button-bottom: #272729;
+  --button-ink: #ffffff;
+}
+.dolive-button.dolive-entry::before {
+  inset: 0;
+  background: transparent;
+  box-shadow: 0 0 0 1px #000, 0 0 0 2px #ffffff0f;
+}
+.dolive-button.dolive-entry::after, .dolive-button.dolive-create::after {
+  background: linear-gradient(#2d2d30, #272729);
+  box-shadow: inset 0 1px 0 #ffffff30, inset 0 -1px 2px #0008, 0 2px 3px #0008;
+}
+.dolive-button.absolute { position: absolute; }
+.dolive-button.dolive-button:enabled:is(:hover, :active) {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+  filter: none;
+}
+.dolive-button.dolive-danger {
+  --button-top: #c51b35;
+  --button-bottom: #870d23;
+  --button-ink: #fff4ee;
+}
+.dolive-button::before, .dolive-button::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  border-radius: inherit;
+}
+.dolive-button::before {
+  inset: -1px;
+  z-index: -2;
+  background: #111112;
+  box-shadow: inset 0 1px 1px #0006, 0 1px 0 #ffffff14;
+}
+.dolive-button::after {
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(ellipse at 50% 0%, #ffffff18, transparent 65%), linear-gradient(var(--button-top), var(--button-bottom));
+  box-shadow: inset 0 1px 0 #ffffff38, inset 0 -2px 2px #0009, 0 2px 3px #0008;
+  transition: translate 100ms, box-shadow 100ms, filter 100ms;
+}
+.dolive-button > .dolive-button-cap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: inherit;
+  transition: translate 100ms;
+}
+.dolive-button:active:not(:disabled)::after {
+  translate: 0 2px;
+  filter: brightness(.94);
+  box-shadow: inset 0 2px 4px #0008, inset 0 1px 0 #ffffff16, 0 0 1px #0008;
+}
+.dolive-button:active:not(:disabled) > .dolive-button-cap { translate: 0 2px; }
+.dolive-button[aria-pressed="true"], .dolive-button[aria-checked="true"], .peer:checked + .dolive-button {
+  --button-top: #302b23;
+  --button-bottom: #3b3429;
+  --button-ink: #e0c895;
+}
+.dolive-button[aria-pressed="true"]::after, .dolive-button[aria-checked="true"]::after, .peer:checked + .dolive-button::after {
+  box-shadow: inset 0 2px 4px #0007, inset 0 0 0 1px #8b7550;
+}
+.dolive-button:disabled { opacity: .45; }
+/* 분리한 채팅의 보기 선택: 고른 칸이 깊은 홈 안으로 들어간다. */
+.dolive-button.dolive-split-choice {
+  border-radius: 8px;
+  --button-ink: #aba8a4;
+}
+.dolive-button.dolive-split-choice::before {
+  background: transparent;
+  box-shadow: none;
+}
+.dolive-button.dolive-split-choice::after {
+  background: linear-gradient(#343436, #252527);
+  box-shadow: inset 0 1px 0 #ffffff20, 0 1px 2px #0007;
+}
+.dolive-button.dolive-split-choice[aria-pressed="true"] {
+  --button-ink: #f0dfbd;
+}
+.dolive-button.dolive-split-choice[aria-pressed="true"]::after {
+  background: #202022;
+  box-shadow: inset 0 2px 5px #000a, inset 0 0 0 1px #71695b;
+}
+.tts-rail {
+  isolation: isolate;
+  box-shadow: inset 0 2px 5px #0009, inset 0 0 0 1px #383838;
+}
+.tts-slider {
+  position: absolute;
+  z-index: -1;
+  inset-block: 4px;
+  left: 4px;
+  border-radius: 8px;
+  background: linear-gradient(#3a3a3c, #29292c);
+  box-shadow: inset 0 0 0 1px #64615c, inset 0 1px 0 #ffffff20, 0 1px 3px #0008;
+  transition: transform 220ms cubic-bezier(.2, .7, .2, 1);
+}
+.tts-rail .tts-choice {
+  border: 0;
+  background: transparent;
+  color: #aba8a4;
+  font-weight: 600;
+}
+.tts-rail .peer:checked + .tts-choice, .tts-rail .tts-choice:hover { color: #fff; }
+.tts-choice > .dolive-button-cap { display: inline-flex; align-items: center; gap: inherit; }
+@media (hover: hover) and (pointer: fine) {
+  .dolive-button:hover:not(:disabled)::after { filter: brightness(1.24); }
+}
+@media (pointer: coarse) {
+  .tts-rail .tts-choice { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tts-slider { transition: none; }
+  .dolive-button::after, .dolive-button > .dolive-button-cap { transition: none; }
+}
+
 /* 보내기 버튼은 금빛 테두리, 금액 버튼은 누르는 느낌을 살린다. */
 .donation-step, .donation-send {
   border: 1px solid transparent;

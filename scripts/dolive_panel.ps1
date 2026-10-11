@@ -65,7 +65,7 @@ function Button($text, $x, $y, $w, $h, $size) {
 $form = New-Object Windows.Forms.Form
 $form.Text = "DOLIVE"
 $form.Icon = New-Object Drawing.Icon (Join-Path $PSScriptRoot "icons\dolive.ico")
-$form.ClientSize = "308,422"
+$form.ClientSize = "308,399"
 $form.FormBorderStyle = "FixedSingle"; $form.MaximizeBox = $false; $form.StartPosition = "CenterScreen"
 $form.BackColor = Color "#18181b"
 # 창 제목 줄도 어둡게 (윈도우 11)
@@ -109,7 +109,8 @@ $spinTimer.Add_Tick({ $spin.Tag = ($spin.Tag + 12) % 360; $spin.Invalidate() })
 $power = Button "" 24 92 260 58 15
 
 $line = New-Object Windows.Forms.Label
-$line.Location = "24,304"; $line.Size = "260,1"; $line.BackColor = Color "#3f3f46"
+# 구분선 위아래는 버튼 가장자리에서 각각 19칸씩 띄운다.
+$line.Location = "24,281"; $line.Size = "260,1"; $line.BackColor = Color "#3f3f46"
 $form.Controls.Add($line)
 
 # DOLIVE 설정 창 (관리자(방장) 줄 톱니바퀴) = 방송 관리자(운영진) 목록. 방송 목록은 입장 화면에서 만들고 고친다 (마스터 = 이 PC).
@@ -328,8 +329,8 @@ function LinkRow($title, $url, $y, [switch]$Staff) {
     }
 }
 # 관리자(방장) = 이 PC / 클라이언트 = 친구들 주소 (도름스 로그인해야 들어간다. 방송 관리자(운영진)와 채팅방은 톱니바퀴에서 정한다)
-LinkRow "관리자(방장)" $hostUrl 324 -Staff
-LinkRow "클라이언트" $friendsUrl 368
+LinkRow "관리자(방장)" $hostUrl 301 -Staff
+LinkRow "클라이언트" $friendsUrl 345
 
 # 켜고 끄는 일은 뒤에서 start_dolive.ps1 로 (그동안 창이 멈추지 않게)
 $job = @{ proc = $null; wantOn = $false }

@@ -249,12 +249,14 @@ function RoomView({ token }: { token: string }) {
   const docPip = typeof window !== "undefined" ? (window as { documentPictureInPicture?: DocPip }).documentPictureInPicture : undefined;
   const [pip, setPip] = useState<Window | null>(null);
   async function togglePip(on: boolean) {
-    if (!on || !docPip) return pip?.close();
+    if (!on || !docPip) { pip?.close(); return true; }
+    if (pip && !pip.closed) return true;
     const w = await docPip.requestWindow({ width: 360, height: 560, disallowReturnToOpener: true }).catch(() => null);
-    if (!w) return alert("채팅 창을 띄울 수 없어요.");
+    if (!w) { alert("채팅 창을 띄울 수 없어요."); return false; }
     copyStyles(w);
     w.addEventListener("pagehide", () => setPip(null)); // 작은 창의 X를 눌러 닫았을 때
     setPip(w);
+    return true;
   }
   useEffect(() => () => pip?.close(), [pip]); // 방을 나가면 작은 창도 닫는다
   // 버튼은 PC 방장이 화면공유 중일 때만 보이고 (일반 참여자는 쓸 일이 없어서), 공유를 끝내면 작은 창도 닫는다
@@ -316,13 +318,14 @@ function RoomView({ token }: { token: string }) {
         className="m-auto w-72 rounded-xl bg-zinc-800 p-5 text-zinc-100 ring-1 ring-zinc-700 backdrop:bg-black/60"
       >
         <p className="mb-5 text-center font-semibold">메인으로 나가시겠습니까?</p>
-        <div className="flex gap-2">
-          <button onClick={() => room.disconnect()} className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold hover:bg-red-500">
+        {/* 버튼의 얇은 테두리까지 포함해, 사이 간격과 아래 여백을 맞춘다. */}
+        <div className="flex gap-[21px]">
+          <button onClick={() => room.disconnect()} className="dolive-button dolive-danger flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold hover:bg-red-500"><span className="dolive-button-cap">
             예
-          </button>
-          <button onClick={stay} className="flex-1 rounded-lg bg-zinc-700 py-2 text-sm hover:bg-zinc-600">
+          </span></button>
+          <button onClick={stay} className="dolive-button flex-1 rounded-lg bg-zinc-700 py-2 text-sm hover:bg-zinc-600"><span className="dolive-button-cap">
             아니오
-          </button>
+          </span></button>
         </div>
       </dialog>
       {waiting && (
@@ -332,13 +335,13 @@ function RoomView({ token }: { token: string }) {
           </span>
           <button
             onClick={() => answer(waiting, true)}
-            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold hover:bg-indigo-500"
-          >
+            className="dolive-button dolive-primary rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold hover:bg-indigo-500"
+          ><span className="dolive-button-cap">
             승인
-          </button>
-          <button onClick={() => answer(waiting, false)} className="rounded-lg bg-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-600">
+          </span></button>
+          <button onClick={() => answer(waiting, false)} className="dolive-button dolive-danger rounded-lg bg-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-600"><span className="dolive-button-cap">
             거부
-          </button>
+          </span></button>
         </div>
       )}
       {/* PC: 바깥 판 없이 공유 화면과 채팅의 파인 테두리만 둔다. 휴대폰은 그대로 */}
@@ -377,8 +380,8 @@ function RoomView({ token }: { token: string }) {
               setShowPeople(!showPeople);
             }}
             aria-expanded={showPeople}
-            className={`flex items-center gap-1 rounded-full px-3 py-1 text-zinc-200 md:hidden ${showPeople ? "bg-indigo-600" : "bg-zinc-800 active:bg-zinc-700"}`}
-          >
+            className="flex min-h-11 shrink-0 items-center gap-1 rounded px-1 text-xs font-normal text-[#b1aea8] active:text-zinc-100 focus-visible:outline-2 focus-visible:outline-zinc-400 md:hidden"
+          ><span className="flex items-center gap-1">
             참여 {participants.length}명
             <svg
               viewBox="0 0 20 20"
@@ -388,7 +391,7 @@ function RoomView({ token }: { token: string }) {
             >
               <path d="M5.2 7.2a.75.75 0 0 1 1.06 0L10 10.94l3.74-3.74a.75.75 0 1 1 1.06 1.06l-4.27 4.27a.75.75 0 0 1-1.06 0L5.2 8.26a.75.75 0 0 1 0-1.06Z" />
             </svg>
-          </button>
+          </span></button>
           {/* PC: 참여자 사진·이름을 한 줄로. 자리가 모자라면 뒤쪽은 안 보이고(다음 줄로 넘어가 가려짐), 마우스를 올리면 아래로 스르륵 펼쳐 모두 보여 준다.
               사진은 오른쪽 버튼과 같은 38px, 이름은 사진 아래 가운데 */}
           <div
@@ -472,7 +475,7 @@ function RoomView({ token }: { token: string }) {
               ))}
             </aside>
 
-            <Stage screen={screen} floats={floats} />
+            <Stage screen={screen} floats={floats} confirmShare={() => isAdmin && !isPhone() ? togglePip(true) : Promise.resolve(true)} />
             <div className={`flex min-h-0 flex-1 flex-col md:contents ${hideOnLand}`}>
               {/* PC만 채팅 내용과 입력칸을 한 테두리로 감싼다. 그림자만 겹쳐서 버튼 누르기와 폭 조절은 그대로 */}
               <div aria-hidden className="pointer-events-none z-20 hidden rounded-xl md:block md:hw-inset md:col-start-2 md:row-span-2 md:row-start-1" />

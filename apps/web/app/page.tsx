@@ -188,21 +188,21 @@ export default function Home() {
         {!me || me.local ? null : me.dorms ? (
           <div className="flex items-center gap-3">
             {me.picture ? (
-              // 도름스 프로필 사진. 동그라미 지름 = 옆 [로그아웃] 버튼 높이(36px). 마우스를 올리면 닉네임
+              // 도름스 프로필 사진. 마우스를 올리면 닉네임
               // eslint-disable-next-line @next/next/no-img-element -- 도름스가 주는 바깥 사진 주소라 그대로 쓴다
-              <img src={me.picture} alt={me.dorms} title={me.dorms} referrerPolicy="no-referrer" className="size-9 rounded-full object-cover" />
+              <img src={me.picture} alt={me.dorms} title={me.dorms} referrerPolicy="no-referrer" className="size-8 rounded-full object-cover" />
             ) : (
               <span className="text-sm text-zinc-400">{me.dorms}</span>
             )}
             {/* 이 사이트의 도름스 로그인만 끝낸다 (같은 사이트에서 보내는 POST 만 받는다) */}
             <form method="post" action="/api/auth/dorms/logout">
-              <button className="rounded-lg bg-zinc-700 px-3 py-2 text-sm font-semibold hover:bg-zinc-600">로그아웃</button>
+              <button className="dolive-button dolive-danger inline-flex h-8 items-center justify-center rounded-lg bg-zinc-700 px-3 py-0 text-sm font-semibold hover:bg-zinc-600"><span className="dolive-button-cap relative -top-px">로그아웃</span></button>
             </form>
           </div>
         ) : (
           // 도름스 로그인 (끝나면 이 화면으로 돌아온다). 모양은 다른 버튼들과 같게
           <form method="post" action="/api/auth/dorms/start?next=/">
-            <button className="rounded-lg bg-zinc-700 px-3 py-2 text-sm font-semibold hover:bg-zinc-600">로그인</button>
+              <button className="dolive-button inline-flex items-center justify-center rounded-lg bg-zinc-700 px-3 py-2 text-sm font-semibold hover:bg-zinc-600"><span className="dolive-button-cap text-white">로그인</span></button>
           </form>
         )}
       </div>
@@ -301,12 +301,12 @@ export default function Home() {
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <span className="text-sm text-zinc-400">방송 목록</span>
-          <button onClick={openCreate} className="flex items-center gap-1 rounded-lg bg-zinc-700 px-3 py-1.5 text-sm font-semibold hover:bg-zinc-600">
+          <button onClick={openCreate} className="dolive-button dolive-create flex h-8 items-center justify-center gap-1 rounded-lg bg-zinc-700 px-3 py-0 text-sm font-semibold hover:bg-zinc-600"><span className="dolive-button-cap text-white">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden className="size-4">
               <path d="M12 5v14M5 12h14" />
             </svg>
             방 만들기
-          </button>
+          </span></button>
         </div>
         {!rooms ? null : rooms.length ? (
           // 여러 개 중 하나를 고르는 칸이라는 게 보이게, 바탕 없이 테두리만 + 왼쪽 동그라미 (아래 [LIVE 입장] 버튼과 다르게). 고른 줄만 보라 테두리.
@@ -360,10 +360,12 @@ export default function Home() {
       <button
         onClick={enter}
         disabled={!name.trim() || !room}
-        className="rounded-lg bg-indigo-600 px-4 py-4 text-xl font-semibold hover:bg-indigo-500 disabled:opacity-40"
-      >
-        LIVE 입장
-      </button>
+        className="dolive-button dolive-entry flex h-16 items-center justify-center rounded-lg bg-indigo-600 px-4 py-4 text-xl font-semibold hover:bg-indigo-500 disabled:opacity-40"
+      ><span className="dolive-button-cap text-white">
+        {/* 실제 글자 픽셀의 위끝과 아래끝을 맞춘 큰 원본을 작게 보여 준다. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/live-entry-label.png" alt="LIVE 입장" width={487} height={96} className="block h-[18.666px] w-auto" />
+      </span></button>
       {/* Esc 나 [확인]으로 닫힌다 */}
       <dialog
         ref={needLogin}
@@ -372,10 +374,10 @@ export default function Home() {
         <p className="mb-10 text-center font-semibold">로그인을 먼저 해주세요</p>
         <button
           onClick={() => needLogin.current?.close()}
-          className="w-full rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500"
-        >
+          className="dolive-button dolive-primary w-full rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500"
+        ><span className="dolive-button-cap">
           확인
-        </button>
+        </span></button>
       </dialog>
       {/* 비밀번호 방: Esc 나 [취소]로 닫힌다. Enter 는 [입장] */}
       <dialog
@@ -403,12 +405,12 @@ export default function Home() {
           />
           <p className="h-4 text-center text-xs text-red-400">{pwError}</p>
           <div className="flex gap-2">
-            <button type="button" onClick={() => askPw.current?.close()} className="flex-1 rounded-lg bg-zinc-700 py-2 text-sm font-semibold hover:bg-zinc-600">
+            <button type="button" onClick={() => askPw.current?.close()} className="dolive-button dolive-danger flex-1 rounded-lg bg-zinc-700 py-2 text-sm font-semibold hover:bg-zinc-600"><span className="dolive-button-cap">
               취소
-            </button>
-            <button disabled={!pw} className="flex-1 rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500 disabled:opacity-40">
+            </span></button>
+            <button disabled={!pw} className="dolive-button dolive-primary flex-1 rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500 disabled:opacity-40"><span className="dolive-button-cap">
               입장
-            </button>
+            </span></button>
           </div>
         </form>
       </dialog>
@@ -443,7 +445,8 @@ export default function Home() {
           />
           <div className="flex flex-col gap-2">
             <span className="text-xs text-zinc-400">입장 권한</span>
-            <div role="radiogroup" aria-label="입장 권한" className="flex rounded-lg bg-zinc-900 p-1 ring-1 ring-zinc-700">
+            <div role="radiogroup" aria-label="입장 권한" className="tts-rail relative grid grid-cols-2 rounded-[13px] bg-[#19191b] p-1">
+              <span aria-hidden="true" className="tts-slider" style={{ width: "calc((100% - 8px) / 2)", transform: `translateX(${form.guest ? 100 : 0}%)` }} />
               {[false, true].map((g) => (
                 <button
                   key={String(g)}
@@ -451,26 +454,26 @@ export default function Home() {
                   role="radio"
                   aria-checked={form.guest === g}
                   onClick={() => setForm({ ...form, guest: g })}
-                  className={`flex-1 rounded-md py-1.5 text-sm ${form.guest === g ? "bg-zinc-600 font-semibold text-white shadow" : "text-zinc-400 hover:text-zinc-200"}`}
-                >
+                  className="tts-choice relative flex min-h-[38px] min-w-0 items-center justify-center rounded-[10px] px-1 text-sm focus-visible:outline-2 focus-visible:outline-[#d1b77f]"
+                ><span className="dolive-button-cap">
                   {g ? "비회원도" : "도름스 회원만"}
-                </button>
+                </span></button>
               ))}
             </div>
           </div>
           {form.error && <p className="-my-2 h-4 text-center text-xs text-red-400">{form.error}</p>}
           <div className="mt-1 flex gap-2 border-t border-zinc-700 pt-5">
             {form.old && (
-              <button type="button" onClick={() => askDelete.current?.showModal()} className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold hover:bg-red-500">
+              <button type="button" onClick={() => askDelete.current?.showModal()} className="dolive-button dolive-danger rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold hover:bg-red-500"><span className="dolive-button-cap">
                 방 지우기
-              </button>
+              </span></button>
             )}
-            <button type="button" onClick={() => roomDlg.current?.close()} className="flex-1 rounded-lg bg-zinc-700 py-2 text-sm font-semibold hover:bg-zinc-600">
+            <button type="button" onClick={() => roomDlg.current?.close()} className="dolive-button dolive-danger flex-1 rounded-lg bg-zinc-700 py-2 text-sm font-semibold hover:bg-zinc-600"><span className="dolive-button-cap">
               취소
-            </button>
-            <button disabled={!form.name.trim()} className="flex-1 rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500 disabled:opacity-40">
+            </span></button>
+            <button disabled={!form.name.trim()} className="dolive-button dolive-primary flex-1 rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500 disabled:opacity-40"><span className="dolive-button-cap text-white">
               {form.old ? "저장" : "만들기"}
-            </button>
+            </span></button>
           </div>
         </form>
       </dialog>
@@ -481,20 +484,20 @@ export default function Home() {
       >
         <p className="mb-10 text-center font-semibold">방을 삭제하시겠습니까?</p>
         <div className="flex gap-2">
-          <button onClick={deleteRoom} className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold hover:bg-red-500">
+          <button onClick={deleteRoom} className="dolive-button dolive-danger flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold hover:bg-red-500"><span className="dolive-button-cap">
             예
-          </button>
-          <button onClick={() => askDelete.current?.close()} className="flex-1 rounded-lg bg-zinc-700 py-2 text-sm hover:bg-zinc-600">
+          </span></button>
+          <button onClick={() => askDelete.current?.close()} className="dolive-button flex-1 rounded-lg bg-zinc-700 py-2 text-sm hover:bg-zinc-600"><span className="dolive-button-cap">
             아니오
-          </button>
+          </span></button>
         </div>
       </dialog>
       {/* Esc 나 [확인]으로 닫힌다 */}
       <dialog ref={full} className="m-auto w-80 max-w-[calc(100%-2rem)] rounded-xl bg-zinc-800 p-5 text-zinc-100 ring-1 ring-zinc-700 backdrop:bg-black/60">
         <p className="mb-10 text-center font-semibold">방송은 최대 {MAX_ROOMS}개까지만 지원합니다</p>
-        <button onClick={() => full.current?.close()} className="w-full rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500">
+        <button onClick={() => full.current?.close()} className="dolive-button dolive-primary w-full rounded-lg bg-indigo-600 py-2 text-sm font-semibold hover:bg-indigo-500"><span className="dolive-button-cap">
           확인
-        </button>
+        </span></button>
       </dialog>
     </main>
   );

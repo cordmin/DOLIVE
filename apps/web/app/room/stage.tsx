@@ -9,7 +9,7 @@ import {
   type TrackReference,
 } from "@livekit/components-react";
 import { ConnectionQuality, RoomEvent, Track, type Participant } from "livekit-client";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { avatarOf, isPhone } from "@/lib/dolive";
 import { gridFit, pageOf, rowFit } from "@/lib/faces";
 import { Floats, type Float } from "./reactions";
@@ -25,8 +25,9 @@ export function useAvatarOf(p: Participant) {
 // 공유가 없을 때: 방장(화면공유를 할 수 있는 사람)이 구석 자리로 카메라를 켰으면 안내 화면을 공유 화면처럼 쓰고 그 구석에 얼굴을 띄운다
 // (나머지 얼굴은 아래 한 줄). 그런 방장이 없으면 카메라 켠 사람들 얼굴 바둑판.
 // 자리가 모자라면 공유 화면이 줄어든다. 휴대폰은 채팅 내용이 그 아래, PC는 오른쪽.
-export function Stage({ screen, floats }: { screen?: TrackReference; floats: Float[] }) {
+export function Stage({ screen, floats, confirmShare }: { screen?: TrackReference; floats: Float[]; confirmShare: () => Promise<boolean> }) {
   const cams = useCams();
+  const [dismissedShare, setDismissedShare] = useState("");
   useRoomTick(); // 얼굴 자리(camPos)·화면공유 권한이 바뀌면 다시 그린다
   const corner = (c: TrackReference) => c.participant.attributes?.camPos !== "row";
   const onScreen = screen
@@ -38,20 +39,18 @@ export function Stage({ screen, floats }: { screen?: TrackReference; floats: Flo
       // PC: 위아래 두 칸을 다 써서 바닥이 오른쪽 채팅 카드 바닥과 맞는다. 공유 화면이 이 칸 크기(cqw·cqh)에 맞춰 커지게 크기를 알려 준다
       className={`relative flex min-h-0 flex-col gap-2 p-2 md:col-start-1 md:row-span-2 md:row-start-1 md:p-0 md:pr-[18px] md:[container-type:size] ${screen ? "phone-land:flex-1 phone-land:p-0" : "shrink-0"}`}
     >
-      {screen?.participant.isLocal ? (
-        // 내가 공유 중이면 내 공유 화면은 보여 주지 않는다. 모니터를 공유할 때 이 창이 다시 찍혀서
-        // 화면 속에 화면이 끝없이 생기는 것을 막고, 공유 영역 가운데에 안내를 보여 준다. 내 얼굴은 남들에게 보이는 자리에 미리 보여 준다
-        <div className="relative flex min-h-32 flex-1 items-center justify-center rounded-xl md:min-h-0 md:bg-[#1e1e21] md:hw-inset">
-          <p className="max-w-full rounded-lg bg-indigo-600/15 px-4 py-3 text-center text-sm leading-relaxed text-indigo-100 ring-1 ring-indigo-500/40">
-            화면 공유 기능이 켜졌습니다.<br />
-            현재 내 화면이 송출되고 있습니다.
-          </p>
-          {onScreen && <FaceOverlay cam={onScreen} />}
-        </div>
-      ) : screen ? (
+      {screen ? (
         // 아래 얼굴 줄이 생기면 공유 화면이 남은 높이 안에서 가장 크게 (휴대폰은 그대로)
         <div className="contents md:flex md:min-h-0 md:flex-1 md:[container-type:size]">
-          <ScreenView screen={screen} floats={floats} face={onScreen} />
+          <ScreenView screen={screen} floats={floats} face={onScreen}>
+            {/* 내 공유 화면도 그대로 보여 준다. 한 모니터에서는 창을 내려야 겹친 화면이 사라진다. */}
+            {screen.participant.isLocal && dismissedShare !== screen.publication.trackSid && (
+              <ShareNotice
+                confirm={confirmShare}
+                close={() => setDismissedShare(screen.publication.trackSid)}
+              />
+            )}
+          </ScreenView>
         </div>
       ) : cams.length && !onScreen ? (
         <FaceGrid cams={cams} />
@@ -76,9 +75,47 @@ export function Stage({ screen, floats }: { screen?: TrackReference; floats: Flo
         </>
       )}
       {(screen || onScreen) && row.length > 0 && <FaceRow cams={row} />}
-      {/* 남의 공유 화면이 없으면 이 칸 안에서 띄운다 (있으면 공유 화면 안에서. 전체화면에서도 보이게) */}
-      {!(screen && !screen.participant.isLocal) && <Floats floats={floats} />}
+      {/* 공유 화면이 없으면 이 칸 안에서 띄운다. 있으면 공유 화면 안에서 띄운다. */}
+      {!screen && <Floats floats={floats} />}
     </div>
+  );
+}
+
+// 확인 전에는 방 안의 다른 버튼을 막는다. 확인을 누른 순간 채팅도 분리한다.
+function ShareNotice({ confirm, close }: { confirm: () => Promise<boolean>; close: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const box = useRef<HTMLDialogElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const dialog = box.current;
+    dialog?.showModal();
+    button.current?.focus();
+    return () => dialog?.close();
+  }, []);
+  async function accept() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (await confirm()) close();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+      <dialog
+        ref={box}
+        aria-modal="true"
+        aria-label="화면 공유 시작 안내"
+        aria-busy={busy}
+        onCancel={(e) => e.preventDefault()}
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+        className="m-auto max-h-[92dvh] w-[680px] max-w-[calc(100%-2rem)] scale-[0.85] overflow-y-auto rounded-[18px] border border-[#4c4841] bg-[#252526] px-6 py-9 text-center shadow-[0_12px_36px_#0008] backdrop:bg-black/40"
+      >
+        <p className="text-2xl font-semibold text-[#d1b77f]">화면 공유가 시작되었습니다.</p>
+        <p className="mt-5 text-xl leading-relaxed text-[#dedbd5]">DOLIVE 브라우저를 최소화하고, 연수를 시작하세요</p>
+        <button ref={button} type="button" disabled={busy} onClick={accept} className="dolive-button dolive-danger mt-10 h-[42px] w-36 rounded-[12px] border border-[#75664b] bg-[#393631] text-sm text-white transition hover:bg-[#454037] disabled:opacity-50"><span className="dolive-button-cap text-white">닫기</span></button>
+      </dialog>
   );
 }
 
@@ -128,10 +165,10 @@ function useFacePage(cams: TrackReference[]) {
   return [view.page, () => setView({ page: view.page + 1, speakers })] as const;
 }
 
-// 채팅 분리 창 맨 위 화면 (page.tsx). 화면공유하는 방장이 게임·웹을 하면서 지켜본다. 마우스를 올리면 위 가운데에 고르기 버튼:
-// [내 얼굴] = 지금 보내는 내 얼굴 (고른 모양·좌우 반전 그대로), [시청자 화면] = 시청자가 보는 공유 화면 + 그 위 구석 얼굴.
+// 채팅 분리 창 맨 위에 세 버튼을 항상 둔다. 채팅만 골라도 다시 바꿀 수 있다.
+// [공유 화면] = 공유 화면과 구석 얼굴, [내 얼굴] = 내 캠, [채팅만] = 영상 칸을 없앤다.
 // 고른 것은 이 브라우저에 기억한다. 내 컴퓨터에서 다시 보여 주기만 해서 서버 부담 없음 (내 공유 화면은 보내기 전 원래 화질)
-// ponytail: 모니터 하나에서 그 모니터 전체를 공유하며 [시청자 화면]을 고르면 화면이 끝없이 겹쳐 보인다.
+// ponytail: 모니터 하나에서 그 모니터 전체를 공유하며 [공유 화면]을 고르면 화면이 끝없이 겹쳐 보인다.
 // 듀얼 모니터(다른 모니터에 이 창)면 괜찮아서 막지 않고 사용자에게 맡긴다 (사용자 결정)
 const SPLIT_KEY = "dolive-split-view";
 export function SplitTop({ screen }: { screen?: TrackReference }) {
@@ -139,15 +176,16 @@ export function SplitTop({ screen }: { screen?: TrackReference }) {
   useRoomTick();
   const [view, setView] = useState(() => {
     try {
-      return localStorage.getItem(SPLIT_KEY) === "view";
+      const saved = localStorage.getItem(SPLIT_KEY);
+      return saved === "view" || saved === "chat" ? saved : "face";
     } catch {
-      return false;
+      return "face";
     }
   });
-  function pick(v: boolean) {
+  function pick(v: string) {
     setView(v);
     try {
-      localStorage.setItem(SPLIT_KEY, v ? "view" : "face");
+      localStorage.setItem(SPLIT_KEY, v);
     } catch {}
   }
   const mine = cams.find((c) => c.participant.isLocal);
@@ -155,13 +193,21 @@ export function SplitTop({ screen }: { screen?: TrackReference }) {
   const circle = myAttrs?.camShape === "circle" && myAttrs?.camPos !== "row";
   const onScreen = screen ? cams.find((c) => c.participant.identity === screen.participant.identity && c.participant.attributes?.camPos !== "row") : undefined;
   const choice = (on: boolean) =>
-    `flex h-[26px] items-center gap-[5px] rounded-full px-[11px] whitespace-nowrap ${on ? "bg-[#393631] text-[#d1b77f] ring-1 ring-[#75664b]" : "text-[#b5b0aa] hover:text-zinc-100"}`;
+    `dolive-split-choice h-9 min-w-0 flex-1 rounded-[8px] border text-[12px] whitespace-nowrap transition ${on ? "border-[#71695b] bg-[#202022] text-[#f0dfbd]" : "border-transparent text-[#aba8a4] hover:text-zinc-100"}`;
   // 채팅 창 가장자리에서 조금 띄운 둥근 칸. 동그라미 얼굴은 검은 칸 없이 채팅 창 바탕 위에 바로 (이질감 없게)
-  const bare = !view && circle;
+  const bare = view === "face" && circle;
   return (
-    <div className="shrink-0 px-2.5 pt-2.5">
-      <div className={`group relative aspect-video w-full overflow-hidden rounded-xl ${bare ? "" : "bg-black shadow-[0_4px_14px_#0006] ring-1 ring-white/10"}`}>
-        {view ? (
+    <div className="shrink-0">
+      <div role="group" aria-label="보기 선택" className="border-b border-[#423e38] bg-[#252526] px-2.5 py-3">
+        <div className="flex gap-1 rounded-[12px] bg-[#19191b] p-1 shadow-[inset_0_2px_5px_#0009,inset_0_0_0_1px_#383838]">
+        <button type="button" aria-pressed={view === "view"} onClick={() => pick("view")} className={`dolive-button ${choice(view === "view")}`}><span className="dolive-button-cap">공유 화면</span></button>
+        <button type="button" aria-pressed={view === "face"} onClick={() => pick("face")} className={`dolive-button ${choice(view === "face")}`}><span className="dolive-button-cap">내 얼굴</span></button>
+        <button type="button" aria-pressed={view === "chat"} onClick={() => pick("chat")} className={`dolive-button ${choice(view === "chat")}`}><span className="dolive-button-cap">채팅만</span></button>
+        </div>
+      </div>
+      {view !== "chat" && <div className="px-2.5 pt-2.5">
+      <div className={`relative aspect-video w-full overflow-hidden rounded-xl ${bare ? "" : "bg-black shadow-[0_4px_14px_#0006] ring-1 ring-white/10"}`}>
+        {view === "view" ? (
           screen && (
             <>
               <VideoTrack trackRef={screen} disablePictureInPicture className="size-full object-contain" />
@@ -169,29 +215,14 @@ export function SplitTop({ screen }: { screen?: TrackReference }) {
             </>
           )
         ) : (
-          mine && (
+          mine ? (
             <div className="grid size-full place-items-center">
               <Face cam={mine} name={false} round={circle ? "rounded-full" : "rounded-none"} className={`relative ${circle ? "aspect-square h-[92%]" : "size-full"}`} />
             </div>
-          )
+          ) : <div className="grid size-full place-items-center text-xs text-[#9e9a94]">카메라가 꺼져 있어요.</div>
         )}
-        <div className="absolute top-2 left-1/2 z-10 flex -translate-x-1/2 gap-[3px] rounded-full bg-black/70 p-[3px] text-[11.5px] opacity-0 ring-1 ring-white/10 backdrop-blur-md transition-opacity duration-200 group-hover:opacity-100 focus-within:opacity-100">
-          <button type="button" aria-pressed={!view} onClick={() => pick(false)} className={choice(!view)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-[13px]">
-              <circle cx="12" cy="9" r="4" />
-              <path d="M5 20a7 7 0 0 1 14 0" />
-            </svg>
-            내 얼굴
-          </button>
-          <button type="button" aria-pressed={view} onClick={() => pick(true)} className={choice(view)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-[13px]">
-              <rect x="3" y="4" width="18" height="12" rx="2" />
-              <path d="M8 20h8M12 16v4" />
-            </svg>
-            시청자 화면
-          </button>
-        </div>
       </div>
+      </div>}
     </div>
   );
 }
@@ -313,7 +344,7 @@ function useSlowNotice(screen: TrackReference) {
   return null;
 }
 
-function ScreenView({ screen, floats, face }: { screen: TrackReference; floats: Float[]; face?: TrackReference }) {
+function ScreenView({ screen, floats, face, children }: { screen: TrackReference; floats: Float[]; face?: TrackReference; children?: ReactNode }) {
   const slow = useSlowNotice(screen);
   const [full, setFull] = useState(false);
   const [pip, setPip] = useState(false);
@@ -469,6 +500,7 @@ function ScreenView({ screen, floats, face }: { screen: TrackReference; floats: 
       />
       {face && <FaceOverlay cam={face} />}
       <Floats floats={floats} />
+      {children}
       {/* 팝업 윈도우(PiP) 버튼, 오른쪽 위 */}
       {canPip && (
         <button

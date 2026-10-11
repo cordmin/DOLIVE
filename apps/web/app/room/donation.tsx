@@ -118,8 +118,8 @@ export function DonationDialog({ token, room, target, close, success, isGuest = 
     {!checking && !isGuest && reason === "consent_required" ? <>
       <h2 className="mb-6 text-center font-bold">도름네이션 최초 권한 요청</h2>
       <div className="flex gap-4">
-        <button type="button" onClick={close} className="flex h-11 flex-1 items-center justify-center rounded-full border border-zinc-600 text-zinc-300 transition hover:bg-zinc-700/50 hover:text-white active:scale-95">반려</button>
-        {example ? <button type="button" className="donation-send flex h-11 flex-1 items-center justify-center rounded-full font-semibold text-[#29231a]" onClick={() => { setStatus({ subject: "예시 보낸 사람", availableBalance: 8, dailyRemaining: 3, resetsAt: "예시" }); setReason(""); setMessage(""); }}>허용</button> : <a className="donation-send flex h-11 flex-1 items-center justify-center rounded-full font-semibold text-[#29231a]" href="/api/auth/dorms/donation/start?next=%2Froom">허용</a>}
+        <button type="button" onClick={close} className="dolive-button dolive-danger flex h-11 flex-1 items-center justify-center rounded-full border border-zinc-600 text-zinc-300 transition hover:bg-zinc-700/50 hover:text-white active:scale-95"><span className="dolive-button-cap">반려</span></button>
+        {example ? <button type="button" className="dolive-button dolive-primary donation-send flex h-11 flex-1 items-center justify-center rounded-full font-semibold text-[#29231a]" onClick={() => { setStatus({ subject: "예시 보낸 사람", availableBalance: 8, dailyRemaining: 3, resetsAt: "예시" }); setReason(""); setMessage(""); }}><span className="dolive-button-cap">허용</span></button> : <a className="dolive-button dolive-primary donation-send flex h-11 flex-1 items-center justify-center rounded-full font-semibold text-[#29231a]" href="/api/auth/dorms/donation/start?next=%2Froom"><span className="dolive-button-cap">허용</span></a>}
       </div>
     </> : <>
     <h2 className="mb-4 text-center font-bold">{selected && !self && !unavailable ? `${selected.name}님에게 도름네이션 해요!` : "도름네이션"}</h2>
@@ -144,11 +144,11 @@ export function DonationDialog({ token, room, target, close, success, isGuest = 
     {info && !(dailyExhausted && info === messages.daily_limit) && !(balanceExhausted && info === messages.insufficient_dorms) && <p role="status" className="mt-6 mb-4 text-center text-sm text-zinc-400">{info}</p>}
     {pending && <p className="mb-3 text-xs text-zinc-400">이전 보내기 결과를 확인할 때까지 받는 사람과 금액은 바꿀 수 없어요.</p>}
     {reason === "authentication_required" && <a className="mb-3 block text-center text-amber-300" href="/api/auth/dorms/start?next=%2Froom">DoRms로 로그인</a>}
-    {["invalid_token", "permission_expired"].includes(reason) && <a className="donation-send mb-3 flex h-11 items-center justify-center rounded-full font-semibold text-[#29231a]" href="/api/auth/dorms/donation/start?next=%2Froom">도름스 보내기 허용</a>}
+    {["invalid_token", "permission_expired"].includes(reason) && <a className="dolive-button dolive-primary donation-send mb-3 flex h-11 items-center justify-center rounded-full font-semibold text-[#29231a]" href="/api/auth/dorms/donation/start?next=%2Froom"><span className="dolive-button-cap">도름스 보내기 허용</span></a>}
     {reason === "access_denied" && <a className="mb-3 block text-center text-amber-300" href="https://dorms.school/connect" target="_blank" rel="noopener noreferrer">도름스에서 연결 확인</a>}
     </div>
     </div>
-    <div className="mt-6 flex gap-4"><button type="button" onClick={close} className="flex h-11 flex-1 items-center justify-center rounded-full border border-zinc-600 text-zinc-300 transition hover:bg-zinc-700/50 hover:text-white active:scale-95">닫기</button>{!self && <button type="button" onClick={send} disabled={checking || busy || !status || !selected?.recipientId || !!self || !!another || !!unavailable} className="donation-send flex h-11 flex-[2] items-center justify-center rounded-full font-semibold text-[#29231a] disabled:opacity-40">{busy ? "확인 중…" : pending ? "결과 다시 확인" : "보내기"}</button>}</div>
+    <div className="mt-6 flex gap-4"><button type="button" onClick={close} className="dolive-button dolive-danger flex h-11 flex-1 items-center justify-center rounded-full border border-zinc-600 text-zinc-300 transition hover:bg-zinc-700/50 hover:text-white active:scale-95"><span className="dolive-button-cap">닫기</span></button>{!self && <button type="button" onClick={send} disabled={checking || busy || !status || !selected?.recipientId || !!self || !!another || !!unavailable} className="dolive-button dolive-primary donation-send flex h-11 flex-[2] items-center justify-center rounded-full font-semibold text-[#29231a] disabled:opacity-40"><span className="dolive-button-cap">{busy ? "확인 중…" : pending ? "결과 다시 확인" : "보내기"}</span></button>}</div>
     </>}
   </dialog>, document.body);
 }

@@ -193,13 +193,13 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
       role="switch"
       aria-checked={on}
       onClick={onClick}
-      className={`flex h-[34px] items-center gap-1.5 rounded-full bg-black/65 pr-3 pl-2.5 text-xs whitespace-nowrap backdrop-blur-md transition hover:bg-black/80 ${
+      className={`dolive-button flex h-[34px] items-center gap-1.5 rounded-full bg-black/65 pr-3 pl-2.5 text-xs whitespace-nowrap backdrop-blur-md transition hover:bg-black/80 ${
         on ? "text-[#d1b77f] ring-1 ring-[#75664b]" : "text-[#b5b0aa] ring-1 ring-white/15"
       }`}
-    >
+    ><span className="dolive-button-cap">
       {icon}
       {label}
-    </button>
+    </span></button>
   );
   async function start() {
     const t = keep.current;
@@ -230,6 +230,15 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
   const face = circle ? "aspect-square w-[19%] rounded-full" : "aspect-video w-[28%] rounded-md";
   // 고른 자리에 들어가는 내 얼굴 (다른 사람에게 보이는 모습 그대로, 좌우 반전 포함)
   const myFace = track ? <Preview track={track} mirror={cam.mirror} /> : null;
+  const blurNotice = blurBusy && (
+    <div role="status" className="pointer-events-none absolute inset-x-1 top-1/2 z-10 flex -translate-y-1/2 items-center justify-center gap-3 rounded-[9px] border border-[#49463f] bg-[#19191b]/95 px-3 py-3 text-center">
+      <span aria-hidden="true" className="size-4 shrink-0 animate-spin rounded-full border-2 border-[#d1b77f] border-t-transparent motion-reduce:animate-none" />
+      <div>
+        <p className="text-[13px] text-[#dfc48e]">블러 처리 준비 중입니다.</p>
+        <p className="mt-1 text-xs text-[#c5beb1]">잠시만 기다려 주세요.</p>
+      </div>
+    </div>
+  );
   return (
     <dialog
       ref={box}
@@ -289,6 +298,7 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
               ),
             )}
             {error && <p className="absolute inset-x-0 top-1/2 mx-auto w-[60%] -translate-y-1/2 text-center text-xs text-amber-300">{error}</p>}
+            {blurNotice}
           </div>
           <button
             type="button"
@@ -339,6 +349,7 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
           <div className="relative aspect-[4/3] overflow-hidden rounded-[10px] border-2 border-[#d1b77f] bg-black">
             {myFace}
             {error && <p className="absolute inset-x-0 top-1/2 mx-auto w-[70%] -translate-y-1/2 text-center text-xs text-amber-300">{error}</p>}
+            {blurNotice}
             <div className="absolute right-2.5 bottom-2.5 flex gap-1.5">
               {bgOk && pill("블러 처리", cam.blur, toggleBlur, <BlurIcon />)}
               {pill("좌우 반전", cam.mirror, () => set({ ...cam, mirror: !cam.mirror }), <MirrorIcon />)}
@@ -347,23 +358,23 @@ function CameraDialog({ token, close }: { token: string; close: () => void }) {
         </div>
       )}
 
-      <div className="mt-[22px] flex gap-2.5">
-        <button type="button" onClick={() => box.current?.close()} className="h-[38px] flex-1 rounded-full border border-[#535154] text-[#b5b0aa] transition hover:bg-white/5 hover:text-zinc-100 active:bg-white/10">
-          {isCameraEnabled ? "닫기" : "취소"}
-        </button>
+      <div className="mt-[22px] flex flex-row-reverse gap-[23px]">
+        <button type="button" onClick={() => box.current?.close()} className="dolive-button dolive-danger h-[38px] flex-1 rounded-full border border-[#535154] font-semibold text-[#b5b0aa] transition hover:bg-white/5 hover:text-zinc-100 active:bg-white/10"><span className="dolive-button-cap text-white">
+          닫기
+        </span></button>
         {isCameraEnabled ? (
-          <button type="button" onClick={stop} className="h-[38px] flex-1 rounded-full bg-linear-to-b from-[#d0665b] to-[#a8443b] font-semibold text-[#fff4f1] shadow-[inset_0_1px_0_#fff4,0_1px_2px_#0006] transition hover:brightness-110 active:brightness-95">
+          <button type="button" onClick={stop} className="dolive-button dolive-danger h-[38px] flex-1 rounded-full bg-linear-to-b from-[#d0665b] to-[#a8443b] font-semibold text-[#fff4f1] shadow-[inset_0_1px_0_#fff4,0_1px_2px_#0006] transition hover:brightness-110 active:brightness-95"><span className="dolive-button-cap">
             카메라 끄기
-          </button>
+          </span></button>
         ) : (
           <button
             type="button"
             disabled={!preview || busy || blurBusy}
             onClick={start}
-            className="h-[38px] flex-1 rounded-full bg-linear-to-b from-[#d6bd8d] to-[#b79b68] font-semibold text-[#29231c] shadow-[inset_0_1px_0_#fff5] transition hover:brightness-110 active:brightness-95 disabled:opacity-50"
-          >
+            className="dolive-button h-[38px] flex-1 rounded-full bg-linear-to-b from-[#d6bd8d] to-[#b79b68] font-semibold text-[#29231c] shadow-[inset_0_1px_0_#fff5] transition hover:brightness-110 active:brightness-95 disabled:opacity-50"
+          ><span className="dolive-button-cap text-white">
             카메라 켜기
-          </button>
+          </span></button>
         )}
       </div>
     </dialog>
