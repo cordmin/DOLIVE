@@ -12,3 +12,6 @@ node_modules/
 # 운영진 목록은 서버 켜기 창, 방송 목록과 비밀번호는 입장 화면에서 고친다
 server/config/staff.txt
 server/config/rooms.txt
+
+# 이 컴퓨터의 연결 정보가 있는 인수인계 문서는 개인 보관만 한다
+/AGENTS.md

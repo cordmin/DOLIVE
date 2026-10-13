@@ -428,6 +428,5 @@ node tests/room-lifecycle.cjs
 | `server/logs` | 작동 기록과 오류 기록 |
 | `apps/web/models/supertonic` | 글 읽기용 모델과 목소리 파일 |
 | [정리 기록](docs/정리_기록.md) | 유지보수 조사·변경·확인 기록 |
-| [AI 작업자 인수인계](AGENTS.md) | 기능별 결정과 코드를 고칠 때 지킬 규칙 |
 
 공개 깃허브에는 실제 비밀 키, DuckDNS 토큰, 운영진 목록, 방송 비밀번호, 내려받은 실행 프로그램과 모델을 올리지 않습니다.
