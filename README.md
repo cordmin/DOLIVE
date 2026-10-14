@@ -4,6 +4,8 @@ DOLIVE는 동호회에서 목소리로 대화하고, 화면과 카메라를 공�
 
 **기존 서버를 다른 사람에게 넘긴다면, 깃허브에서 받는 것보다 기존 DOLIVE 폴더를 통째로 복사하는 방법을 권합니다.** 비밀 설정, 실행 프로그램, 글 읽기용 목소리 파일은 깃허브에 없습니다.
 
+**빌린 Linux 서버(DigitalOcean Droplet, Ubuntu 24.04)에서 운영하려면 [Linux 서버 안내](docs/linux/README.md)를 따르세요.** 설치·자동 시작·백업·업데이트 명령이 따로 있고, 아래 윈도우 안내와 윈도우용 파일은 그대로 유지됩니다.
+
 이 안내는 현재 윈도우 운영 방식을 기준으로 합니다. 별도 휴대폰 앱과 도커(프로그램을 묶어 실행하는 도구)는 사용하지 않습니다. 서버 대여료는 없지만 컴퓨터 전기료와 인터넷 비용은 듭니다.
 
 ## 목차
@@ -156,7 +158,7 @@ webhook:
    ```
 
 4. [도름스 연결 관리](https://dorms.school/connect)에서 사이트를 등록하거나 기존 DOLIVE 연결의 관리 권한을 넘겨받습니다. 기존 사이트를 이어받는 경우 새 사이트를 임의로 중복 등록하지 말고 기존 운영자와 확인합니다.
-5. 사이트 주소는 DuckDNS의 전체 HTTPS 주소로 맞춥니다. 로그인 후 돌아오는 주소는 `https://mydolive.duckdns.org/api/auth/dorms/callback`입니다. 도름네이션을 쓰는 경우 돌아오는 주소는 `https://mydolive.duckdns.org/api/auth/dorms/donation/callback`이며, 도름스에서 별도 신청·승인이 필요한지 확인합니다.
+5. 사이트 주소는 DuckDNS의 전체 HTTPS 주소(예: `https://mydolive.duckdns.org`, 뒤에 `/`나 경로 없이)로 등록합니다. 로그인 후 돌아오는 주소(`https://mydolive.duckdns.org/api/auth/dorms/callback`)는 도름스가 자동으로 등록하므로 따로 넣지 않습니다. 사이트 카드의 설치 프롬프트는 복사하지 않습니다. DOLIVE에는 로그인·도름네이션 코드가 이미 들어 있습니다. 도름네이션은 돌아오는 주소를 따로 등록하지 않는 대신, 사이트 카드에서 도름네이션 설치 프롬프트를 복사하면 승인 신청이 접수되고 도름스 관리자가 승인해야 작동합니다(복사한 프롬프트는 실행하지 않음). 도름스에 등록한 사이트 주소는 나중에 바꿀 수 없으므로 주소를 바꾸면 새로 등록합니다.
 6. 도름스가 발급한 사이트 식별값을 아래 `DORMS_CLIENT_ID`에 넣습니다. 도름스 등록·승인이 끝나기 전에는 일반 회원의 로그인이나 도름네이션이 작동하지 않을 수 있습니다.
 
 `apps/web/.env.local`을 만들고 아래 네 값을 넣습니다. 파일 이름이 `.env.local.txt`가 되지 않게 확인하세요.
@@ -427,6 +429,7 @@ node tests/room-lifecycle.cjs
 | `server/bin` | 내려받은 실행 프로그램 |
 | `server/logs` | 작동 기록과 오류 기록 |
 | `apps/web/models/supertonic` | 글 읽기용 모델과 목소리 파일 |
+| `scripts/linux`, `server/linux` | Linux 서버용 설치·운영 명령과 설정 ([Linux 서버 안내](docs/linux/README.md)) |
 | [정리 기록](docs/정리_기록.md) | 유지보수 조사·변경·확인 기록 |
 
 공개 깃허브에는 실제 비밀 키, DuckDNS 토큰, 운영진 목록, 방송 비밀번호, 내려받은 실행 프로그램과 모델을 올리지 않습니다.

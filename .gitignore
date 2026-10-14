@@ -1,6 +1,8 @@
 # secrets (see *.example files)
 server/config/livekit.yaml
 server/config/duckdns.env
+.env.local
+/windows/
 
 # downloaded programs (livekit-server.exe, caddy.exe) and logs
 server/bin/

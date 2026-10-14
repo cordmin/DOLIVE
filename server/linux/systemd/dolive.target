@@ -1,0 +1,9 @@
+# DOLIVE 전체 (통화·웹·바깥 접속). 부팅 때 자동으로 켜진다.
+# @DOLIVE_ROOT@ 등은 scripts/linux/dolive-install.sh 가 실제 경로로 바꿔 /etc/systemd/system 에 둔다.
+[Unit]
+Description=DOLIVE (LiveKit + Next.js + Caddy)
+Wants=dolive-livekit.service dolive-web.service dolive-caddy.service
+After=dolive-livekit.service dolive-web.service dolive-caddy.service
+
+[Install]
+WantedBy=multi-user.target

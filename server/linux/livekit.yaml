@@ -1,0 +1,23 @@
+# DOLIVE Linux LiveKit 설정. Windows는 server/config/livekit.yaml 을 쓴다.
+# 키 이름·비밀값은 여기에 적지 않는다: scripts/linux/run-livekit.sh 가 /etc/dolive/dolive.env 의
+# LIVEKIT_API_KEY·LIVEKIT_API_SECRET 으로 LIVEKIT_KEYS 와 webhook 키(LIVEKIT_WEBHOOK_API_KEY)를,
+# DOLIVE_PUBLIC_IP 로 NODE_IP 를 넣는다.
+port: 7880
+# 7880(API·신호)은 서버 안에서만. 바깥 신호는 Caddy(443)가 127.0.0.1:7880 으로 넘긴다.
+# 웹은 http://localhost:7880, 글 읽기 참여자는 ws://localhost:7880 으로 붙는다 (localhost 가 127.0.0.1 로 이어짐을 설치 시험에서 확인)
+bind_addresses:
+  - 127.0.0.1
+rtc:
+  # 바깥에 여는 통화 길: TCP 7881, UDP 50000~60000
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  # 고정 공인 IP를 직접 알린다 (node_ip 는 use_external_ip 가 false 일 때만 쓰인다)
+  use_external_ip: false
+webhook:
+  # 퇴장 알림 서명 키(api_key)는 적지 않는다. run-livekit.sh 가 LIVEKIT_API_KEY 와 같은 이름을 넣는다
+  # (키가 맞지 않으면 LiveKit 이 켜지지 않는다)
+  urls:
+    - http://127.0.0.1:3000/api/livekit
+logging:
+  level: info
