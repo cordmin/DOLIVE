@@ -1,4 +1,5 @@
 // 켜진 서버에서 실행: node tests/room-lifecycle.cjs
+// Linux 서버는 설정이 /etc/dolive/dolive.env 에 있어 DOLIVE_ENV_FILE 로 알려 준다 (sudo dolivectl selftest)
 // 확인용 방만 만들고 끝나면 목록과 참여자를 원래대로 치운다.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -6,7 +7,7 @@ const path = require("node:path");
 const { RoomServiceClient } = require("livekit-server-sdk");
 const { Room, dispose } = require("@livekit/rtc-node");
 const root = path.resolve(__dirname, "..");
-process.loadEnvFile(path.join(root, ".env.local"));
+process.loadEnvFile(process.env.DOLIVE_ENV_FILE || path.join(root, ".env.local"));
 const config = path.resolve(root, "../../server/config/rooms.txt");
 const original = fs.existsSync(config) ? fs.readFileSync(config) : null;
 const key = process.env.LIVEKIT_API_KEY;
