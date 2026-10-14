@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
 import { PhotoCrop } from "@/components/PhotoCrop";
-import { AVATARS, CUSTOM, DORMS, MAX_ROOMS, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
+import { AVATARS, CUSTOM, DORMS, MAX_ROOMS, leaveForDorms, savedAvatar } from "@/lib/dolive";
 import { ROOM_ENTRY_KEY } from "@/lib/roomHistory";
 
 // 방송 목록 한 줄 (api/rooms GET). guest = 비회원도 들어옴, canEdit = 내가 고칠 수 있는 방(내가 만든 방, 마스터는 모든 방. 그때만 password 가 온다)
@@ -136,9 +136,6 @@ export default function Home() {
     sessionStorage.setItem("room", room);
     sessionStorage.setItem("password", password);
     sessionStorage.setItem(ROOM_ENTRY_KEY, "1");
-    // 휴대폰은 입장하면서 주소창·아래 버튼 줄·시계 줄을 모두 숨긴다 (누른 순간에만 허락돼서 여기서. 아이폰은 막혀 있어 그냥 넘어간다).
-    // 시계 줄만 남기는 설정(navigationUI "show")은 시계 줄은 그대로 숨기고 아래 버튼 줄만 화면 위에 덮어 입력칸을 가려서 안 쓴다
-    if (isPhone()) document.documentElement.requestFullscreen?.().catch(() => {});
     router.push("/room");
   }
 
@@ -372,7 +369,8 @@ export default function Home() {
           maskImage: "url(/live-entry-label.png)",
           maskSize: "100% 100%",
           maskRepeat: "no-repeat",
-          background: "linear-gradient(to right, var(--color-red-500) 52.3614%, #fff 52.3614%)",
+          // E 끝이 흰색과 섞이지 않도록 색 경계는 글자 사이 빈칸에 둔다.
+          background: "linear-gradient(to right, var(--color-red-500) 56.5%, #fff 56.5%)",
         }} />
       </span></button>
       {/* Esc 나 [확인]으로 닫힌다 */}

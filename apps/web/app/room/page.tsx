@@ -148,7 +148,7 @@ export default function RoomPage() {
     fetch("/", { method: "HEAD", cache: "no-store", signal: AbortSignal.timeout(3000) }).then(
       (r) => {
         if (!r.ok) return setEnded("end");
-        if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); // 입장할 때 켠 전체화면도 끝낸다
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); // 사용자가 켠 전체화면도 끝낸다
         leaveRoomHistory(() => router.replace("/"));
       },
       () => setEnded("end"),
