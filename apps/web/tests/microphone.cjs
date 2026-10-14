@@ -18,7 +18,14 @@ async function run() {
   const calls = []; let captured = track();
   const helper = { exports: {}, require: () => ({ createLocalAudioTrack: async (o) => { calls.push(o); return captured; } }) };
   vm.runInNewContext(compile('lib/microphone.ts'), helper);
-  const { microphoneChoices, captureMicrophone } = helper.exports;
+  const { microphoneChoices, captureMicrophone, microphoneLabel } = helper.exports;
+  assert.equal(microphoneLabel('Speakerphone', 0), '스피커 폰');
+  assert.equal(microphoneLabel('Headset earpiece', 1), '휴대폰 수화부');
+  assert.equal(microphoneLabel('Default - Bluetooth headset', 0), '기본 - 블루투스 헤드셋');
+  assert.equal(microphoneLabel('Wired headset', 0), '유선 헤드셋');
+  assert.equal(microphoneLabel('USB audio', 0), 'USB 소리 장치');
+  assert.equal(microphoneLabel('제품 이름 ABC', 0), '제품 이름 ABC');
+  assert.equal(microphoneLabel('', 2), '마이크 3');
   assert.deepEqual(Array.from(microphoneChoices([device('default'), device('communications'), device('phone'), device('phone'), device('car'), device('camera', 'videoinput')]), (d) => d.deviceId), ['phone', 'car']);
   assert.equal(microphoneChoices([device('default'), device('communications')]).length, 1);
   captured = track('car'); await captureMicrophone('car');
@@ -55,7 +62,7 @@ async function run() {
         if (name === '@/components/Knob') return { Knob: 'knob' };
         if (name === './menu') return { useHoldMenu: () => (open) => ({ onContextMenu: open }) };
         if (name === './phone-audio') return { preparePhoneMicrophone: (on) => logs.push(on ? 'prepare' : 'playback') };
-        if (name === '@/lib/microphone') return { microphoneChoices, checkMicrophone: helper.exports.checkMicrophone,
+        if (name === '@/lib/microphone') return { microphoneChoices, microphoneLabel, checkMicrophone: helper.exports.checkMicrophone,
           captureMicrophone: async (id) => { logs.push('capture'); if (pending) return pending; const t = track(id || 'phone'); created.push(t); return t; } };
         throw new Error(name);
       },

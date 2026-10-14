@@ -2,7 +2,7 @@ import { useLocalParticipant, useRoomContext } from "@livekit/components-react";
 import { Room, RoomEvent, Track, TrackEvent, type LocalAudioTrack, type LocalTrackPublication, type Participant, type TrackPublication } from "livekit-client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Knob } from "@/components/Knob";
-import { captureMicrophone, checkMicrophone, microphoneChoices } from "@/lib/microphone";
+import { captureMicrophone, checkMicrophone, microphoneChoices, microphoneLabel } from "@/lib/microphone";
 import { useHoldMenu } from "./menu";
 import { preparePhoneMicrophone } from "./phone-audio";
 
@@ -201,14 +201,13 @@ export function MicrophoneKnob() {
         {!isMicrophoneEnabled && <path className="md:hidden" d="M20 4 4 20" stroke="#ffffff" strokeWidth="2.2" />}
       </svg>} />
     <dialog ref={box} onCancel={cancel} onClose={cancel} aria-labelledby="microphone-title"
-      className="m-auto max-h-[92dvh] w-[350px] max-w-[calc(100%-2rem)] overflow-y-auto rounded-[18px] border border-[#3d3b3a] bg-[#252526] p-7 text-[13px] text-[#d6d3cd] backdrop:bg-black/60">
-      <form onSubmit={(e) => { e.preventDefault(); void apply(); }}>
+      className="m-auto max-h-[92dvh] w-[350px] max-w-[calc(100%-2rem)] overflow-x-hidden overflow-y-auto rounded-[18px] border border-[#3d3b3a] bg-[#252526] p-7 text-[13px] break-words whitespace-normal text-[#d6d3cd] backdrop:bg-black/60">
+      <form className="min-w-0" onSubmit={(e) => { e.preventDefault(); void apply(); }}>
         <p id="microphone-title" className="mb-5 text-center text-base font-semibold">마이크 설정</p>
         <p className="mb-3">{devices.length > 1 ? "사용할 마이크를 골라 주세요." : "브라우저가 알려 준 마이크입니다."}</p>
-        {devices.length > 0 ? <select aria-label="사용할 마이크" value={chosen} onChange={(e) => setChosen(e.target.value)} disabled={busy} className="w-full rounded-lg bg-zinc-800 p-3">
-          {devices.map((d, i) => <option key={d.deviceId} value={d.deviceId}>{d.label || `마이크 ${i + 1}`}</option>)}
+        {devices.length > 0 ? <select aria-label="사용할 마이크" value={chosen} onChange={(e) => setChosen(e.target.value)} disabled={busy} className="w-full min-w-0 max-w-full rounded-lg bg-zinc-800 p-3">
+          {devices.map((d, i) => <option key={d.deviceId} value={d.deviceId}>{microphoneLabel(d.label, i)}</option>)}
         </select> : <p>기본 마이크</p>}
-        <p className="mt-4 text-xs text-[#a39f98]">차량 마이크가 목록에 없으면 휴대폰에서 소리 연결을 바꿔 주세요. 여기서는 보이지 않는 마이크를 고를 수 없어요.</p>
         {message && <p role="status" className="mt-3 text-red-300">{message}</p>}
         <div className="mt-6 flex gap-3">
           <button type="button" onClick={() => box.current?.close()} className="flex-1 rounded-full border border-[#535154] p-2">닫기</button>

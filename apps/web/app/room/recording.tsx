@@ -27,6 +27,11 @@ export function RecordKnob({ screen }: { screen?: TrackReference }) {
     if (open) box.current?.showModal();
   }, [open]);
   useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(""), 3000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  useEffect(() => {
     if (!recording) return;
     const leaving = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
     window.addEventListener("beforeunload", leaving);
@@ -77,8 +82,8 @@ export function RecordKnob({ screen }: { screen?: TrackReference }) {
   const close = () => { if (!busy) { cancelStart.current = true; setOpen(false); } };
   return (
     <>
-      <Knob className="hidden md:flex" label="녹화" led={recording ? "green" : undefined} aria-label={recording ? "녹화 끝내기" : "녹화 설정"} aria-pressed={recording} disabled={busy} onClick={click} data-tip={recording ? "녹화 끝내기" : "녹화 설정"} icon={recording ? <svg viewBox="0 0 24 24" aria-hidden className="size-[17px]"><rect x="6" y="6" width="12" height="12" rx="1.5" fill="#a30e1b" /></svg> : <span className="text-[10px] font-bold tracking-[0.4px]">REC</span>} />
-      {notice && <div role="status" onClick={() => setNotice("")} className="fixed right-5 bottom-5 z-50 cursor-pointer rounded-xl border border-[#4c4438] bg-[#252526] px-5 py-3 text-sm text-[#d6d3cd] shadow-lg">{notice}</div>}
+      <Knob className="hidden md:flex" label="녹화" led={recording ? "green" : undefined} aria-label={recording ? "녹화 끝내기" : "녹화 설정"} aria-pressed={recording} disabled={busy} onClick={click} icon={recording ? <svg viewBox="0 0 24 24" aria-hidden className="size-[17px]"><rect x="6" y="6" width="12" height="12" rx="1.5" fill="#a30e1b" /></svg> : <span className="text-[10px] font-bold tracking-[0.4px]">REC</span>} />
+      {notice && <div role="status" className="pointer-events-none fixed top-5 left-1/2 z-50 w-max max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-xl border border-[#4c4438] bg-[#252526] px-5 py-3 text-center text-sm whitespace-normal text-[#d6d3cd] shadow-lg">{notice}</div>}
       {open && <dialog ref={box} onClose={close} onCancel={(e) => { e.preventDefault(); close(); }} onPointerDown={(e) => { if (e.target === e.currentTarget) close(); }} className="m-auto max-h-[92dvh] w-[680px] max-w-[calc(100%-2rem)] overflow-y-auto rounded-[18px] border border-[#3d3b3a] bg-[#252526] p-[22px] text-[13px] whitespace-normal text-[#d6d3cd] backdrop:bg-black/60">
         <h2 className="mb-[18px] text-center text-base font-semibold">녹화 설정</h2>
         <div className="flex gap-6">
