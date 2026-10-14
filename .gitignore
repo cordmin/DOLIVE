@@ -15,5 +15,4 @@ node_modules/
 server/config/staff.txt
 server/config/rooms.txt
 
-# 이 컴퓨터의 연결 정보가 있는 인수인계 문서는 개인 보관만 한다
-/AGENTS.md
+# 비밀 키와 개인 서버 설정은 계속 제외한다. 루트 작업 지침에는 공개 가능한 운영 방법만 적는다.

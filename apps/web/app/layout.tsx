@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  // 카카오톡 미리보기가 사진(app/opengraph-image.jpg)을 찾으려면 전체 주소가 필요하다
-  metadataBase: new URL("https://dolive.duckdns.org"),
+  // 카카오톡 미리보기가 사진(app/opengraph-image.png)을 찾으려면 전체 주소가 필요하다
+  metadataBase: new URL(process.env.DORMS_SITE_URL || "https://dolive.site"),
   title: "DOLIVE",
   description: "DOLIVE 살짝 도라있는 교육 방송",
 };

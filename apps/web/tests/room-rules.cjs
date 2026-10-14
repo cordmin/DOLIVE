@@ -62,7 +62,7 @@ const token = load("app/api/token/route.ts", { "@/lib/server": server, "@/lib/ch
 const roomsApi = load("app/api/rooms/route.ts", { "@/lib/server": server, "@/lib/chat": chat, "@/lib/dolive": dolive });
 const ownerApi = load("app/api/owner/route.ts", { "@/lib/server": server, "@/lib/chat": chat });
 
-const OUT = "dolive.duckdns.org";
+const OUT = "dolive.site";
 const req = (url, method, body, host = OUT) =>
   new Request(`http://${host}${encodeURI(url)}`, { method, headers: { host }, body: body === undefined ? undefined : JSON.stringify(body) });
 const ticket = (room, password = "", host) => token.POST(req("/api/token", "POST", { room, password, name: "확인", avatar: "1" }, host));
@@ -212,7 +212,7 @@ async function live() {
   const name = `비회원 확인 ${Date.now()}`;
   const local = (url, method, body) => fetch(`http://localhost:3000${url}`, { method, headers: { Host: "localhost" }, body: body && JSON.stringify(body) });
   const outside = (room) =>
-    fetch("https://dolive.duckdns.org/api/token", { method: "POST", body: JSON.stringify({ room, password: "", name: "비회원", avatar: "1" }) });
+    fetch(`${process.env.DORMS_SITE_URL || "https://dolive.site"}/api/token`, { method: "POST", body: JSON.stringify({ room, password: "", name: "비회원", avatar: "1" }) });
   try {
     assert.equal((await local("/api/rooms", "PUT", { name, password: "", guest: true })).status, 201);
     const ok = await outside(name);
