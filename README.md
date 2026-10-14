@@ -156,7 +156,7 @@ webhook:
    ```
 
 4. [도름스 연결 관리](https://dorms.school/connect)에서 사이트를 등록하거나 기존 DOLIVE 연결의 관리 권한을 넘겨받습니다. 기존 사이트를 이어받는 경우 새 사이트를 임의로 중복 등록하지 말고 기존 운영자와 확인합니다.
-5. 사이트 주소는 DuckDNS의 전체 HTTPS 주소로 맞춥니다. 로그인 후 돌아오는 주소는 `https://mydolive.duckdns.org/api/auth/dorms/callback`입니다. 도름네이션을 쓰는 경우 돌아오는 주소는 `https://mydolive.duckdns.org/api/auth/dorms/donation/callback`이며, 도름스에서 별도 신청·승인이 필요한지 확인합니다.
+5. 사이트 주소는 DuckDNS의 전체 HTTPS 주소(예: `https://mydolive.duckdns.org`, 뒤에 `/`나 경로 없이)로 등록합니다. 로그인 후 돌아오는 주소(`https://mydolive.duckdns.org/api/auth/dorms/callback`)는 도름스가 자동으로 등록하므로 따로 넣지 않습니다. 사이트 카드의 설치 프롬프트는 복사하지 않습니다. DOLIVE에는 로그인·도름네이션 코드가 이미 들어 있습니다. 도름네이션은 돌아오는 주소를 따로 등록하지 않는 대신, 사이트 카드에서 도름네이션 설치 프롬프트를 복사하면 승인 신청이 접수되고 도름스 관리자가 승인해야 작동합니다(복사한 프롬프트는 실행하지 않음). 도름스에 등록한 사이트 주소는 나중에 바꿀 수 없으므로 주소를 바꾸면 새로 등록합니다.
 6. 도름스가 발급한 사이트 식별값을 아래 `DORMS_CLIENT_ID`에 넣습니다. 도름스 등록·승인이 끝나기 전에는 일반 회원의 로그인이나 도름네이션이 작동하지 않을 수 있습니다.
 
 `apps/web/.env.local`을 만들고 아래 네 값을 넣습니다. 파일 이름이 `.env.local.txt`가 되지 않게 확인하세요.
