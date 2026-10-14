@@ -43,4 +43,7 @@ function copyStyles(w: Window) {
   }
   w.document.documentElement.className = document.documentElement.className;
   w.document.body.className = document.body.className;
+  // 작은 창 자체는 넘치지 않게 하고, 채팅 내용만 안에서 스크롤한다.
+  Object.assign(w.document.documentElement.style, { height: "100%", overflow: "hidden" });
+  Object.assign(w.document.body.style, { margin: "0", height: "100%", minHeight: "0", overflow: "hidden" });
 }

@@ -25,9 +25,10 @@ import { SplitTop, Stage } from "./stage";
 import { DonationDialog } from "./donation";
 import { donationReturning, DONATION_RETURN_KEY } from "./donation-connection";
 import { usePhoneAudio } from "./phone-audio";
-import { PersonRow } from "./participants";
+import { PersonRow, SplitPeople } from "./participants";
 import { useMessages } from "./messages";
 import { useSplitChat } from "./split-chat";
+import { RecordKnob } from "./recording";
 import { ROOM_ENTRY_KEY, leaveRoomHistory, watchRoomBack } from "@/lib/roomHistory";
 
 // 방 화면: chat.tsx(채팅 화면), messages.ts(채팅 주고받기), participants.tsx(참여자·관리 메뉴), split-chat.ts(채팅 분리 창).
@@ -437,7 +438,7 @@ function RoomView({ token }: { token: string }) {
                 </svg>
               }
             />}
-            <MediaControls asked={asked} requestShare={requestShare} token={token} />
+            <MediaControls asked={asked} requestShare={requestShare} token={token} record={isAdmin && typeof window !== "undefined" && !isPhone() && <RecordKnob screen={screen} />} />
             {docPip && sharing && isAdmin && (
               <Knob
                 className="hidden md:flex"
@@ -516,10 +517,10 @@ function RoomView({ token }: { token: string }) {
 
       {pip &&
         createPortal(
-          <div className="flex h-dvh flex-col">
-            <SplitTop screen={screen} />
+          <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+            <SplitTop screen={screen}><SplitPeople participants={participants} /></SplitTop>
             <ChatLog messages={messages} isAdmin={isAdmin} remove={removeChat} edit={editChat} className="min-h-0 flex-1" />
-            <ChatInput send={sendChat} sendImage={sendImage} react={react} donate={() => setDonating(true)} className="" />
+            <ChatInput send={sendChat} sendImage={sendImage} react={react} donate={() => setDonating(true)} className="border-t-0! px-2.5! pt-2! pb-2!" />
             <Tooltips doc={pip.document} />
           </div>,
           pip.document.body,

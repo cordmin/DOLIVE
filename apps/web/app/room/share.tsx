@@ -1,6 +1,6 @@
 import { useDataChannel, useLocalParticipant, useLocalParticipantPermissions, useRoomContext } from "@livekit/components-react";
 import { ScreenSharePresets, RoomEvent, Track, type Participant, type RemoteParticipant, type RemoteTrackPublication } from "livekit-client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Knob } from "@/components/Knob";
 import { VOICE_BOT, VOICE_ON } from "@/lib/dolive";
 import { CameraKnob } from "./camera";
@@ -128,7 +128,7 @@ export function useShareRequests(isAdmin: boolean, participants: Participant[], 
 // 위쪽 오른쪽: 화면공유(PC만) + TTS + 카메라 + 마이크 스위치. 넓은 PC 화면(md 이상)은 같은 일을 하는 동그란 기계 버튼(Knob)으로 따로 그린다
 // 화면공유 버튼: 방장은 바로 공유. 다른 사람은 [화면공유 -> 요청 중... -> (방장 승인) -> 지금 공유하기] 순서.
 // (승인이 나도 공유 고르는 창은 본인이 버튼을 눌러야 열린다 - 브라우저 규칙)
-export function MediaControls({ asked, requestShare, token }: { asked: boolean; requestShare: () => void; token: string }) {
+export function MediaControls({ asked, requestShare, token, record }: { asked: boolean; requestShare: () => void; token: string; record?: ReactNode }) {
   const { localParticipant: me, isScreenShareEnabled } = useLocalParticipant();
   const canShare = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
   const sources = useLocalParticipantPermissions()?.canPublishSources ?? [];
@@ -214,6 +214,7 @@ export function MediaControls({ asked, requestShare, token }: { asked: boolean; 
           }
         />
       )}
+      {record}
       <TtsButton />
       <CameraKnob token={token} />
       <MicrophoneKnob />

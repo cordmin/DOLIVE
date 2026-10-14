@@ -157,7 +157,19 @@ function useFacePage(cams: TrackReference[]) {
 // ponytail: 모니터 하나에서 그 모니터 전체를 공유하며 [공유 화면]을 고르면 화면이 끝없이 겹쳐 보인다.
 // 듀얼 모니터(다른 모니터에 이 창)면 괜찮아서 막지 않고 사용자에게 맡긴다 (사용자 결정)
 const SPLIT_KEY = "dolive-split-view";
-export function SplitTop({ screen }: { screen?: TrackReference }) {
+export function SharePreview({ screen }: { screen: TrackReference }) {
+  const cams = useCams();
+  const [ratio, setRatio] = useState(16 / 9);
+  const face = cams.find((c) => c.participant.identity === screen.participant.identity && c.participant.attributes.camPos !== "row");
+  return (
+    <div style={{ aspectRatio: ratio }} className="relative overflow-hidden rounded-[10px] bg-black">
+      <VideoTrack trackRef={screen} disablePictureInPicture onLoadedMetadata={(e) => { const v = e.currentTarget; if (v.videoHeight) setRatio(v.videoWidth / v.videoHeight); }} onResize={(e) => { const v = e.currentTarget; if (v.videoHeight) setRatio(v.videoWidth / v.videoHeight); }} className="size-full object-contain" />
+      {face && <FaceOverlay cam={face} />}
+    </div>
+  );
+}
+
+export function SplitTop({ screen, children }: { screen?: TrackReference; children?: ReactNode }) {
   const cams = useCams();
   useRoomTick();
   const [view, setView] = useState(() => {
@@ -190,9 +202,10 @@ export function SplitTop({ screen }: { screen?: TrackReference }) {
         <button type="button" aria-pressed={view === "face"} onClick={() => pick("face")} className={`dolive-button ${choice(view === "face")}`}><span className="dolive-button-cap">내 얼굴</span></button>
         <button type="button" aria-pressed={view === "chat"} onClick={() => pick("chat")} className={`dolive-button ${choice(view === "chat")}`}><span className="dolive-button-cap">채팅만</span></button>
         </div>
+        {children}
       </div>
       {view !== "chat" && <div className="px-2.5 pt-2.5">
-      <div className={`relative aspect-video w-full overflow-hidden rounded-xl ${bare ? "" : "bg-black shadow-[0_4px_14px_#0006] ring-1 ring-white/10"}`}>
+      <div className={`relative mx-auto aspect-video w-full max-w-[calc((100dvh-232px)*16/9)] overflow-hidden rounded-xl ${bare ? "" : "bg-black shadow-[0_4px_14px_#0006] ring-1 ring-white/10"}`}>
         {view === "view" ? (
           screen && (
             <>

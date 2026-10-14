@@ -1,14 +1,49 @@
 import { useIsMuted, useIsSpeaking, useParticipantAttributes, useRoomContext } from "@livekit/components-react";
 import { Track, type Participant } from "livekit-client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
 import { avatarOf } from "@/lib/dolive";
 import { MENU_ITEM, NO_SELECT, PopMenu, useHoldMenu } from "./menu";
 import { SCREEN_SHARE_SOURCE } from "./share";
+import { pageOf } from "@/lib/faces";
 
 function useAvatarOf(p: Participant) {
   useParticipantAttributes({ participant: p });
   return avatarOf(p.attributes?.avatar);
+}
+
+// 분리 채팅의 얇은 참여자 줄. 창을 줄여도 한 줄이고, 남은 사진은 눌러서 넘겨 본다.
+export function SplitPeople({ participants }: { participants: Participant[] }) {
+  const list = useRef<HTMLDivElement>(null);
+  const [slots, setSlots] = useState(7);
+  const [page, setPage] = useState(0);
+  useEffect(() => {
+    const el = list.current;
+    if (!el) return;
+    const ro = new el.ownerDocument.defaultView!.ResizeObserver(([e]) => setSlots(Math.max(2, Math.floor((e.contentRect.width + 6) / 30))));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const { faces, more } = pageOf(participants, slots, page);
+  return (
+    <div aria-label="현재 참여자" className="mt-2 flex h-11 items-center gap-2 rounded-[12px] bg-[#1c1c1e] px-2 shadow-[inset_0_2px_5px_#0009,inset_0_0_0_1px_#383838]">
+      <span className="shrink-0 whitespace-nowrap text-[11px] text-[#a8a29a]">참여 <strong className="font-semibold text-[#e4c691]">{participants.length}</strong>명</span>
+      <span aria-hidden="true" className="h-4 w-px shrink-0 bg-[#46413a]" />
+      <div ref={list} className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-1">
+        {faces.map((p) => <SplitPerson key={p.identity} p={p} />)}
+        {more > 0 && <button type="button" onClick={() => setPage((p) => p + 1)} aria-label={`다른 참여자 ${more}명 보기`} data-tip="다른 참여자 보기" className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[#303032] text-[10px] text-[#b2aca3] hover:bg-zinc-700 focus-visible:outline focus-visible:outline-[#e4c691]">+{more}</button>}
+      </div>
+    </div>
+  );
+}
+
+function SplitPerson({ p }: { p: Participant }) {
+  const speaking = useIsSpeaking(p);
+  return (
+    <span role="img" aria-label={p.name || p.identity} data-tip={p.name || p.identity} className="shrink-0">
+      <Avatar id={useAvatarOf(p)} talking={speaking && p.isMicrophoneEnabled} px={24} className="size-6" />
+    </span>
+  );
 }
 
 // 방장은 다른 사람 줄을 오른쪽 클릭(휴대폰은 꾹 누르기)하면 메뉴가 뜬다 (말풍선 메뉴와 같은 모양):
