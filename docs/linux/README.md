@@ -338,6 +338,22 @@ sudo rm -rf /root/dolive-move
 - 방송 목록(`rooms.txt`)은 입장 화면에서 고칩니다. 마스터는 [9번](#9-마스터로-들어가기-ssh-터널) 터널로 들어옵니다.
 - 채팅 글·사진은 서버 메모리에만 있고 방이 비거나 웹이 다시 켜지면 사라집니다(윈도우와 같음).
 
+### 도름스 연수 방
+
+도름스에서 연수를 열고 장소로 DoLive를 고르면 연수마다 방이 하나 생깁니다. 주소는 `https://도메인/yeonsu/<연수 id>`이고 도름스 연수 소개의 'DoLive 방 들어가기'로 들어옵니다.
+
+- 방송 목록(최대 4개)에 넣지 않고 입장 화면에도 보이지 않습니다. 연수를 연 선생님이 방장이고, 방장은 넘기지 않습니다.
+- 들어올 수 있는지는 도름스가 정합니다(여는 선생님과 신청이 확정된 선생님, 시작 10분 전부터 끝날 때까지). 입장 화면과 입장권을 줄 때마다 도름스에 서명한 요청으로 묻습니다. 비회원은 들어오지 못합니다.
+- 서명 비밀값을 `/etc/dolive/dolive.env`에 넣어야 합니다. 도름스 쪽 설정과 **같은 값**(32자 이상)이어야 하며, 값은 담당자에게 따로 받습니다.
+
+  ```text
+  sudo nano /etc/dolive/dolive.env      # DORMS_YEONSU_SECRET=받은값 한 줄을 더함
+  sudo dolivectl restart
+  ```
+
+  비워 두면 연수 방에는 아무도 들어오지 못하고(“도름스에서 확인하지 못했어요”) 다른 방은 그대로 씁니다.
+- 들여보낸 연수 방은 `/opt/dolive/server/config/yeonsu-rooms.json`에 남아 다시 켜도 알아봅니다. 끝나는 시간이 되면 방을 닫고, 끝난 지 하루 지난 기록은 저절로 지웁니다. 손으로 고칠 필요는 없습니다.
+
 ## 12. 백업과 복원
 
 ```text
@@ -426,6 +442,7 @@ Node.js·LiveKit·Caddy·모델의 버전은 [server/linux/versions.env](../../s
 | 입장권 오류 | `/etc/dolive/dolive.env`의 `LIVEKIT_API_KEY`·`LIVEKIT_API_SECRET`이 비어 있거나 쓸 수 없는 글자가 있는지(`sudo dolivectl doctor`), 고친 뒤 `restart` 했는지. 키 이름은 `dolive`가 아니어도 됩니다 |
 | 통화 서버가 계속 꺼짐 | `sudo dolivectl logs livekit`에서 `[실패]` 줄. 설정이 빠진 경우 다시 켜기를 멈추고 이유를 적어 둡니다 |
 | 도름스 로그인 실패 | 도름스 사이트 등록·허용 → `DORMS_CLIENT_ID` → `DORMS_SITE_URL`이 `https://도메인`인지 → 도름스에 등록한 사이트 주소가 지금 도메인과 같은지 |
+| 연수 방에 아무도 못 들어옴 | 입장 화면이 '잠시 뒤 다시 들어와 주세요'면 `DORMS_YEONSU_SECRET`이 있는지·도름스와 같은 값인지 → 고친 뒤 `restart` 했는지 → `sudo dolivectl logs web`. '신청이 확정되면' 등 다른 안내는 도름스 연수 설정 문제입니다 |
 | 도름네이션이 안 됨 | 도름스 관리자 승인이 끝났는지(사이트 카드의 상태) → 보내는 사람이 처음 한 번 보내기를 허용했는지 → 오늘 한도(하루 3도름) |
 | 글 읽기 실패 | `sudo dolivectl selftest` → `sudo dolivectl logs web` → 모델 파일(`doctor`) → CPU 사용률(`top`) |
 | 빈 방 채팅이 안 지워짐 | `selftest` 결과 → `sudo dolivectl logs livekit`에서 webhook 오류 |
@@ -446,6 +463,7 @@ Node.js·LiveKit·Caddy·모델의 버전은 [server/linux/versions.env](../../s
 | `/opt/dolive` | DOLIVE 코드 (실행 계정 `dolive` 소유) |
 | `/etc/dolive/dolive.env` | 도메인·공인 IP·통화 키·도름스 설정 (root와 `dolive`만 읽음) |
 | `/opt/dolive/server/config/rooms.txt`, `staff.txt` | 방송 목록·운영진 (윈도우와 같은 형식) |
+| `/opt/dolive/server/config/yeonsu-rooms.json` | 도름스 연수 방 기록 (웹이 쓰고 지움) |
 | `/opt/dolive/apps/web/models/supertonic` | 글 읽기 모델 |
 | `/opt/dolive/server/bin` | 받은 Node.js·LiveKit·Caddy (버전 기록 `.versions`) |
 | `/var/lib/private/dolive-caddy` | HTTPS 인증서·ACME 계정 (지우면 인증서를 새로 받음) |

@@ -2,6 +2,18 @@ import { AccessToken } from "livekit-server-sdk";
 import { clearEmptyRoom, keepImage } from "@/lib/chat";
 import { AVATARS, CUSTOM, DORMS, isAvatar } from "@/lib/dolive";
 import { GUEST_COOKIE, MIC_CAM, WITH_SCREEN, dormsCheck, findRoom, isLocal, isStaff, roomDeny } from "@/lib/server";
+import { askDorms, registerYeonsuRoom, yeonsuIdOf } from "@/lib/yeonsu";
+
+// 도름스 연수 방에 못 들어올 때 이유별 안내 (입장 화면 app/yeonsu/[id] 가 같은 이유를 더 자세히 보여 준다)
+const YEONSU_DENY: Record<string, string> = {
+  not_found: "닫혔거나 없는 연수예요",
+  not_applied: "이 연수에 신청한 선생님만 들어올 수 있어요",
+  not_confirmed: "신청이 확정되면 들어올 수 있어요",
+  blocked: "지금은 이 연수에 들어올 수 없어요",
+  too_early: "연수 시작 10분 전부터 들어올 수 있어요",
+  ended: "끝난 연수예요",
+  unavailable: "도름스에서 확인하지 못했어요. 잠시 뒤 다시 해 주세요",
+};
 
 const JPEG = "data:image/jpeg;base64,";
 
@@ -9,15 +21,26 @@ export async function POST(req: Request) {
   const { name, avatar, photo, room, password } = await req.json().catch(() => ({}));
   // 도름스 회원만 입장권을 받는다 (서버 PC는 빼고). 비회원(로그인 안 함)은 "비회원도" 방에만
   const { user, deny } = await dormsCheck(req);
+  const local = isLocal(req);
+  // 도름스 연수 방: 도름스에 이 회원이 지금 들어와도 되는지 묻고(입장권을 줄 때마다), 되면 방을 남긴다. 비회원은 들어오지 못한다
+  const yeonsuId = yeonsuIdOf(room);
+  let yeonsuHost = false;
+  if (yeonsuId && !local) {
+    if (deny) return deny;
+    const v = await askDorms(yeonsuId, user!.id);
+    if (!v.ok) return Response.json({ error: YEONSU_DENY[v.reason] ?? YEONSU_DENY.unavailable, reason: `yeonsu_${v.reason}` }, { status: v.reason === "unavailable" ? 503 : 403 });
+    registerYeonsuRoom(room, { title: v.title, owner: v.hostId, endsAt: v.endsAt });
+    yeonsuHost = v.role === "host";
+  }
   const r = findRoom(room);
   if (deny && !(deny.status === 401 && r?.guest)) return deny;
   const nickname = typeof name === "string" ? name.trim() : "";
   if (!isAvatar(avatar) || nickname.length < 1 || nickname.length > 20) {
     return Response.json({ error: "잘못된 입장 정보" }, { status: 400 });
   }
-  const local = isLocal(req);
   const admin = local || isStaff(user); // 마스터(서버 PC), 또는 운영진 목록에 있는 도름스 회원
-  const owner = !!user && r?.owner === user.id; // 이 방을 만든 사람 (나갔다 들어와도 계속 방장)
+  // 이 방을 만든 사람 (나갔다 들어와도 계속 방장). 연수 방은 연수를 연 선생님
+  const owner = yeonsuId ? yeonsuHost || (!!user && r?.owner === user.id) : !!user && r?.owner === user.id;
   // 방송 목록에 있는 방만. 비밀번호 방은 비밀번호가 맞아야 한다 (방장 노릇 하는 사람은 안 묻는다)
   const no = roomDeny(room, password, admin || owner);
   if (no) return no;
@@ -45,7 +68,8 @@ export async function POST(req: Request) {
     name: nickname,
     // dorms: 도름스 회원 id(sub). 채팅할 때 지금 도름스 로그인과 같은 사람인지 맞춰 본다 (lib/chat.ts whoSent). 서버 PC는 빈칸
     // roomAdmin: 이 방에서 방장 노릇(마스터·운영진·만든 사람), owner: 만든 사람(방장 넘기기 메뉴가 보인다. 넘기면 api/owner 가 바꾼다)
-    attributes: { avatar: face, admin: admin ? "1" : "", dorms: user?.id ?? "", roomAdmin: admin || owner ? "1" : "", owner: owner ? "1" : "" },
+    // 연수 방은 방장 넘기기가 없어서 owner 표시를 달지 않는다 (방장 노릇 roomAdmin 만)
+    attributes: { avatar: face, admin: admin ? "1" : "", dorms: user?.id ?? "", roomAdmin: admin || owner ? "1" : "", owner: owner && !yeonsuId ? "1" : "" },
     ttl: "12h",
   });
   at.addGrant({

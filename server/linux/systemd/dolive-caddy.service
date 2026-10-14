@@ -13,7 +13,7 @@ DynamicUser=yes
 StateDirectory=dolive-caddy
 StateDirectoryMode=0700
 EnvironmentFile=/etc/dolive/dolive.env
-UnsetEnvironment=LIVEKIT_API_KEY LIVEKIT_API_SECRET DORMS_CLIENT_ID
+UnsetEnvironment=LIVEKIT_API_KEY LIVEKIT_API_SECRET DORMS_CLIENT_ID DORMS_YEONSU_SECRET
 Environment=HOME=/var/lib/dolive-caddy XDG_DATA_HOME=/var/lib/dolive-caddy XDG_CONFIG_HOME=/var/lib/dolive-caddy
 ExecStart=@DOLIVE_ROOT@/server/bin/caddy run --config @DOLIVE_ROOT@/server/linux/Caddyfile --adapter caddyfile
 Restart=on-failure

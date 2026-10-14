@@ -1,5 +1,6 @@
 import { whoSent } from "@/lib/chat";
 import { findRoom, publishPermission, roomList, rooms, saveRooms } from "@/lib/server";
+import { yeonsuIdOf } from "@/lib/yeonsu";
 
 // 방장 넘기기 { room, identity }: 방을 만든 사람만, 그 방 안의 도름스 회원에게 (비회원은 다음에 알아볼 수가 없어서 안 된다).
 // 넘기면 그 사람이 방 주인이 된다 (나갔다 들어와도 방장, 방 설정·지우기도 그 사람). 옛 주인은 일반 참여자가 된다 (마스터·운영진이면 방장 노릇은 그대로)
@@ -8,6 +9,8 @@ export async function POST(req: Request) {
   if (typeof identity !== "string" || typeof room !== "string") return Response.json({ error: "잘못된 요청" }, { status: 400 });
   const sender = await whoSent(req);
   if (sender.deny) return sender.deny;
+  // 도름스 연수 방은 연수를 연 선생님이 방장이다 (넘기지 않는다)
+  if (yeonsuIdOf(room)) return Response.json({ error: "연수 방은 방장을 넘길 수 없어요" }, { status: 400 });
   const r = findRoom(room);
   if (sender.room !== room || !r?.owner || r.owner !== sender.user?.id) return Response.json({ error: "방 주인만 넘길 수 있어요" }, { status: 403 });
   const to = await rooms.getParticipant(room, identity).catch(() => null);
