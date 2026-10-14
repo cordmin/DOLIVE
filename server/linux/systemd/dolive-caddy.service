@@ -1,0 +1,39 @@
+# DOLIVE 바깥 접속(HTTPS 443). 설정 server/linux/Caddyfile
+# 인증서·ACME 계정은 /var/lib/dolive-caddy (실제 위치 /var/lib/private/dolive-caddy)에 남는다.
+# 비밀 설정 파일을 못 읽게 별도 임시 계정(DynamicUser)으로 돌리고, 도메인 값만 넘긴다.
+[Unit]
+Description=DOLIVE Caddy (HTTPS)
+Wants=network-online.target
+After=network-online.target dolive-web.service dolive-livekit.service
+PartOf=dolive.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=dolive-caddy
+StateDirectoryMode=0700
+EnvironmentFile=/etc/dolive/dolive.env
+UnsetEnvironment=LIVEKIT_API_KEY LIVEKIT_API_SECRET DORMS_CLIENT_ID
+Environment=HOME=/var/lib/dolive-caddy XDG_DATA_HOME=/var/lib/dolive-caddy XDG_CONFIG_HOME=/var/lib/dolive-caddy
+ExecStart=@DOLIVE_ROOT@/server/bin/caddy run --config @DOLIVE_ROOT@/server/linux/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+LimitNOFILE=1048576
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=dolive.target

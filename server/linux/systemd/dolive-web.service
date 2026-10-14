@@ -1,0 +1,38 @@
+# DOLIVE 웹 화면·채팅·로그인·글 읽기. Next.js 한 프로세스만 쓴다 (채팅·사진·글 읽기 줄이 메모리에 있음).
+# 작업 폴더는 apps/web 이어야 한다 (models/supertonic, ../../server/config/rooms.txt·staff.txt 를 이 기준으로 찾는다)
+[Unit]
+Description=DOLIVE web (Next.js)
+Wants=network-online.target
+After=network-online.target dolive-livekit.service
+PartOf=dolive.target
+
+[Service]
+Type=simple
+User=dolive
+Group=dolive
+WorkingDirectory=@DOLIVE_ROOT@/apps/web
+EnvironmentFile=/etc/dolive/dolive.env
+Environment=NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOME=/var/lib/dolive
+ExecStart=@DOLIVE_ROOT@/server/bin/node/bin/node node_modules/next/dist/bin/next start -H 127.0.0.1 -p 3000
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+StateDirectory=dolive
+StateDirectoryMode=0750
+# 쓰는 곳은 웹 캐시와 방송 목록(server/config/rooms.txt)뿐이다. 나머지 코드는 읽기 전용으로 보인다
+ReadWritePaths=-@DOLIVE_ROOT@/apps/web/.next @DOLIVE_ROOT@/server/config
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=dolive.target
