@@ -3,6 +3,7 @@ import path from "node:path";
 import { cookies } from "next/headers";
 import { RoomServiceClient, TokenVerifier, TrackSource } from "livekit-server-sdk";
 import { DormsAuthError, getDormsUser, type DormsUser } from "@/lib/dormsLogin";
+import { yeonsuRoomDef } from "@/lib/yeonsu";
 
 // 서버에서만 쓰는 것들 (방장·운영진 확인, 도름스 확인, 통화 서버에 시키기, 화면공유 권한)
 
@@ -83,7 +84,8 @@ export function roomList(): RoomDef[] {
 export function saveRooms(list: RoomDef[]) {
   writeFileSync(ROOMS_FILE, list.map((r) => [r.name, r.password, r.guest ? "guest" : "members", r.owner].join("\t")).join("\r\n") + "\r\n");
 }
-export const findRoom = (name: unknown) => roomList().find((r) => r.name === name);
+// 도름스 연수 방(lib/yeonsu.ts)도 같은 모양으로 찾는다. 방송 목록에는 없고, 도름스가 들여보낸 뒤에만 있다
+export const findRoom = (name: unknown): RoomDef | undefined => roomList().find((r) => r.name === name) ?? yeonsuRoomDef(name);
 
 // 그 방의 방장 노릇(강퇴·마이크 끄기·화면공유 허락)을 하는 사람: 마스터(서버 PC), 관리자(운영진), 그 방을 만든 사람
 export const isRoomAdmin = (req: Request, user: DormsUser | undefined, room: RoomDef | undefined) =>

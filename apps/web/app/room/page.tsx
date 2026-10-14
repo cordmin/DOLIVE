@@ -133,6 +133,9 @@ export default function RoomPage() {
       .catch((reason) => {
         if (!alive) return;
         sessionStorage.removeItem(ROOM_ENTRY_KEY);
+        // 도름스 연수 방이면 그 연수의 입장 화면으로 돌아가 까닭을 본다 (로그인이 풀렸으면 거기서 다시 로그인한다)
+        const yeonsu = /^yeonsu-([0-9a-f-]{36})$/.exec(body.room ?? "")?.[1];
+        if (yeonsu) return router.replace(`/yeonsu/${yeonsu}`);
         if (!leaveForDorms(reason)) router.replace("/");
       });
     return () => {

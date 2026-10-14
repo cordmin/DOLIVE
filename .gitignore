@@ -16,3 +16,7 @@ server/config/staff.txt
 server/config/rooms.txt
 
 # 비밀 키와 개인 서버 설정은 계속 제외한다. 루트 작업 지침에는 공개 가능한 운영 방법만 적는다.
+
+# 도름스 연수 방 기록 (서버가 쓰고 지운다)
+server/config/yeonsu-rooms.json
+server/config/yeonsu-rooms.json.*.tmp

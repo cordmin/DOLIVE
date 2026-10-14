@@ -48,7 +48,13 @@ const fakeFs = {
     file = t;
   },
 };
+// 도름스 연수 방 기록은 읽지도 쓰지도 않는다 (비밀값이 없어 도름스에 묻지도 않는다)
+const yeonsu = load("lib/yeonsu.ts", {
+  "node:fs": { readFileSync: () => { throw new Error("없음"); }, writeFileSync: () => {}, renameSync: () => {} },
+  "@/lib/dormsLogin": { DORMS_ISSUER: "https://dorms.school" },
+});
 const server = load("lib/server.ts", {
+  "@/lib/yeonsu": yeonsu,
   "node:fs": fakeFs,
   "next/headers": { cookies: async () => ({ get: () => guestToken ? { value: guestToken } : undefined }) },
   "@/lib/dormsLogin": { DormsAuthError, getDormsUser: async () => user },
@@ -58,9 +64,9 @@ let sender = {};
 const chat = { clearEmptyRoom: async () => false, keepImage: () => {}, endRoom: async (n) => void ended.push(n), whoSent: async () => sender };
 const dolive = load("lib/dolive.ts", {});
 const chatAuth = load("lib/chat.ts", { "@/lib/server": server, "@/lib/dolive": dolive, "./donationTargets": { clearDonationTargets: () => {} } });
-const token = load("app/api/token/route.ts", { "@/lib/server": server, "@/lib/chat": chat, "@/lib/dolive": dolive });
+const token = load("app/api/token/route.ts", { "@/lib/server": server, "@/lib/chat": chat, "@/lib/dolive": dolive, "@/lib/yeonsu": yeonsu });
 const roomsApi = load("app/api/rooms/route.ts", { "@/lib/server": server, "@/lib/chat": chat, "@/lib/dolive": dolive });
-const ownerApi = load("app/api/owner/route.ts", { "@/lib/server": server, "@/lib/chat": chat });
+const ownerApi = load("app/api/owner/route.ts", { "@/lib/server": server, "@/lib/chat": chat, "@/lib/yeonsu": yeonsu });
 
 const OUT = "dolive.site";
 const req = (url, method, body, host = OUT) =>
@@ -197,6 +203,16 @@ const B = { id: "b", name: "다라" };
   assert.equal((await find("다라의 새 방 2")).canEdit, false); // 바깥에서 보면 남의 방
   assert.equal((await roomsApi.DELETE(req("/api/rooms?room=다라의 새 방 2", "DELETE", undefined, "localhost"))).status, 204);
   assert.equal(server.findRoom("다라의 새 방 2"), undefined);
+
+  // 도름스 연수 방: 비회원은 못 들어오고, 도름스에 확인하지 못하면(비밀값 없음) 회원도 들이지 않는다. 방장은 넘기지 않는다
+  const yeonsuRoom = "yeonsu-0f8fad5b-d9cb-469f-a165-70867728950e";
+  assert.equal((await ticket(yeonsuRoom)).status, 401);
+  user = A;
+  const notChecked = await ticket(yeonsuRoom);
+  assert.equal(notChecked.status, 503);
+  assert.equal((await notChecked.json()).reason, "yeonsu_unavailable");
+  assert.equal(server.findRoom(yeonsuRoom), undefined); // 들여보내지 않았으니 남기지 않는다
+  user = undefined;
   assert.equal((await roomsApi.PATCH(req("/api/rooms?room=옛 방", "PATCH", { name: "옛 방", password: "새암호", guest: false }, "localhost"))).status, 204);
   assert.match(written, /옛 방\t새암호\tmembers/);
   console.log("통과: 비회원 입장, 방 만들기·고치기·지우기 권한(만든 사람·관리자·마스터), 만든 사람 방장, 방장 넘기기, ON AIR, 방 목록 파일 저장, 최대 4개");
