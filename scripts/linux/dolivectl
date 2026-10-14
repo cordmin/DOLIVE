@@ -1,0 +1,495 @@
+#!/usr/bin/env bash
+# DOLIVE Linux 운영 명령. 설치하면 /usr/local/sbin/dolivectl 로 쓸 수 있다. 안내: docs/linux/README.md
+set -euo pipefail
+umask 077
+
+SELF=$(readlink -f "${BASH_SOURCE[0]}")
+ROOT=$(cd "$(dirname "$SELF")/../.." && pwd)
+WEB=$ROOT/apps/web
+ENV_FILE=/etc/dolive/dolive.env
+STATE=/var/lib/dolive
+CADDY_DATA=/var/lib/private/dolive-caddy
+BACKUPS=/var/backups/dolive
+SVC_USER=dolive
+NODE=$ROOT/server/bin/node/bin/node
+DOLIVE_ROOT=$ROOT
+# shellcheck source=applied-state.sh
+. "$ROOT/scripts/linux/applied-state.sh"
+
+say() { printf '  %s\n' "$*"; }
+ok() { printf '  [ OK ] %s\n' "$*"; }
+warn() { printf '  [주의] %s\n' "$*"; }
+bad() { printf '  [실패] %s\n' "$*"; }
+pend() { printf '  [미확인] %s\n' "$*"; }
+die() { bad "$*" >&2; exit 1; }
+need_root() { [ "$(id -u)" -eq 0 ] || die "root 권한이 필요해요: sudo dolivectl $*"; }
+env_value() { [ -r "$ENV_FILE" ] || return 0; sed -n "s/^[[:space:]]*$1=//p" "$ENV_FILE" | tail -n 1 | tr -d '\r'; }
+as_dolive() { runuser -u "$SVC_USER" -- env HOME="$STATE" PATH="$ROOT/server/bin/node/bin:/usr/local/bin:/usr/bin:/bin" npm_config_cache="$STATE/.npm" "$@"; }
+http_code() { curl -s -o /dev/null -w '%{http_code}' "$@" 2>/dev/null || true; }
+is_2xx3xx() { [[ $1 =~ ^[23][0-9][0-9]$ ]]; }
+
+usage() {
+  cat <<'EOF'
+사용법: sudo dolivectl <명령>
+  start                  켜기 (통화·웹·바깥 접속)
+  stop                   방 안 사람들에게 방송 종료를 알리고 끄기
+  restart                다시 켜기 (방 안 사람들은 다시 연결됩니다)
+  status                 세 서비스의 systemd 상태
+  health [--wait 초]     실제 응답 확인. 모두 정상이면 0
+  logs [web|livekit|caddy] [-f]   기록 보기 (-f: 계속 보기)
+  recover <web|livekit|caddy>     기록을 보관하고 그 서비스만 다시 켜기
+  backup [폴더] [--with-models]   설정·방송 목록·인증서 백업 (기본 /var/backups/dolive)
+  restore <백업 파일> [--no-start]
+                         백업에서 되살리기 (지금 상태를 먼저 따로 백업). --no-start: 되살린 뒤 켜지 않음 (새 서버로 옮길 때)
+  update                 백업 → 새 코드 받기 → 설치·빌드 → 다시 켜기. 실패하면 이전 코드로 되돌림
+  doctor                 설정·DNS·인증서·보안 경계·방화벽 점검 (아무것도 바꾸지 않음)
+                         끝 코드 0: 모두 확인, 1: 고칠 것 있음, 2: 서버 안은 정상이나 DNS·HTTPS 등 바깥 준비 미확인
+  firewall               권장 방화벽 설정을 보여 주기 (실행하지 않음)
+  selftest               글 읽기·빈 방 채팅 정리·바깥 주소(HTTPS) 통화 연결 실제 시험 (시험용 방을 잠시 만들고 지움)
+EOF
+}
+
+# ---------------------------------------------------------------- 상태
+service_state() { # 서비스 이름, 응답 확인 결과(0/1) → ok/off/error
+  if ! systemctl is-active --quiet "dolive-$1"; then echo off; elif [ "$2" -eq 0 ]; then echo ok; else echo error; fi
+}
+
+check_livekit() { [ "$(curl -fsS -m 3 http://127.0.0.1:7880/ 2>/dev/null)" = OK ]; }
+check_web() { is_2xx3xx "$(http_code -m 10 http://127.0.0.1:3000/)"; }
+check_caddy() {
+  local domain; domain=$(env_value DOLIVE_DOMAIN)
+  [ -n "$domain" ] || return 1
+  # 인증서를 아직 못 받았어도 Caddy 가 웹까지 이어 주는지는 -k 로 본다 (인증서 자체는 doctor 가 확인)
+  is_2xx3xx "$(http_code -k -m 10 --resolve "$domain:443:127.0.0.1" "https://$domain/")"
+}
+
+health_once() {
+  local all=0 s r state
+  for s in livekit web caddy; do
+    if "check_$s"; then r=0; else r=1; fi
+    state=$(service_state "$s" "$r")
+    printf '%s\t%s\n' "$s" "$state"
+    [ "$state" = ok ] || all=1
+  done
+  return "$all"
+}
+
+cmd_health() {
+  local wait=0 out
+  [ "${1:-}" = --wait ] && wait=${2:-60}
+  local until=$((SECONDS + wait))
+  while :; do
+    if out=$(health_once); then break; fi
+    [ "$SECONDS" -lt "$until" ] || break
+    sleep 3
+  done
+  local name state label rc=0
+  while IFS=$'\t' read -r name state; do
+    case $name in livekit) label="통화 서버 (LiveKit)" ;; web) label="웹 화면 (Next.js)" ;; caddy) label="바깥 연결 (Caddy)" ;; esac
+    case $state in ok) ok "$label" ;; off) bad "$label: 꺼짐"; rc=1 ;; *) bad "$label: 켜졌지만 응답 없음"; rc=1 ;; esac
+  done <<< "$out"
+  [ "$rc" -eq 0 ] && say "모두 정상이에요" || say "기록 확인: sudo dolivectl logs <web|livekit|caddy>"
+  return "$rc"
+}
+
+cmd_status() { systemctl --no-pager status dolive.target dolive-livekit dolive-web dolive-caddy || true; }
+
+end_rooms() { curl -fsS -m 3 -X POST http://127.0.0.1:3000/api/end >/dev/null 2>&1 || true; }
+
+cmd_start() {
+  need_root start
+  local s was_off=()
+  for s in livekit web caddy; do systemctl is-active --quiet "dolive-$s" || was_off+=("$s"); done
+  systemctl start dolive.target
+  cmd_health --wait 90 || return 1
+  # 지금 켠 서비스는 지금 파일로 켜졌다. 이미 켜져 있던 것은 그대로 둔다 (바뀐 설정 적용은 restart)
+  [ ${#was_off[@]} -eq 0 ] || dolive_mark_applied "${was_off[@]}"
+}
+cmd_stop() {
+  need_root stop
+  # 끄기 전에 방송 방을 닫아, 시청자에게 "방송이 끝났어요"를 바로 보여 준다 (apps/web/app/api/end)
+  end_rooms
+  systemctl stop dolive.target dolive-caddy dolive-web dolive-livekit
+  ok "통화 서버, 웹 화면, 바깥 연결을 모두 껐어요"
+}
+cmd_restart() {
+  need_root restart
+  systemctl restart dolive.target dolive-livekit dolive-web dolive-caddy
+  cmd_health --wait 90 || return 1
+  dolive_mark_applied livekit web caddy
+}
+
+pick_service() {
+  case ${1:-} in web|livekit|caddy) echo "dolive-$1" ;; *) die "web, livekit, caddy 중 하나를 적어 주세요" ;; esac
+}
+
+cmd_logs() {
+  local units=() follow=()
+  for a in "$@"; do
+    case $a in -f) follow=(-f) ;; *) units+=(-u "$(pick_service "$a")") ;; esac
+  done
+  [ ${#units[@]} -gt 0 ] || units=(-u dolive-livekit -u dolive-web -u dolive-caddy)
+  journalctl --no-pager -n 200 "${units[@]}" "${follow[@]}"
+}
+
+cmd_recover() {
+  need_root recover
+  local unit stamp dir=$STATE/recovery
+  unit=$(pick_service "${1:-}")
+  stamp=$(date +%Y%m%d-%H%M%S)
+  install -d -o root -g root -m 0700 "$dir"
+  journalctl --no-pager -n 2000 -u "$unit" > "$dir/$unit-before-recovery-$stamp.log" || true
+  say "기록 보관: $dir/$unit-before-recovery-$stamp.log"
+  # 다른 두 프로그램은 건드리지 않고, 고른 프로그램만 다시 켠다
+  systemctl restart "$unit"
+  cmd_health --wait 60 || return 1
+  dolive_mark_applied "${unit#dolive-}"
+}
+
+# ---------------------------------------------------------------- 백업·복원
+# 백업 안의 이름 → 실제 위치
+backup_items() {
+  cat <<EOF
+etc/dolive.env|$ENV_FILE
+config/rooms.txt|$ROOT/server/config/rooms.txt
+config/staff.txt|$ROOT/server/config/staff.txt
+config/livekit.yaml|$ROOT/server/config/livekit.yaml
+config/duckdns.env|$ROOT/server/config/duckdns.env
+web/.env.local|$WEB/.env.local
+web/.dorms-login.json|$WEB/.dorms-login.json
+web/.dorms-login|$WEB/.dorms-login
+caddy|$CADDY_DATA
+EOF
+}
+
+# 백업을 둘 폴더를 확인한다. 코드·서비스·시스템 폴더와 다른 계정이 바꿀 수 있는 폴더는 거절한다.
+# 이미 있는 폴더의 소유자·권한·다른 파일은 그대로 두고, 없는 폴더만 root 전용(0700)으로 만든다.
+backup_dest() { # 폴더 → 실제 경로
+  local want=$1 real
+  [ -n "$want" ] && [ "${want#/}" != "$want" ] || { bad "백업 폴더는 / 로 시작하는 전체 경로로 적어 주세요: $want" >&2; return 1; }
+  real=$(realpath -m -- "$want")
+  case $real in
+    /|/bin|/boot|/dev|/etc|/home|/lib|/lib64|/media|/mnt|/opt|/proc|/root|/run|/sbin|/srv|/sys|/tmp|/usr|/var|/var/backups|/var/cache|/var/lib|/var/log|/var/tmp|/var/spool|\
+    /bin/*|/boot/*|/dev/*|/etc/*|/lib/*|/lib64/*|/proc/*|/run/*|/sbin/*|/sys/*|/usr/*|/tmp/*|/var/tmp/*|/var/lib/private|/var/lib/private/*|\
+    "$ROOT"|"$ROOT"/*|"$STATE"|"$STATE"/*|"$DOLIVE_APPLIED_DIR"|"$DOLIVE_APPLIED_DIR"/*)
+      bad "여기에는 백업을 두지 않아요: $real (코드·서비스·시스템 폴더). 예: /var/backups/dolive, /root/dolive-backups" >&2; return 1 ;;
+  esac
+  if [ -e "$real" ]; then
+    [ -d "$real" ] || { bad "폴더가 아니에요: $real" >&2; return 1; }
+    if [ "$(stat -c %U "$real")" = "$SVC_USER" ] || [ -n "$(find "$real" -maxdepth 0 -perm -o+w)" ]; then
+      bad "실행 계정($SVC_USER)이나 모든 사람이 바꿀 수 있는 폴더라 백업을 두지 않아요: $real" >&2; return 1
+    fi
+  else
+    mkdir -p -m 0700 -- "$real" || { bad "백업 폴더를 만들지 못했어요: $real" >&2; return 1; }
+  fi
+  printf '%s\n' "$real"
+}
+
+backup_stage() { # 임시 폴더 모델포함(0/1). 하나라도 복사하지 못하면 1
+  local stage=$1 models=$2 name src
+  while IFS='|' read -r name src; do
+    [ -e "$src" ] || continue
+    mkdir -p "$stage/dolive/$(dirname "$name")" && cp -a "$src" "$stage/dolive/$name" || { bad "복사 실패: $src" >&2; return 1; }
+  done < <(backup_items)
+  if [ "$models" -eq 1 ] && [ -d "$WEB/models/supertonic" ]; then
+    mkdir -p "$stage/dolive/web/models" && cp -a "$WEB/models/supertonic" "$stage/dolive/web/models/" || { bad "모델 복사 실패" >&2; return 1; }
+  fi
+  git -c safe.directory="$ROOT" -C "$ROOT" rev-parse HEAD > "$stage/dolive/commit.txt" 2>/dev/null || rm -f "$stage/dolive/commit.txt"
+}
+
+make_backup() { # 폴더 모델포함(0/1) → 만든 파일 경로. 실패하면 백업 파일을 남기지 않고 1
+  local dest models=$2 stage tmp='' base file n=1
+  dest=$(backup_dest "$1") || return 1
+  stage=$(mktemp -d /var/tmp/dolive-backup.XXXXXX) || return 1
+  # 같은 폴더 안 임시 파일(0600)에 끝까지 쓰고 검사한 뒤에만 이름을 붙인다
+  if ! { backup_stage "$stage" "$models" && tmp=$(mktemp "$dest/.dolive-backup.XXXXXX") &&
+         tar -czf "$tmp" -C "$stage" dolive && gzip -t "$tmp" && sync -f "$tmp"; }; then
+    rm -rf "$stage"; [ -z "$tmp" ] || rm -f "$tmp"
+    bad "백업을 만들지 못했어요 ($dest). 남은 공간·권한을 확인해 주세요" >&2
+    return 1
+  fi
+  rm -rf "$stage"
+  # 이미 있는 백업은 절대 덮어쓰지 않는다: ln 은 같은 이름이 있으면 실패한다
+  base=$dest/dolive-backup-$(date +%Y%m%d-%H%M%S-%3N)
+  file=$base.tar.gz
+  until ln "$tmp" "$file" 2>/dev/null; do
+    if [ ! -e "$file" ] || [ "$n" -ge 100 ]; then rm -f "$tmp"; bad "백업 파일 이름을 붙이지 못했어요 ($dest)" >&2; return 1; fi
+    n=$((n + 1)); file=$base-$n.tar.gz
+  done
+  rm -f "$tmp"
+  echo "$file"
+}
+
+cmd_backup() {
+  need_root backup
+  local dest=$BACKUPS models=0 file
+  for a in "$@"; do case $a in --with-models) models=1 ;; *) dest=$a ;; esac; done
+  file=$(make_backup "$dest" "$models") || die "백업 실패"
+  ok "백업: $file"
+  say "비밀 설정·방 비밀번호가 들어 있어요. 서버 밖 개인 보관 장소로 옮기고 공개 링크·깃허브에 올리지 마세요"
+}
+
+cmd_restore() {
+  need_root restore
+  local file='' start=1 stage pre name src a
+  for a in "$@"; do case $a in --no-start) start=0 ;; *) file=$a ;; esac; done
+  [ -f "$file" ] || die "백업 파일을 적어 주세요: sudo dolivectl restore /var/backups/dolive/dolive-backup-....tar.gz [--no-start]"
+  stage=$(mktemp -d /var/tmp/dolive-restore.XXXXXX)
+  tar -xzf "$file" -C "$stage" --no-same-owner || { rm -rf "$stage"; die "백업 파일을 풀지 못했어요: $file"; }
+  [ -d "$stage/dolive" ] || { rm -rf "$stage"; die "DOLIVE 백업 파일이 아니에요"; }
+  pre=$(make_backup "$BACKUPS" 0) || { rm -rf "$stage"; die "지금 상태를 먼저 백업하지 못해 되살리기를 멈췄어요 (아무것도 바꾸지 않음)"; }
+  say "되살리기 전 지금 상태를 보관했어요: $pre"
+  end_rooms
+  systemctl stop dolive.target dolive-caddy dolive-web dolive-livekit || true
+  while IFS='|' read -r name src; do
+    [ -e "$stage/dolive/$name" ] || continue
+    if ! { rm -rf "$src" && mkdir -p "$(dirname "$src")" && cp -a "$stage/dolive/$name" "$src"; }; then
+      rm -rf "$stage"
+      die "되살리기가 중간에 멈췄어요 ($src). 서버는 꺼져 있어요. 되살리기 전 상태: $pre"
+    fi
+    say "되살림: $src"
+  done < <(backup_items)
+  if [ -d "$stage/dolive/web/models/supertonic" ]; then
+    rm -rf "$WEB/models/supertonic" && mkdir -p "$WEB/models" && cp -a "$stage/dolive/web/models/supertonic" "$WEB/models/"
+  fi
+  rm -rf "$stage"
+  [ -f "$ENV_FILE" ] && chown root:"$SVC_USER" "$ENV_FILE" && chmod 0640 "$ENV_FILE"
+  chown -R "$SVC_USER:$SVC_USER" "$ROOT/server/config" "$WEB"
+  # Caddy 인증서 폴더 소유자는 systemd(DynamicUser)가 켤 때 맞춘다
+  [ -d "$CADDY_DATA" ] && chmod 0700 "$CADDY_DATA"
+  local ip; ip=$(env_value DOLIVE_PUBLIC_IP)
+  say "되살린 설정: 주소 $(env_value DOLIVE_DOMAIN), 공인 IP $ip"
+  if [ -n "$ip" ] && ! ip -4 -o addr show 2>/dev/null | grep -q " $ip/"; then
+    warn "되살린 공인 IP $ip 가 이 서버 네트워크 장치에 없어요. 새 서버로 옮겼다면 $ENV_FILE 의 DOLIVE_PUBLIC_IP 를 새 IP 로 고치세요 (Reserved IP 라면 그대로 둘 수 있음)"
+  fi
+  if [ "$start" -eq 0 ]; then
+    say "--no-start: 서버는 꺼 둔 채로 마쳤어요. 설정·DNS 를 확인한 뒤 켜기: sudo dolivectl start"
+    return 0
+  fi
+  cmd_start
+}
+
+# ---------------------------------------------------------------- 업데이트
+cmd_update() {
+  need_root update
+  [ -d "$ROOT/.git" ] || die "git clone 으로 설치한 폴더에서만 쓸 수 있어요. ZIP 설치는 docs/linux/README.md 의 업데이트 절차를 따르세요"
+  local git=(as_dolive git -C "$ROOT") old new branch prev=$STATE/next-before-update file
+  if [ -n "$("${git[@]}" status --porcelain --untracked-files=no)" ]; then
+    "${git[@]}" status --short --untracked-files=no
+    die "이 서버에서 고친 코드가 있어요. 덮어쓰지 않으려고 멈췄어요. 유지보수 담당자와 확인해 주세요"
+  fi
+  branch=$("${git[@]}" rev-parse --abbrev-ref HEAD)
+  old=$("${git[@]}" rev-parse HEAD)
+  "${git[@]}" fetch --quiet origin "$branch"
+  new=$("${git[@]}" rev-parse FETCH_HEAD)
+  if [ "$old" = "$new" ]; then ok "이미 최신이에요 (${old:0:7})"; return 0; fi
+  "${git[@]}" merge-base --is-ancestor "$old" "$new" || die "원격 코드와 갈라져 있어 자동으로 받을 수 없어요 (강제로 덮어쓰지 않음)"
+
+  file=$(make_backup "$BACKUPS" 0) || die "백업을 만들지 못해 업데이트를 멈췄어요 (아무것도 바꾸지 않음)"
+  say "백업: $file"
+  say "업데이트 ${old:0:7} → ${new:0:7}. 방송을 닫고 잠시 끕니다"
+  end_rooms
+  systemctl stop dolive.target dolive-caddy dolive-web dolive-livekit
+  rm -rf "$prev"
+  [ -d "$WEB/.next" ] && cp -a "$WEB/.next" "$prev"
+
+  if "${git[@]}" merge --ff-only --quiet "$new" && "$ROOT/scripts/linux/dolive-install.sh" --build; then
+    ok "업데이트 완료 (${new:0:7})"
+    rm -rf "$prev"
+    return 0
+  fi
+
+  bad "업데이트가 실패해서 이전 코드(${old:0:7})로 되돌립니다"
+  systemctl stop dolive.target dolive-caddy dolive-web dolive-livekit || true
+  # 설치 스크립트의 chown 등으로 파일 정보만 바뀐 것을 git 이 "고친 파일"로 오해하지 않게 먼저 새로 읽힌다
+  "${git[@]}" update-index -q --refresh >/dev/null 2>&1 || true
+  if ! "${git[@]}" reset --keep "$old"; then
+    bad "이전 코드로 되돌리지 못했어요. 서버는 꺼져 있어요. 백업($file)과 docs/linux/README.md 의 '백업과 복원'을 보고 유지보수 담당자와 확인하세요"
+    return 1
+  fi
+  if [ -d "$prev" ]; then
+    rm -rf "$WEB/.next" && mv "$prev" "$WEB/.next"
+    touch "$WEB/.next/BUILD_ID" # 되돌린 코드보다 새 것으로 보이게 해 다시 만들지 않는다
+  fi
+  if "$ROOT/scripts/linux/dolive-install.sh"; then
+    warn "이전 코드로 되돌려 다시 켰어요. 실패 원인은 위 기록과 $STATE/build.log 를 확인해 주세요"
+  else
+    bad "되돌린 뒤에도 켜지지 않았어요. 백업($file)과 docs/linux/README.md 의 '백업과 복원'을 따르세요"
+  fi
+  return 1
+}
+
+# ---------------------------------------------------------------- 점검
+cmd_doctor() {
+  need_root doctor
+  # rc: 고칠 것(1). pending: 서버 안 서비스와 별개로 바깥 배포 준비(DNS·HTTPS·공인 IP)를 확인하지 못한 항목 수
+  local domain ip key v f rc=0 pending=0 got
+  echo "  [설정]"
+  if [ ! -f "$ENV_FILE" ]; then bad "$ENV_FILE 이 없어요. 설치 스크립트를 실행해 주세요"; return 1; fi
+  [ "$(stat -c '%U:%G %a' "$ENV_FILE")" = "root:$SVC_USER 640" ] && ok "설정 파일 권한 (root:$SVC_USER 640)" || { warn "설정 파일 권한: $(stat -c '%U:%G %a' "$ENV_FILE") (root:$SVC_USER 640 권장)"; }
+  for key in DOLIVE_DOMAIN DOLIVE_PUBLIC_IP LIVEKIT_PUBLIC_URL LIVEKIT_API_KEY LIVEKIT_API_SECRET DORMS_CLIENT_ID DORMS_SITE_URL; do
+    v=$(env_value "$key")
+    if [ -z "$v" ]; then bad "$key 가 비어 있어요"; rc=1
+    elif [[ $v == *example.com* || $v == PUT_A_RANDOM* || $v == 203.0.113.* || $v == 00000000-0000-* ]]; then bad "$key 가 예시 값이에요"; rc=1
+    fi
+  done
+  domain=$(env_value DOLIVE_DOMAIN); ip=$(env_value DOLIVE_PUBLIC_IP)
+  [ "$(env_value LIVEKIT_PUBLIC_URL)" = "wss://$domain" ] || warn "LIVEKIT_PUBLIC_URL 이 wss://$domain 이 아니에요"
+  [ "$(env_value DORMS_SITE_URL)" = "https://$domain" ] || warn "DORMS_SITE_URL 이 https://$domain 이 아니에요 (도름스에 등록한 주소와 같아야 함)"
+  [ "$(env_value LIVEKIT_API_SECRET | wc -c)" -ge 33 ] || warn "LIVEKIT_API_SECRET 이 짧아요 (32자 이상 권장)"
+  # run-livekit.sh 와 같은 기준. 키 이름은 dolive 가 아니어도 된다 (옮겨 온 기존 키)
+  [[ $(env_value LIVEKIT_API_KEY) =~ ^[A-Za-z0-9._-]*$ ]] || { bad "LIVEKIT_API_KEY 에는 영문·숫자와 . _ - 만 쓸 수 있어요"; rc=1; }
+  [[ $(env_value LIVEKIT_API_SECRET) =~ ^[A-Za-z0-9._~+/=-]*$ ]] || { bad "LIVEKIT_API_SECRET 에는 영문·숫자와 . _ ~ + / = - 만 쓸 수 있어요"; rc=1; }
+
+  echo "  [프로그램과 모델]"
+  for f in node livekit caddy; do [ -f "$ROOT/server/bin/.versions/$f" ] && ok "$f $(cut -d' ' -f1 "$ROOT/server/bin/.versions/$f")" || { bad "$f 가 설치되지 않았어요"; rc=1; }; done
+  local want path name missing=0
+  while read -r want path; do
+    name=${path##*/}
+    if [ ! -f "$WEB/models/supertonic/$name" ]; then bad "모델 파일 없음: $name"; missing=1
+    elif [ "$(sha256sum "$WEB/models/supertonic/$name" | cut -d' ' -f1)" != "$want" ]; then warn "모델 파일이 고정 버전과 다름: $name"
+    fi
+  done < "$ROOT/server/linux/supertonic.sha256"
+  [ "$missing" -eq 0 ] && ok "글 읽기 모델 9개 파일" || rc=1
+
+  echo "  [실행 상태]"
+  cmd_health || rc=1
+  local s
+  for s in livekit web caddy; do
+    systemctl is-active --quiet "dolive-$s" && [ "$(dolive_fingerprint "$s")" != "$(dolive_applied "$s")" ] &&
+      warn "dolive-$s 가 지금 파일·설정이 아닌 이전 상태로 켜져 있을 수 있어요 (적용: sudo dolivectl restart)"
+  done
+
+  echo "  [내부 주소만 쓰는 번호]"
+  # 127.0.0.1·::1 이 아닌 주소(0.0.0.0, *, ::, 공인·사설 IP 직접 지정 모두)에서 듣고 있으면 실패
+  local port addrs outside
+  for port in 3000 7880; do
+    addrs=$(ss -Hltn "sport = :$port" 2>/dev/null | awk '{print $4}' | sort -u | tr '\n' ' ')
+    outside=$(tr ' ' '\n' <<< "$addrs" | grep -vE '^$|^(127\.[0-9]+\.[0-9]+\.[0-9]+|\[::1\])(%lo)?:[0-9]+$' | tr '\n' ' ' || true)
+    if [ -z "$addrs" ]; then bad "$port 번에서 듣는 프로그램이 없어요"; rc=1
+    elif [ -n "$outside" ]; then bad "$port 번이 서버 바깥 주소에도 열려 있어요: ${outside% } (127.0.0.1 만이어야 함)"; rc=1
+    else ok "$port 번은 서버 안에서만 (${addrs% })"; fi
+  done
+  ss -Hltn "sport = :2019" 2>/dev/null | grep -q . && { warn "2019 번(Caddy 관리)이 열려 있어요"; } || ok "Caddy 관리 창구 꺼짐"
+  getent ahosts localhost | awk '{print $1}' | sort -u | tr '\n' ' ' | sed 's/^/  localhost → /'; echo
+  if [ -x "$NODE" ] && as_dolive "$NODE" -e 'fetch("http://localhost:7880/").then(r=>r.text()).then(t=>process.exit(t==="OK"?0:1),()=>process.exit(1))'; then
+    ok "웹(Node)에서 http://localhost:7880 연결"
+  else bad "웹(Node)에서 http://localhost:7880 에 연결되지 않아요 (IPv4/IPv6 localhost 확인)"; rc=1; fi
+
+  echo "  [마스터 권한 경계]"
+  got=$(curl -s -m 10 http://127.0.0.1:3000/api/me | grep -o '"local":[a-z]*' || true)
+  [ "$got" = '"local":true' ] && ok "서버 안(SSH 터널)에서는 마스터" || warn "서버 안 127.0.0.1:3000 에서 마스터가 아니에요 ($got)"
+  if [ -n "$domain" ]; then
+    got=$(curl -sk -m 10 --resolve "$domain:443:127.0.0.1" -H 'X-Forwarded-For: 127.0.0.1' "https://$domain/api/me" | grep -o '"local":[a-z]*' || true)
+    if [ "$got" = '"local":false' ]; then ok "바깥 주소로 X-Forwarded-For: 127.0.0.1 을 위조해도 마스터 아님"
+    else bad "바깥 주소에서 위조 헤더로 마스터 판정 위험 ($got)"; rc=1; fi
+    got=$(curl -sk -m 10 --resolve "$domain:443:127.0.0.1" -H 'Host: localhost' "https://$domain/api/me" | grep -o '"local":[a-z]*' || true)
+    if [ "$got" = '"local":true' ]; then bad "Host: localhost 위조로 마스터가 돼요"; rc=1; else ok "Host: localhost 위조로 마스터 아님"; fi
+  fi
+
+  echo "  [바깥 배포 준비: DNS·인증서·공인 IP]"
+  if [ -n "$domain" ]; then
+    local a aaaa
+    a=$(getent ahostsv4 "$domain" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' || true)
+    aaaa=$(getent ahostsv6 "$domain" 2>/dev/null | awk '{print $1}' | grep -v '^::ffff:' | sort -u | tr '\n' ' ' || true)
+    if [ -z "$a" ]; then pend "$domain 의 A 레코드를 찾지 못했어요 (DNS 를 아직 바꾸지 않았거나 퍼지는 중)"; pending=$((pending + 1))
+    elif [ "${a% }" = "$ip" ]; then ok "A 레코드 $domain → $ip"
+    else bad "A 레코드가 $a 를 가리켜요 (DOLIVE_PUBLIC_IP $ip 와 달라요)"; rc=1; fi
+    if [ -n "$aaaa" ]; then
+      local mine=0 x
+      for x in $aaaa; do ip -6 -o addr show scope global 2>/dev/null | grep -q " $x/" && mine=1; done
+      [ "$mine" -eq 1 ] && ok "AAAA 레코드가 이 서버 IPv6 를 가리켜요 ($aaaa)" || { bad "AAAA 레코드($aaaa)가 이 서버가 아니에요. 지우거나 이 서버 IPv6 로 맞추세요 (인증서·접속 실패 원인)"; rc=1; }
+    else ok "AAAA 레코드 없음 (IPv4 로만 접속)"; fi
+    # 인증서를 검증하며(-k 없이) 서버 안에서 443 → Caddy 로 연다. 바깥 방화벽 통과 여부는 휴대폰으로 확인한다
+    if curl -fsS -o /dev/null -m 10 --resolve "$domain:443:127.0.0.1" "https://$domain/" 2>/dev/null; then ok "HTTPS 인증서 정상 ($domain)"
+    else pend "HTTPS 인증서가 아직 없거나 맞지 않아요 (DNS·443번을 연 뒤 몇 분 기다리고 sudo dolivectl logs caddy 확인)"; pending=$((pending + 1)); fi
+  fi
+  if ip -4 -o addr show 2>/dev/null | grep -q " $ip/"; then ok "공인 IP $ip 가 이 서버 네트워크에 있어요"
+  else pend "공인 IP $ip 가 네트워크 장치에 없어요 (Reserved IP 라면 정상일 수 있음. 통화 연결은 실제 휴대폰으로 확인)"; pending=$((pending + 1)); fi
+
+  echo "  [방화벽]"
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'Status: active'; then
+    ufw status | sed 's/^/    /'
+  else
+    say "서버 방화벽(ufw)은 꺼져 있어요. DigitalOcean 클라우드 방화벽을 쓰는지 확인하세요: sudo dolivectl firewall"
+  fi
+  if [ "$rc" -ne 0 ]; then say "점검 결과: 위의 [실패] 항목을 고쳐 주세요"; return 1; fi
+  if [ "$pending" -gt 0 ]; then
+    say "점검 결과: 서버 안 서비스는 정상이지만 바깥 배포 준비 ${pending}개를 아직 확인하지 못했어요 ([미확인]). 운영 준비 완료가 아닙니다"
+    return 2
+  fi
+  say "점검 결과: 서버 안 서비스와 DNS·HTTPS 준비 확인됨. 바깥 방화벽·휴대폰 실제 통화는 안내서 8번으로 따로 확인하세요"
+}
+
+cmd_firewall() {
+  cat <<'EOF'
+  DOLIVE 가 바깥에 여는 번호 (이 명령은 아무것도 바꾸지 않습니다)
+    TCP 443           웹·통화 신호 (HTTPS, 인증서 받기 포함)
+    TCP 7881          통화 (UDP 가 막힌 참가자용)
+    UDP 50000-60000   소리·카메라·화면공유
+    TCP 22            SSH: 어디서든 열되 SSH 키로만 로그인 (관리자 IP 는 핫스팟 등으로 바뀜)
+  3000·7880 은 열지 않습니다 (서버 안에서만 씀). 80 은 필요 없습니다.
+  SSH 비밀번호 로그인이 꺼져 있어야 합니다 (안내서 5번 'SSH는 열쇠로만 들어오게 하기'):
+       sudo sshd -T | grep -E '^(passwordauthentication|permitrootlogin) '   # no / without-password
+
+  1) 권장: DigitalOcean 클라우드 방화벽 (제어판 Networking → Firewalls)
+     Inbound: SSH TCP 22, HTTPS TCP 443, Custom TCP 7881, Custom UDP 50000-60000 (모두 Sources: All IPv4, All IPv6)
+     Outbound: 기본값(모두 허용) 유지
+
+  2) 서버 방화벽(ufw)을 함께 쓸 때. 반드시 SSH 허용을 먼저 넣고 마지막에 켜세요.
+     잘못 켜면 SSH 로 다시 들어오지 못할 수 있습니다 (DigitalOcean 제어판의 Recovery Console 로 복구).
+       sudo ufw allow 22/tcp
+       sudo ufw allow 443/tcp
+       sudo ufw allow 7881/tcp
+       sudo ufw allow 50000:60000/udp
+       sudo ufw status            # 규칙 확인
+       sudo ufw enable            # 마지막에 켜기
+EOF
+}
+
+cmd_selftest() {
+  need_root selftest
+  [ -r "$ENV_FILE" ] || die "$ENV_FILE 이 없어요"
+  say "시험용 방을 잠시 만들고 지웁니다. 실제 방송 중에는 실행하지 마세요"
+  local v out rc=0 domain
+  out=$(mktemp)
+  # 네 목소리 미리 듣기: 서버 안에서 마스터로 요청해 실제 WAV 가 만들어지는지 본다
+  for v in F2 F1 M1 demon; do
+    if [ "$(curl -s -m 120 -o "$out" -w '%{http_code}' "http://127.0.0.1:3000/api/tts?listen=$v")" = 200 ] &&
+       [ "$(head -c 4 "$out")" = RIFF ] && [ "$(stat -c %s "$out")" -gt 10000 ]; then
+      ok "글 읽기 목소리 $v ($(stat -c %s "$out") 바이트 WAV)"
+    else bad "글 읽기 목소리 $v 실패 (sudo dolivectl logs web)"; rc=1; fi
+  done
+  rm -f "$out"
+  say "서버 안 경로 (ws://localhost:7880): 입장·채팅·사진·글 읽기 참여자·빈 방 정리"
+  (cd "$WEB" && as_dolive env DOLIVE_ENV_FILE="$ENV_FILE" "$NODE" tests/room-lifecycle.cjs) || rc=1
+  # 참가자와 같은 길: 도메인 → Caddy(443, 인증서 검증) → LiveKit. 서버의 시스템 인증서 목록을 쓴다
+  domain=$(env_value DOLIVE_DOMAIN)
+  say "바깥 주소 경로 (wss://$domain → Caddy → LiveKit): WebSocket 연결과 입장·퇴장"
+  if ! (cd "$WEB" && as_dolive env DOLIVE_ENV_FILE="$ENV_FILE" DOLIVE_RTC_URL="wss://$domain" "$NODE" --use-system-ca tests/public-rtc.cjs); then
+    bad "바깥 주소로 통화 연결 실패. DNS·인증서가 준비되기 전이면 실패가 정상이에요 (sudo dolivectl doctor)"; rc=1
+  fi
+  return "$rc"
+}
+
+main() {
+  local cmd=${1:-}; shift || true
+  case $cmd in
+    start) cmd_start ;;
+    stop) cmd_stop ;;
+    restart) cmd_restart ;;
+    status) cmd_status ;;
+    health) cmd_health "$@" ;;
+    logs) cmd_logs "$@" ;;
+    recover) cmd_recover "$@" ;;
+    backup) cmd_backup "$@" ;;
+    restore) cmd_restore "$@" ;;
+    update) cmd_update ;;
+    doctor) cmd_doctor ;;
+    firewall) cmd_firewall ;;
+    selftest) cmd_selftest ;;
+    ""|-h|--help|help) usage ;;
+    *) usage >&2; exit 2 ;;
+  esac
+}
+main "$@"
