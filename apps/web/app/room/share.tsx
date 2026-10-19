@@ -7,9 +7,19 @@ import { CameraKnob } from "./camera";
 import { TtsButton } from "./tts";
 import { MicrophoneKnob } from "./microphone";
 
-// 화면공유는 720p와 낮은 화질을 같이 보내고,
-// 보는 사람 인터넷이 느려서 끊기면 서버가 그 사람에게만 낮은 쪽으로 자동으로 바꿔 보낸다.
-const QUALITY = { top: ScreenSharePresets.h720fps30, low: ScreenSharePresets.h360fps15 };
+// 화면공유는 1080p30(풀HD)을 맨 위로, 그 아래 720p30과 360p15를 같이 보낸다.
+// 보는 사람 인터넷이 느려서 끊기거나 보는 칸이 작으면 서버가 그 사람에게만 아래 화질로 바꿔 보낸다.
+// 한 영상에 보낼 수 있는 화질은 모두 세 겹까지다 (livekit-client 의 videoRids q·h·f:
+// computeVideoEncodings 가 [낮음, 중간, 원본] 세 개만 쓰고 나머지는 버린다).
+// 그래서 720p30 과 720p15 를 같이 넣을 수 없다 (해상도가 같아 겹으로 나뉘지도 않는다).
+// 중간을 720p15(1.5Mbps)로 바꾸려면 아래 mid 한 줄만 고친다.
+// 올리는 쪽(공유하는 PC)은 세 겹을 같이 보낼 때 약 7.4Mbps 를 올려야 한다.
+// 아무도 보지 않는 겹은 dynacast(page.tsx)가 멈추므로 평소에는 그만큼 들지 않는다.
+const QUALITY = {
+  top: ScreenSharePresets.h1080fps30, // 1920x1080, 1초 30장, 5Mbps
+  mid: ScreenSharePresets.h720fps30, // 1280x720, 1초 30장, 2Mbps
+  low: ScreenSharePresets.h360fps15, // 640x360, 1초 15장, 0.4Mbps
+};
 
 // 화면공유 요청("request")과 거부("denied")를 주고받는 채널
 const SHARE_TOPIC = "dolive-share";
@@ -168,7 +178,7 @@ export function MediaControls({ asked, requestShare, token, record }: { asked: b
               selfBrowserSurface: "exclude", // 이 탭은 목록에서 뺀다 (화면 속 화면이 끝없이 비치는 것 방지)
               systemAudio: "include", // '전체 화면'에서 '시스템 오디오와 공유'를 늘 보여 준다 (켜짐이 기본)
             },
-            { screenShareEncoding: QUALITY.top.encoding, screenShareSimulcastLayers: [QUALITY.low] },
+            { screenShareEncoding: QUALITY.top.encoding, screenShareSimulcastLayers: [QUALITY.low, QUALITY.mid] },
           ),
         "화면공유",
       );
