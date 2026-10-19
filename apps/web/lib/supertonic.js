@@ -420,8 +420,8 @@ export function loadVoiceStyle(voiceStylePaths, verbose = false) {
 /**
  * Load text to speech components
  */
-export async function loadTextToSpeech(onnxDir, useGpu = false) {
-    const opts = {};
+export async function loadTextToSpeech(onnxDir, useGpu = false, sessionOptions = {}) {
+    const opts = { ...sessionOptions };
     if (useGpu) {
         throw new Error('GPU mode is not supported yet');
     }
