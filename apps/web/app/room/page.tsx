@@ -38,7 +38,10 @@ import { ROOM_ENTRY_KEY, leaveRoomHistory, watchRoomBack } from "@/lib/roomHisto
 // 단, 다른 앱에 갔다 와도 바로 보이게 뒤에 숨어 있는 동안에도 계속 받는다
 // (끊었다 다시 받으면 새 그림 한 장이 올 때까지 검은 화면이 된다. 대신 숨어 있는 동안에도 데이터가 든다)
 // 얼굴은 640x360(약 0.45Mbps, 1초 20장)과 320x180(약 0.16Mbps) 두 가지로 보내고, 서버가 보는 칸 크기에 맞는 쪽만 보낸다.
-// 서버 인터넷 올리는 속도 300Mbps 를 기준으로 잡았다: 방 4개 x 20명이 모두 화면공유 + 한 사람이 얼굴 6개(휴대폰 4개)까지 봐도 넘지 않게 (stage.tsx 의 MAX_*)
+// 한 사람이 동시에 받는 얼굴 수는 stage.tsx 의 MAX_* 로 묶어 둔다 (PC 줄 6개, 바둑판 9개, 휴대폰 4~5개).
+// 보는 사람 한 명이 받는 양은 화면공유 1080p30(share.tsx) 기준 약 6Mbps 다 (공유 5 + 얼굴 3개 + 마이크).
+// 서버(DigitalOcean 4 vCPU/8GB)의 인터넷 속도 한계는 2Gbps 라 속도로는 수백 명이지만,
+// 한 달 포함 전송량 5TB 가 먼저 차서 3시간 x 주 4~5회 기준 약 30명이 한계다 (docs/linux/README.md 15번)
 const ROOM_OPTIONS: RoomOptions = {
   adaptiveStream: { pauseVideoInBackground: false },
   dynacast: true,

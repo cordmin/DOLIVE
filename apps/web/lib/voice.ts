@@ -13,6 +13,12 @@ import { rooms } from "@/lib/server";
 //   https://huggingface.co/supertone-oss-archive/supertonic-3 의 onnx 폴더 파일 전부 + voice_styles 의 F1.json, F2.json, M1.json
 const DIR = path.join(process.cwd(), "models", "supertonic");
 
+// 소리를 만들 때 쓸 CPU 가닥 수. 정하지 않으면 onnxruntime 이 서버의 모든 코어(4개)를 가져가서,
+// "/글" 한 줄 읽는 동안 통화 서버가 CPU를 못 받고 패킷을 늦게 보낸다 (보는 사람 화면이 끊기는 원인).
+// 2개로 묶으면 한 줄 만드는 시간이 조금 늘지만(0.35초쯤 → 0.5초쯤) 통화가 밀리지 않는다.
+// 다음 문장을 미리 만들어 두므로(say) 늘어난 시간은 듣는 쪽에 드러나지 않는다.
+const TTS_SESSION = { intraOpNumThreads: 2, interOpNumThreads: 1 };
+
 type Tts = { sampleRate: number; call(text: string, lang: string, style: unknown, steps: number, speed: number): Promise<{ wav: number[] }> };
 type Voice = {
   tts: Promise<{ tts: Tts }>;
@@ -25,7 +31,7 @@ type Voice = {
 // 개발 중 코드를 고쳐 다시 읽혀도 모델을 또 올리거나 방에 두 번 들어가지 않게 globalThis 에 둔다
 const g = globalThis as unknown as { doliveVoice?: Voice };
 const voice: Voice = (g.doliveVoice ??= {
-  tts: (async () => ({ tts: (await loadTextToSpeech(DIR)) as Tts }))(),
+  tts: (async () => ({ tts: (await loadTextToSpeech(DIR, false, TTS_SESSION)) as Tts }))(),
   line: Promise.resolve(),
   replays: Promise.resolve(),
   rooms: new Map(),
@@ -106,19 +112,29 @@ async function push(source: AudioSource, pcm: Int16Array, rate: number) {
 function join(name: string, sampleRate: number) {
   const joined = voice.rooms.get(name);
   if (joined) return joined;
+  // 방에서 나오면 소리 통로(AudioSource)까지 닫는다. 닫지 않으면 rtc-node 의 소리 담기 스레드가
+  // 빈 방에서도 계속 돌며 무음을 압축해 CPU를 먹는다 (통화 서버가 패킷을 제때 못 보내는 원인)
+  let open: AudioSource | undefined;
+  const shut = () => {
+    voice.rooms.delete(name);
+    const closing = open;
+    open = undefined;
+    if (closing) void closing.close().catch(() => {});
+  };
   const joining = (async () => {
     const at = new AccessToken(process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET, { identity: VOICE_BOT, name: "음성" });
     at.addGrant({ roomJoin: true, room: name, canPublish: true, canSubscribe: false, canPublishData: false, canUpdateOwnMetadata: true });
     const room = new Room();
-    room.on(RoomEvent.Disconnected, () => voice.rooms.delete(name));
+    room.on(RoomEvent.Disconnected, shut);
     await room.connect("ws://localhost:7880", await at.toJwt(), { autoSubscribe: false, dynacast: false });
     const source = new AudioSource(sampleRate, 1);
+    open = source;
     const opts = new TrackPublishOptions();
     opts.source = TrackSource.SOURCE_MICROPHONE;
     await room.localParticipant!.publishTrack(LocalAudioTrack.createAudioTrack("voice", source), opts);
     return { room, source };
   })().catch((e) => {
-    voice.rooms.delete(name);
+    shut();
     throw e;
   });
   voice.rooms.set(name, joining);

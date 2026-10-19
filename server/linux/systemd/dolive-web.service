@@ -17,6 +17,11 @@ ExecStart=@DOLIVE_ROOT@/server/bin/node/bin/node node_modules/next/dist/bin/next
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=20
+# "/글" 음성 만들기가 코어를 다 가져가면 통화 서버가 굶는다. 웹은 코어 2.5개까지만 쓰고 뒤로 양보한다
+# (음성 쪽 CPU 가닥 수는 apps/web/lib/voice.ts 의 TTS_SESSION 에서도 묶어 둔다)
+Nice=5
+CPUWeight=200
+CPUQuota=250%
 StateDirectory=dolive
 StateDirectoryMode=0750
 # 쓰는 곳은 웹 캐시와 방송 목록(server/config/rooms.txt)뿐이다. 나머지 코드는 읽기 전용으로 보인다
