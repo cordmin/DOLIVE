@@ -169,6 +169,23 @@ const B = { id: "b", name: "다라" };
   people.get("가나의 방").push({ identity: "a#1", attributes: { roomAdmin: "1", owner: "1", dorms: "a" }, tracks: [] });
   assert.equal((await find("가나의 방")).onAir, true);
 
+  // 도름스 연수 방: 끝 시각이 지나도 사람이 남아 있으면 목록에 그대로 (연수가 길어져도 끊기지 않게), 아무도 없으면 목록에서 빠진다
+  const YID = "0f8fad5b-d9cb-469f-a165-70867728950e";
+  const yeonsuRoomName = yeonsu.yeonsuRoomName(YID);
+  const ylist = [{ id: YID, title: "노트북 LM 연수", startsAt: "2026-10-20T11:50:00.000Z", endsAt: "2026-10-20T13:00:00.000Z", hostId: "h", hostName: "고타열", access: "teacher" }];
+  const realLive = yeonsu.liveYeonsuRooms;
+  yeonsu.liveYeonsuRooms = async () => ylist;
+  assert.equal((await list()).some((r) => r.yeonsu?.id === YID), false, "끝났고 아무도 없는 연수 방은 목록에서 뺀다");
+  people.set(yeonsuRoomName, [{ identity: "방장#1", attributes: { roomAdmin: "1", dorms: "h" }, tracks: [] }]);
+  const stillOn = (await list()).find((r) => r.yeonsu?.id === YID);
+  assert.equal(stillOn.name, "노트북 LM 연수");
+  assert.equal(stillOn.onAir, true);
+  assert.equal(stillOn.canEdit, false);
+  ylist[0].endsAt = "2099-01-01T00:00:00.000Z"; // 아직 끝나지 않은 연수는 아무도 없어도 목록에 있다
+  people.delete(yeonsuRoomName);
+  assert.equal((await list()).some((r) => r.yeonsu?.id === YID), true);
+  yeonsu.liveYeonsuRooms = realLive;
+
   // 방장 넘기기: 주인만, 도름스 회원에게만. 넘기면 옛 주인은 마이크만, 새 주인은 방장
   people.get("가나의 방").push({ identity: "손님#1", attributes: { dorms: "" }, tracks: [] });
   sender = { room: "가나의 방", user: B };

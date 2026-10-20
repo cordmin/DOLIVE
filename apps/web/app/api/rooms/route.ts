@@ -8,31 +8,36 @@ import { liveYeonsuRooms, yeonsuRoomName } from "@/lib/yeonsu";
 // ON AIR = 그 방의 방장(마스터·관리자·만든 사람)이 들어와 있거나 누가 화면공유 중. 비밀번호는 고칠 수 있는 사람(만든 사람·관리자·마스터)에게만 보낸다
 // 지금 열린 도름스 연수 방(lib/yeonsu.ts liveYeonsuRooms)도 함께 보낸다: 방 만들기 4개 제한과 별개이고, 고치거나 지울 수 없고,
 // 입장은 연수 입장 화면(/yeonsu/<id>)이 도름스에 사람마다 다시 물어 판정한다 (yeonsu 칸이 그 주소를 들고 있다).
+// 끝 시각이 지난 연수는 아직 사람이 남아 있을 때만 목록에 둔다: 연수가 길어져 이어 하는 방은 계속 보이고, 다 끝난 연수는 목록에서 빠진다.
 export async function GET(req: Request) {
   const { user } = await dormsCheck(req);
-  const onAirOf = async (name: string) => {
-    const people = await rooms.listParticipants(name).catch(() => []); // 아직 아무도 안 들어온 방은 통화 서버에 없다
-    return people.some((p) => p.attributes?.roomAdmin === "1" || p.tracks.some((t) => t.source === TrackSource.SCREEN_SHARE && !t.muted));
-  };
+  const peopleOf = (name: string) => rooms.listParticipants(name).catch(() => []); // 아직 아무도 안 들어온 방은 통화 서버에 없다
+  const isOnAir = (people: Awaited<ReturnType<typeof peopleOf>>) =>
+    people.some((p) => p.attributes?.roomAdmin === "1" || p.tracks.some((t) => t.source === TrackSource.SCREEN_SHARE && !t.muted));
   const [made, yeonsu] = await Promise.all([
     Promise.all(
       roomList().map(async (r) => {
         const canEdit = canEditRoom(req, user, r);
-        return { name: r.name, locked: !!r.password, guest: r.guest, onAir: await onAirOf(r.name), canEdit, ...(canEdit ? { password: r.password } : {}) };
+        return { name: r.name, locked: !!r.password, guest: r.guest, onAir: isOnAir(await peopleOf(r.name)), canEdit, ...(canEdit ? { password: r.password } : {}) };
       }),
     ),
     liveYeonsuRooms()
       .then((list) =>
         Promise.all(
-          list.map(async (r) => ({
-            name: r.title,
-            locked: false,
-            guest: false,
-            onAir: await onAirOf(yeonsuRoomName(r.id)),
-            canEdit: false,
-            yeonsu: { id: r.id, href: `/yeonsu/${r.id}`, hostName: r.hostName, startsAt: r.startsAt, endsAt: r.endsAt, access: r.access },
-          })),
-        ),
+          list.map(async (r) => {
+            const people = await peopleOf(yeonsuRoomName(r.id));
+            // 끝난 연수는 아직 남아 있는 사람이 있을 때만 (연수가 길어져 이어 하는 중)
+            if (!(Date.parse(r.endsAt) > Date.now()) && !people.length) return null;
+            return {
+              name: r.title,
+              locked: false,
+              guest: false,
+              onAir: isOnAir(people),
+              canEdit: false,
+              yeonsu: { id: r.id, href: `/yeonsu/${r.id}`, hostName: r.hostName, startsAt: r.startsAt, endsAt: r.endsAt, access: r.access },
+            };
+          }),
+        ).then((all) => all.filter((r): r is NonNullable<typeof r> => r !== null)),
       )
       .catch(() => []),
   ]);

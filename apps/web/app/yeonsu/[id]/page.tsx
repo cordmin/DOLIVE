@@ -2,13 +2,14 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { DormsAuthError, getDormsUser } from "@/lib/dormsLogin";
 import { isLocal } from "@/lib/server";
-import { askDorms, isYeonsuId, kstTime, registerYeonsuRoom, yeonsuRoomName } from "@/lib/yeonsu";
+import { askYeonsuEntry, isYeonsuId, kstTime, registerYeonsuRoom, yeonsuRoomName } from "@/lib/yeonsu";
 import { EnterYeonsu } from "./enter";
 
 export const dynamic = "force-dynamic";
 
 // 도름스 연수 방 입장 화면 (/yeonsu/<연수 id>). 도름스 연수 소개의 'DoLive 방 들어가기'가 여기로 온다.
 // 도름스 로그인 → 도름스에 이 연수에 들어와도 되는지 묻기 → 되면 [연수 방 들어가기], 안 되면 까닭을 알려 준다.
+// 신청하지 않은 선생님도 지금 열린 연수면 들어온다 (lib/yeonsu.ts askYeonsuEntry, 2026-10-20 사용자 지시).
 // 들어가는 진짜 문은 입장권(api/token)이 도름스에 한 번 더 묻는다.
 const DENY: Record<string, { title: string; text: string }> = {
   not_found: { title: "닫혔거나 없는 연수예요", text: "도름스 연수 일정에서 연수가 그대로 있는지 확인해 주세요." },
@@ -48,7 +49,7 @@ export default async function YeonsuEntry({ params }: { params: Promise<{ id: st
       </main>
     );
   }
-  const v = await askDorms(id, user!.id);
+  const v = await askYeonsuEntry(id, user!.id);
   if (!v.ok) {
     const opens = v.reason === "too_early" ? kstTime(v.opensAt) : "";
     const message = v.reason === "too_early"
@@ -71,8 +72,8 @@ export default async function YeonsuEntry({ params }: { params: Promise<{ id: st
       <h1 style={{ fontSize: 22, margin: "0 0 8px" }}>{v.title}</h1>
       <p style={{ fontSize: 15, lineHeight: 1.7, margin: "0 0 24px", color: "#d4d4d8" }}>
         {v.role === "host"
-          ? "내가 여는 연수예요. 들어가면 이 방의 방장이에요. 신청이 확정된 선생님만 들어와요."
-          : `${v.hostName} 선생님의 연수예요. 신청이 확정돼서 들어갈 수 있어요.`}
+          ? "내가 여는 연수예요. 들어가면 이 방의 방장이에요. 도름스 선생님이면 누구나 들어올 수 있어요."
+          : `${v.hostName} 선생님의 연수예요. 바로 들어갈 수 있어요.`}
       </p>
       <EnterYeonsu room={room} name={name} picture={user!.picture?.startsWith("https://") ? user!.picture : null} />
       <p style={{ marginTop: 16 }}><a href={dormsHref} style={{ color: "#a1a1aa" }}>도름스 연수 소개 보기</a></p>

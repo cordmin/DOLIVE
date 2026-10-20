@@ -7,9 +7,12 @@ import { DORMS_ISSUER } from "@/lib/dormsLogin";
 // 도름스(dorms.school)에서 연수를 열고 장소로 DoLive 를 고르면, 연수마다 방 하나가 저절로 생긴다. 방 주소는 /yeonsu/<연수 id>.
 // - 방 만들기 목록(rooms.txt, 최대 4개)을 쓰지 않는다. 대신 입장 화면 목록에 도름스에 실시간으로 물어본 '지금 열린 연수'를 함께 보여 준다
 //   (liveYeonsuRooms, 아래). 그래서 연수 링크를 못 받은 선생님도 목록에서 찾아 들어온다.
-// - 들어올 수 있는지는 도름스가 정한다: 여는 선생님과 신청이 확정된 선생님만, 시작 10분 전부터 끝날 때까지.
+// - 들어올 수 있는지는 도름스가 정하되, 신청하지 않은 선생님도 지금 열린 연수면 들어온다 (askYeonsuEntry, 2026-10-20 사용자 지시).
 //   입장 화면과 입장권(api/token)이 그때마다 도름스에 서명한 요청으로 다시 묻는다 (아래 askDorms). 비회원은 들어오지 못한다.
-// - 여는 선생님은 그 방의 방장이다 (방장 넘기기는 없다). 끝나는 시간이 되면 방을 닫는다.
+// - 여는 선생님은 그 방의 방장이다 (방장 넘기기는 없다).
+// - 끝나는 시각이 지나도 방을 닫지 않는다 (2026-10-20 사용자 지시): 연수가 생각보다 길어져도 라이브가 끊기지 않아야 한다.
+//   모두 나가면 통화 서버가 빈 방을 저절로 지우고, 방송 목록에서는 끝난 연수를 사람이 남아 있을 때만 보인다 (app/api/rooms).
+//   끝 시각이 지난 뒤 들어오는 것도 도름스가 정한다 (시작 10분 전 ~ 시작 24시간 뒤, 도름스 lib/yeonsu.ts canEnterDolive).
 // 서명 규칙은 도름스 저장소의 src/lib/yeonsuDoliveSign.ts 와 같다. 바꾸면 둘을 함께 바꾼다.
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -58,9 +61,24 @@ export async function askDorms(sessionId: string, dormsUserId: string): Promise<
   }
 }
 
+// 신청하지 않은 선생님도 들어온다 (2026-10-20 사용자 지시).
+// 도름스가 '신청 안 함'·'확정 안 됨'으로 막아도, 그 연수가 지금 열려 있으면(liveYeonsuRooms 목록에 있으면) 손님으로 들여보낸다.
+// 그래서 입장 화면 목록에서 연수를 보고 바로 들어올 수 있다. 다른 까닭(없는 연수·막힌 계정·너무 이름·끝난 연수·확인 못 함)은 그대로 막는다.
+// 비회원은 여전히 못 들어온다 (도름스 로그인은 그대로 받는다). 입장 화면과 입장권이 모두 이것으로 판정한다.
+const OPEN_TO_ALL = new Set(["not_applied", "not_confirmed"]);
+export async function askYeonsuEntry(sessionId: string, dormsUserId: string): Promise<YeonsuVerdict> {
+  const v = await askDorms(sessionId, dormsUserId);
+  if (v.ok || !OPEN_TO_ALL.has(v.reason)) return v;
+  const open = (await liveYeonsuRooms()).find((r) => r.id === sessionId.toLowerCase());
+  if (!open) return v;
+  return { ok: true, role: "guest", title: open.title, startsAt: open.startsAt, endsAt: open.endsAt, hostId: open.hostId, hostName: open.hostName };
+}
+
 // 지금 열린 DoLive 연수 전부를 도름스에 묻는다 (도름스 /api/yeonsu/dolive/rooms, 0606).
 // 입장 화면 목록이 10초마다 다시 묻기 때문에 서버에서 8초만 기억해 두고, 도름스가 답하지 않으면 마지막으로 받은 목록을 30초까지 쓴다
 // (연수 중에 도름스가 잠깐 끊겨도 목록에서 방이 사라지지 않게). 들어올 수 있는지는 사람마다 askDorms 가 다시 판정한다.
+// 끝 시각이 지난 연수도 도름스가 주는 대로 그대로 둔다 (연수가 길어질 수 있다). 방송 목록에 보일지는 app/api/rooms 가
+// '사람이 남아 있나'로 가린다.
 export type YeonsuLiveRoom = { id: string; title: string; startsAt: string; endsAt: string; hostId: string; hostName: string; access: "teacher" | "member" };
 const LIVE_TTL = 8_000;
 const LIVE_STALE = 30_000;
@@ -88,19 +106,20 @@ export async function liveYeonsuRooms(): Promise<YeonsuLiveRoom[]> {
     });
     const data = (await res.json().catch(() => null)) as { ok?: boolean; rooms?: unknown } | null;
     if (!res.ok || data?.ok !== true || !Array.isArray(data.rooms)) throw new Error("bad_answer");
-    const rooms = data.rooms.filter(isLiveRoom).filter((r) => Date.parse(r.endsAt) > Date.now()).slice(0, 50);
+    const rooms = data.rooms.filter(isLiveRoom).slice(0, 50);
     // 채팅·방장 확인(findRoom)이 아직 아무도 안 들어온 연수 방도 알아보게 미리 남긴다
     for (const r of rooms) registerYeonsuRoom(yeonsuRoomName(r.id), { title: r.title, owner: r.hostId, endsAt: r.endsAt });
     live.doliveYeonsuLive = { at: Date.now(), rooms };
     return rooms;
   } catch {
-    if (had && Date.now() - had.at < LIVE_STALE) return had.rooms.filter((r) => Date.parse(r.endsAt) > Date.now());
+    if (had && Date.now() - had.at < LIVE_STALE) return had.rooms;
     return [];
   }
 }
 
 // 연 연수 방 기록: server/config/yeonsu-rooms.json { "yeonsu-<id>": { title, owner, endsAt } }.
-// 채팅·방장 확인(lib/chat.ts, lib/server.ts findRoom)이 이 방을 알아보게 남긴다. 서버를 다시 켜도 남고, 끝난 지 하루 지난 기록은 지운다.
+// 채팅·방장 확인(lib/chat.ts, lib/server.ts findRoom)이 이 방을 알아보게 남긴다. 서버를 다시 켜도 남고, 끝난 지 하루 지난 기록은 지운다
+// (도름스가 입장을 열어 두는 '시작 24시간 뒤'보다 넉넉해서, 들어올 수 있는 동안 기록이 먼저 사라지지 않는다).
 type YeonsuRoom = { title: string; owner: string; endsAt: string };
 const FILE = path.join(process.cwd(), "..", "..", "server", "config", "yeonsu-rooms.json");
 const KEEP_AFTER_END = 24 * 3600_000;
@@ -113,12 +132,12 @@ function readAll(): Record<string, YeonsuRoom> {
   }
 }
 
-// 방 이름으로 그 연수 방을 찾는다 (방송 목록의 방과 같은 모양). 끝난 방은 없는 방이다
+// 방 이름으로 그 연수 방을 찾는다 (방송 목록의 방과 같은 모양).
+// 끝 시각이 지나도 그대로 방이다: 연수가 길어져도 채팅·방장 권한·화면공유가 그대로 이어진다. 기록이 지워지면(끝난 지 하루) 없는 방이다
 export function yeonsuRoomDef(name: unknown) {
   if (!yeonsuIdOf(name)) return undefined;
   const r = readAll()[name as string];
-  if (!r || !(Date.parse(r.endsAt) > Date.now())) return undefined;
-  scheduleEnd(name as string, r.endsAt);
+  if (!r) return undefined;
   return { name: name as string, password: "", guest: false, owner: r.owner, title: r.title };
 }
 
@@ -134,27 +153,6 @@ export function registerYeonsuRoom(name: string, room: YeonsuRoom) {
     writeFileSync(tmp, JSON.stringify(all));
     renameSync(tmp, FILE);
   }
-  scheduleEnd(name, room.endsAt);
-}
-
-// 끝나는 시간에 방을 닫는다 ("방송이 끝났어요"). 서버를 다시 켜면 다음 입장·채팅 때 다시 건다
-const g = globalThis as unknown as { doliveYeonsuTimers?: Map<string, { at: string; timer: ReturnType<typeof setTimeout> }> };
-const timers = (g.doliveYeonsuTimers ??= new Map());
-function scheduleEnd(name: string, endsAt: string) {
-  const at = Date.parse(endsAt);
-  if (!Number.isFinite(at)) return;
-  const had = timers.get(name);
-  if (had?.at === endsAt) return;
-  if (had) clearTimeout(had.timer);
-  const wait = Math.max(0, Math.min(at - Date.now(), 2_000_000_000));
-  const timer = setTimeout(async () => {
-    timers.delete(name);
-    if (Date.now() < at) return scheduleEnd(name, endsAt); // 아주 먼 끝 시각은 나눠서 기다린다
-    const { endRoom } = await import("@/lib/chat");
-    await endRoom(name).catch(() => {});
-  }, wait);
-  timer.unref?.();
-  timers.set(name, { at: endsAt, timer });
 }
 
 // 화면에 보일 한국 시각 'HH:MM'

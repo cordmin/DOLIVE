@@ -2,7 +2,7 @@ import { AccessToken } from "livekit-server-sdk";
 import { clearEmptyRoom, keepImage } from "@/lib/chat";
 import { AVATARS, CUSTOM, DORMS, isAvatar } from "@/lib/dolive";
 import { GUEST_COOKIE, MIC_CAM, WITH_SCREEN, dormsCheck, findRoom, isLocal, isStaff, roomDeny } from "@/lib/server";
-import { askDorms, registerYeonsuRoom, yeonsuIdOf } from "@/lib/yeonsu";
+import { askYeonsuEntry, registerYeonsuRoom, yeonsuIdOf } from "@/lib/yeonsu";
 
 // 도름스 연수 방에 못 들어올 때 이유별 안내 (입장 화면 app/yeonsu/[id] 가 같은 이유를 더 자세히 보여 준다)
 const YEONSU_DENY: Record<string, string> = {
@@ -22,12 +22,13 @@ export async function POST(req: Request) {
   // 도름스 회원만 입장권을 받는다 (서버 PC는 빼고). 비회원(로그인 안 함)은 "비회원도" 방에만
   const { user, deny } = await dormsCheck(req);
   const local = isLocal(req);
-  // 도름스 연수 방: 도름스에 이 회원이 지금 들어와도 되는지 묻고(입장권을 줄 때마다), 되면 방을 남긴다. 비회원은 들어오지 못한다
+  // 도름스 연수 방: 도름스에 이 회원이 지금 들어와도 되는지 묻고(입장권을 줄 때마다), 되면 방을 남긴다. 비회원은 들어오지 못한다.
+  // 신청하지 않은 선생님도 지금 열린 연수면 들어온다 (lib/yeonsu.ts askYeonsuEntry)
   const yeonsuId = yeonsuIdOf(room);
   let yeonsuHost = false;
   if (yeonsuId && !local) {
     if (deny) return deny;
-    const v = await askDorms(yeonsuId, user!.id);
+    const v = await askYeonsuEntry(yeonsuId, user!.id);
     if (!v.ok) return Response.json({ error: YEONSU_DENY[v.reason] ?? YEONSU_DENY.unavailable, reason: `yeonsu_${v.reason}` }, { status: v.reason === "unavailable" ? 503 : 403 });
     registerYeonsuRoom(room, { title: v.title, owner: v.hostId, endsAt: v.endsAt });
     yeonsuHost = v.role === "host";
