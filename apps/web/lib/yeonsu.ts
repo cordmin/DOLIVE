@@ -25,9 +25,19 @@ export function yeonsuIdOf(room: unknown): string | null {
 }
 export const isYeonsuId = (id: unknown): id is string => typeof id === "string" && UUID.test(id);
 
+// 주소에 쓰는 짧은 연수 번호: 연수 id 앞 8자 (dolive.site/2abf6efc).
+// 도름스도 같은 규칙으로 연수 소개의 링크를 만들고(도름스 src/lib/yeonsuDolive.ts), 그 짧은 번호로도 연수를 찾아 준다.
+// 바꾸면 둘을 함께 바꾼다. 옛 주소 /yeonsu/<연수 id> 도 그대로 열린다.
+const SLUG = /^[0-9a-f]{8}$/i;
+export const yeonsuSlug = (id: string) => id.toLowerCase().slice(0, 8);
+export const isYeonsuSlug = (s: unknown) => typeof s === "string" && SLUG.test(s);
+export const isYeonsuRef = (s: unknown) => isYeonsuId(s) || isYeonsuSlug(s);
+// 주소 한 조각이 연수 id 인지 짧은 번호인지 (둘 다 아니면 null)
+export const yeonsuRefKind = (s: string) => (UUID.test(s) ? "id" : SLUG.test(s) ? "slug" : null);
+
 // 도름스가 돌려주는 답 (도름스 lib/yeonsuServer.ts 의 YeonsuDoliveVerdict 와 같은 모양)
 export type YeonsuVerdict =
-  | { ok: true; role: "host" | "guest"; title: string; startsAt: string; endsAt: string; hostId: string; hostName: string }
+  | { ok: true; role: "host" | "guest"; title: string; startsAt: string; endsAt: string; hostId: string; hostName: string; id?: string }
   | { ok: false; reason: "not_found" | "not_applied" | "not_confirmed" | "blocked" | "too_early" | "ended" | "unavailable"; title?: string; startsAt?: string; endsAt?: string; opensAt?: string };
 
 // 도름스 주소: 운영은 dorms.school, 개발 서버만 DORMS_API_ORIGIN_DEV(localhost) 를 쓴다 (lib/dormsLogin.ts 와 같은 규칙)
@@ -39,11 +49,12 @@ export function signYeonsuRequest(secret: string, timestampSec: number, body: st
   return `t=${timestampSec},v1=${v1}`;
 }
 
-// 이 회원이 이 연수 방에 지금 들어와도 되는지 도름스에 묻는다. 비밀 값이 없거나 도름스가 답하지 않으면 '확인하지 못함'(들이지 않는다)
-export async function askDorms(sessionId: string, dormsUserId: string): Promise<YeonsuVerdict> {
+// 이 회원이 이 연수 방에 지금 들어와도 되는지 도름스에 묻는다. 비밀 값이 없거나 도름스가 답하지 않으면 '확인하지 못함'(들이지 않는다).
+// 연수는 id 로도, 주소에 쓰는 짧은 번호(앞 8자)로도 물을 수 있다. 들여보낼 때 도름스가 연수 id 를 함께 알려 준다 (방 이름을 짓는 데 쓴다)
+export async function askDorms(sessionRef: string, dormsUserId: string): Promise<YeonsuVerdict> {
   const secret = process.env.DORMS_YEONSU_SECRET?.trim() ?? "";
-  if (secret.length < SECRET_MIN || !isYeonsuId(sessionId) || !isYeonsuId(dormsUserId)) return { ok: false, reason: "unavailable" };
-  const body = JSON.stringify({ session: sessionId.toLowerCase(), user: dormsUserId.toLowerCase() });
+  if (secret.length < SECRET_MIN || !isYeonsuRef(sessionRef) || !isYeonsuId(dormsUserId)) return { ok: false, reason: "unavailable" };
+  const body = JSON.stringify({ session: sessionRef.toLowerCase(), user: dormsUserId.toLowerCase() });
   try {
     const res = await fetch(`${API_ORIGIN}/api/yeonsu/dolive/access`, {
       method: "POST",
@@ -55,6 +66,7 @@ export async function askDorms(sessionId: string, dormsUserId: string): Promise<
     const data = (await res.json().catch(() => null)) as YeonsuVerdict | null;
     if (!res.ok || !data || typeof data.ok !== "boolean") return { ok: false, reason: "unavailable" };
     if (data.ok && (data.role !== "host" && data.role !== "guest" || !isYeonsuId(data.hostId))) return { ok: false, reason: "unavailable" };
+    if (data.ok && data.id !== undefined && !isYeonsuId(data.id)) return { ok: false, reason: "unavailable" };
     return data;
   } catch {
     return { ok: false, reason: "unavailable" };
@@ -66,12 +78,22 @@ export async function askDorms(sessionId: string, dormsUserId: string): Promise<
 // 그래서 입장 화면 목록에서 연수를 보고 바로 들어올 수 있다. 다른 까닭(없는 연수·막힌 계정·너무 이름·끝난 연수·확인 못 함)은 그대로 막는다.
 // 비회원은 여전히 못 들어온다 (도름스 로그인은 그대로 받는다). 입장 화면과 입장권이 모두 이것으로 판정한다.
 const OPEN_TO_ALL = new Set(["not_applied", "not_confirmed"]);
-export async function askYeonsuEntry(sessionId: string, dormsUserId: string): Promise<YeonsuVerdict> {
-  const v = await askDorms(sessionId, dormsUserId);
+export async function askYeonsuEntry(sessionRef: string, dormsUserId: string): Promise<YeonsuVerdict> {
+  const v = await askDorms(sessionRef, dormsUserId);
   if (v.ok || !OPEN_TO_ALL.has(v.reason)) return v;
-  const open = (await liveYeonsuRooms()).find((r) => r.id === sessionId.toLowerCase());
+  const ref = sessionRef.toLowerCase();
+  const open = (await liveYeonsuRooms()).find((r) => r.id === ref || yeonsuSlug(r.id) === ref);
   if (!open) return v;
-  return { ok: true, role: "guest", title: open.title, startsAt: open.startsAt, endsAt: open.endsAt, hostId: open.hostId, hostName: open.hostName };
+  return { ok: true, role: "guest", id: open.id, title: open.title, startsAt: open.startsAt, endsAt: open.endsAt, hostId: open.hostId, hostName: open.hostName };
+}
+
+// 들여보내기로 한 뒤 그 연수의 진짜 id. 짧은 주소로 물었으면 도름스가 알려 준 id 를 쓴다 (도름스가 아직 알려 주지 않으면 지금 열린 목록에서 찾는다)
+export async function yeonsuIdOfRef(sessionRef: string, v: YeonsuVerdict): Promise<string | null> {
+  if (!v.ok) return null;
+  if (isYeonsuId(v.id)) return v.id;
+  if (yeonsuRefKind(sessionRef) === "id") return sessionRef.toLowerCase();
+  const ref = sessionRef.toLowerCase();
+  return (await liveYeonsuRooms()).find((r) => yeonsuSlug(r.id) === ref)?.id ?? null;
 }
 
 // 지금 열린 DoLive 연수 전부를 도름스에 묻는다 (도름스 /api/yeonsu/dolive/rooms, 0606).

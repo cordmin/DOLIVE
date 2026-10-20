@@ -2,12 +2,12 @@ import { TrackSource } from "livekit-server-sdk";
 import { endRoom } from "@/lib/chat";
 import { MAX_ROOMS } from "@/lib/dolive";
 import { canEditRoom, dormsCheck, findRoom, isLocal, roomDeny, roomList, rooms, saveRooms } from "@/lib/server";
-import { liveYeonsuRooms, yeonsuRoomName } from "@/lib/yeonsu";
+import { liveYeonsuRooms, yeonsuRoomName, yeonsuSlug } from "@/lib/yeonsu";
 
 // 방송 목록: 방 이름, 비밀번호 방인지, 비회원도 들어오는지, 방송 중인지(ON AIR), 내가 고칠 수 있는 방인지.
 // ON AIR = 그 방의 방장(마스터·관리자·만든 사람)이 들어와 있거나 누가 화면공유 중. 비밀번호는 고칠 수 있는 사람(만든 사람·관리자·마스터)에게만 보낸다
 // 지금 열린 도름스 연수 방(lib/yeonsu.ts liveYeonsuRooms)도 함께 보낸다: 방 만들기 4개 제한과 별개이고, 고치거나 지울 수 없고,
-// 입장은 연수 입장 화면(/yeonsu/<id>)이 도름스에 사람마다 다시 물어 판정한다 (yeonsu 칸이 그 주소를 들고 있다).
+// 입장은 연수 입장 화면(/<짧은 연수 번호>)이 도름스에 사람마다 다시 물어 판정한다 (yeonsu 칸이 그 주소를 들고 있다).
 // 끝 시각이 지난 연수는 아직 사람이 남아 있을 때만 목록에 둔다: 연수가 길어져 이어 하는 방은 계속 보이고, 다 끝난 연수는 목록에서 빠진다.
 export async function GET(req: Request) {
   const { user } = await dormsCheck(req);
@@ -34,7 +34,7 @@ export async function GET(req: Request) {
               guest: false,
               onAir: isOnAir(people),
               canEdit: false,
-              yeonsu: { id: r.id, href: `/yeonsu/${r.id}`, hostName: r.hostName, startsAt: r.startsAt, endsAt: r.endsAt, access: r.access },
+              yeonsu: { id: r.id, href: `/${yeonsuSlug(r.id)}`, hostName: r.hostName, startsAt: r.startsAt, endsAt: r.endsAt, access: r.access },
             };
           }),
         ).then((all) => all.filter((r): r is NonNullable<typeof r> => r !== null)),
