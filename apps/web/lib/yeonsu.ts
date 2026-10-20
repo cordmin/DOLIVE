@@ -5,7 +5,8 @@ import { DORMS_ISSUER } from "@/lib/dormsLogin";
 
 // 도름스 연수 방 (2026-10-14)
 // 도름스(dorms.school)에서 연수를 열고 장소로 DoLive 를 고르면, 연수마다 방 하나가 저절로 생긴다. 방 주소는 /yeonsu/<연수 id>.
-// - 방송 목록(rooms.txt, 최대 4개)에는 넣지 않는다. 입장 화면 목록에도 보이지 않고, 연수 링크로만 들어온다.
+// - 방 만들기 목록(rooms.txt, 최대 4개)을 쓰지 않는다. 대신 입장 화면 목록에 도름스에 실시간으로 물어본 '지금 열린 연수'를 함께 보여 준다
+//   (liveYeonsuRooms, 아래). 그래서 연수 링크를 못 받은 선생님도 목록에서 찾아 들어온다.
 // - 들어올 수 있는지는 도름스가 정한다: 여는 선생님과 신청이 확정된 선생님만, 시작 10분 전부터 끝날 때까지.
 //   입장 화면과 입장권(api/token)이 그때마다 도름스에 서명한 요청으로 다시 묻는다 (아래 askDorms). 비회원은 들어오지 못한다.
 // - 여는 선생님은 그 방의 방장이다 (방장 넘기기는 없다). 끝나는 시간이 되면 방을 닫는다.
@@ -54,6 +55,47 @@ export async function askDorms(sessionId: string, dormsUserId: string): Promise<
     return data;
   } catch {
     return { ok: false, reason: "unavailable" };
+  }
+}
+
+// 지금 열린 DoLive 연수 전부를 도름스에 묻는다 (도름스 /api/yeonsu/dolive/rooms, 0606).
+// 입장 화면 목록이 10초마다 다시 묻기 때문에 서버에서 8초만 기억해 두고, 도름스가 답하지 않으면 마지막으로 받은 목록을 30초까지 쓴다
+// (연수 중에 도름스가 잠깐 끊겨도 목록에서 방이 사라지지 않게). 들어올 수 있는지는 사람마다 askDorms 가 다시 판정한다.
+export type YeonsuLiveRoom = { id: string; title: string; startsAt: string; endsAt: string; hostId: string; hostName: string; access: "teacher" | "member" };
+const LIVE_TTL = 8_000;
+const LIVE_STALE = 30_000;
+const live = globalThis as unknown as { doliveYeonsuLive?: { at: number; rooms: YeonsuLiveRoom[] } };
+
+function isLiveRoom(r: unknown): r is YeonsuLiveRoom {
+  const x = r as YeonsuLiveRoom | null;
+  return !!x && isYeonsuId(x.id) && typeof x.title === "string" && !!x.title && isYeonsuId(x.hostId)
+    && typeof x.hostName === "string" && Number.isFinite(Date.parse(x.startsAt)) && Number.isFinite(Date.parse(x.endsAt));
+}
+
+export async function liveYeonsuRooms(): Promise<YeonsuLiveRoom[]> {
+  const had = live.doliveYeonsuLive;
+  if (had && Date.now() - had.at < LIVE_TTL) return had.rooms;
+  const secret = process.env.DORMS_YEONSU_SECRET?.trim() ?? "";
+  if (secret.length < SECRET_MIN) return [];
+  const body = "{}";
+  try {
+    const res = await fetch(`${API_ORIGIN}/api/yeonsu/dolive/rooms`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-dolive-signature": signYeonsuRequest(secret, Math.floor(Date.now() / 1000), body) },
+      body,
+      cache: "no-store",
+      signal: AbortSignal.timeout(4000),
+    });
+    const data = (await res.json().catch(() => null)) as { ok?: boolean; rooms?: unknown } | null;
+    if (!res.ok || data?.ok !== true || !Array.isArray(data.rooms)) throw new Error("bad_answer");
+    const rooms = data.rooms.filter(isLiveRoom).filter((r) => Date.parse(r.endsAt) > Date.now()).slice(0, 50);
+    // 채팅·방장 확인(findRoom)이 아직 아무도 안 들어온 연수 방도 알아보게 미리 남긴다
+    for (const r of rooms) registerYeonsuRoom(yeonsuRoomName(r.id), { title: r.title, owner: r.hostId, endsAt: r.endsAt });
+    live.doliveYeonsuLive = { at: Date.now(), rooms };
+    return rooms;
+  } catch {
+    if (had && Date.now() - had.at < LIVE_STALE) return had.rooms.filter((r) => Date.parse(r.endsAt) > Date.now());
+    return [];
   }
 }
 

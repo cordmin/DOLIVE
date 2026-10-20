@@ -113,10 +113,39 @@ const SECRET = "dorms-yeonsu-test-secret-0123456789abcdef";
   await new Promise((r) => setTimeout(r, 120));
   assert.deepEqual(ended, [soon]);
 
+  // 지금 열린 연수 목록(liveYeonsuRooms): 비밀 값이 없으면 묻지 않고, 받은 목록은 모양·끝난 방을 걸러 내고 방 기록에 미리 남긴다
+  const LIVE = "44444444-4444-4444-8444-444444444444";
+  const liveRoom = { id: LIVE, title: "노트북 LM 연수", startsAt: "2026-10-20T11:50:00.000Z", endsAt: "2099-10-20T13:00:00.000Z", hostId: USER, hostName: "고타열", access: "teacher" };
+  env.DORMS_YEONSU_SECRET = "짧은값";
+  calls = [];
+  assert.deepEqual(plain(await yeonsu.liveYeonsuRooms()), []);
+  assert.equal(calls.length, 0);
+  env.DORMS_YEONSU_SECRET = SECRET;
+  files = { "yeonsu-rooms.json": "{}" };
+  answer = { status: 200, body: { ok: true, rooms: [
+    liveRoom,
+    { ...liveRoom, id: "a" },                                       // 연수 id 모양이 아님
+    { ...liveRoom, id: "55555555-5555-4555-8555-555555555555", title: "" }, // 제목 없음
+    { ...liveRoom, id: "66666666-6666-4666-8666-666666666666", endsAt: "2026-01-01T00:00:00.000Z" }, // 이미 끝남
+  ] } };
+  assert.deepEqual(plain(await yeonsu.liveYeonsuRooms()), [liveRoom]);
+  const asked = calls.pop();
+  assert.equal(asked.url, "https://dorms.school/api/yeonsu/dolive/rooms");
+  assert.equal(asked.body, "{}");
+  const [, lt, lv1] = /^t=(\d+),v1=([0-9a-f]{64})$/.exec(asked.headers["x-dolive-signature"]);
+  assert.equal(lv1, crypto.createHmac("sha256", SECRET).update(`${lt}.{}`).digest("hex"));
+  // 아직 아무도 안 들어온 연수 방도 채팅·방장 확인이 알아보게 미리 남는다
+  assert.deepEqual(plain(yeonsu.yeonsuRoomDef(yeonsu.yeonsuRoomName(LIVE))), { name: yeonsu.yeonsuRoomName(LIVE), password: "", guest: false, owner: USER, title: liveRoom.title });
+  // 입장 화면이 10초마다 물어도 도름스에는 8초에 한 번만 묻는다 (그사이 답이 이상해져도 방이 목록에서 사라지지 않는다)
+  calls = [];
+  answer = { status: 500, body: null };
+  assert.deepEqual(plain(await yeonsu.liveYeonsuRooms()), [liveRoom]);
+  assert.equal(calls.length, 0);
+
   // 화면에 보이는 한국 시각
   assert.equal(yeonsu.kstTime("2026-10-14T10:05:00.000Z"), "19:05");
   assert.equal(yeonsu.kstTime(undefined), "");
-  console.log("통과: 연수 방 서명·확인·기록·닫기");
+  console.log("통과: 연수 방 서명·확인·기록·닫기·열린 목록");
 })().catch((e) => {
   console.error(e);
   process.exit(1);
