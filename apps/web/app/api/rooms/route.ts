@@ -2,20 +2,41 @@ import { TrackSource } from "livekit-server-sdk";
 import { endRoom } from "@/lib/chat";
 import { MAX_ROOMS } from "@/lib/dolive";
 import { canEditRoom, dormsCheck, findRoom, isLocal, roomDeny, roomList, rooms, saveRooms } from "@/lib/server";
+import { liveYeonsuRooms, yeonsuRoomName } from "@/lib/yeonsu";
 
 // 방송 목록: 방 이름, 비밀번호 방인지, 비회원도 들어오는지, 방송 중인지(ON AIR), 내가 고칠 수 있는 방인지.
 // ON AIR = 그 방의 방장(마스터·관리자·만든 사람)이 들어와 있거나 누가 화면공유 중. 비밀번호는 고칠 수 있는 사람(만든 사람·관리자·마스터)에게만 보낸다
+// 지금 열린 도름스 연수 방(lib/yeonsu.ts liveYeonsuRooms)도 함께 보낸다: 방 만들기 4개 제한과 별개이고, 고치거나 지울 수 없고,
+// 입장은 연수 입장 화면(/yeonsu/<id>)이 도름스에 사람마다 다시 물어 판정한다 (yeonsu 칸이 그 주소를 들고 있다).
 export async function GET(req: Request) {
   const { user } = await dormsCheck(req);
-  const list = await Promise.all(
-    roomList().map(async (r) => {
-      const people = await rooms.listParticipants(r.name).catch(() => []); // 아직 아무도 안 들어온 방은 통화 서버에 없다
-      const onAir = people.some((p) => p.attributes?.roomAdmin === "1" || p.tracks.some((t) => t.source === TrackSource.SCREEN_SHARE && !t.muted));
-      const canEdit = canEditRoom(req, user, r);
-      return { name: r.name, locked: !!r.password, guest: r.guest, onAir, canEdit, ...(canEdit ? { password: r.password } : {}) };
-    }),
-  );
-  return Response.json(list, { headers: { "cache-control": "no-store" } });
+  const onAirOf = async (name: string) => {
+    const people = await rooms.listParticipants(name).catch(() => []); // 아직 아무도 안 들어온 방은 통화 서버에 없다
+    return people.some((p) => p.attributes?.roomAdmin === "1" || p.tracks.some((t) => t.source === TrackSource.SCREEN_SHARE && !t.muted));
+  };
+  const [made, yeonsu] = await Promise.all([
+    Promise.all(
+      roomList().map(async (r) => {
+        const canEdit = canEditRoom(req, user, r);
+        return { name: r.name, locked: !!r.password, guest: r.guest, onAir: await onAirOf(r.name), canEdit, ...(canEdit ? { password: r.password } : {}) };
+      }),
+    ),
+    liveYeonsuRooms()
+      .then((list) =>
+        Promise.all(
+          list.map(async (r) => ({
+            name: r.title,
+            locked: false,
+            guest: false,
+            onAir: await onAirOf(yeonsuRoomName(r.id)),
+            canEdit: false,
+            yeonsu: { id: r.id, href: `/yeonsu/${r.id}`, hostName: r.hostName, startsAt: r.startsAt, endsAt: r.endsAt, access: r.access },
+          })),
+        ),
+      )
+      .catch(() => []),
+  ]);
+  return Response.json([...made, ...yeonsu], { headers: { "cache-control": "no-store" } });
 }
 
 // 비밀번호 확인 { room, password }: 입장 화면 비밀번호 창이 [입장] 전에 묻는다 (틀리면 창에서 바로 알려 주려고).

@@ -8,7 +8,16 @@ import { AVATARS, CUSTOM, DORMS, MAX_ROOMS, leaveForDorms, savedAvatar } from "@
 import { ROOM_ENTRY_KEY } from "@/lib/roomHistory";
 
 // 방송 목록 한 줄 (api/rooms GET). guest = 비회원도 들어옴, canEdit = 내가 고칠 수 있는 방(내가 만든 방, 마스터는 모든 방. 그때만 password 가 온다)
-type Broadcast = { name: string; locked: boolean; guest: boolean; onAir: boolean; canEdit: boolean; password?: string };
+// yeonsu = 도름스 연수 방(도름스에 실시간으로 물어 온다). 이름은 연수 제목이고, 고르면 연수 입장 화면(href)으로 간다 — 들어올 수 있는지는
+// 거기서 도름스가 사람마다 판정한다. 방 만들기 4개 제한에는 세지 않는다
+type Yeonsu = { id: string; href: string; hostName: string; startsAt: string; endsAt: string; access: "teacher" | "member" };
+type Broadcast = { name: string; locked: boolean; guest: boolean; onAir: boolean; canEdit: boolean; password?: string; yeonsu?: Yeonsu };
+// 고른 방을 가리키는 값: 보통 방은 방 이름, 연수 방은 제목이 겹쳐도 섞이지 않게 연수 id 를 쓴다
+const keyOf = (r: Broadcast) => (r.yeonsu ? `yeonsu:${r.yeonsu.id}` : r.name);
+const hhmm = (iso: string) => {
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? new Date(ms + 9 * 3600_000).toISOString().slice(11, 16) : "";
+};
 // 방 만들기·설정 창에서 고치는 값 (old = 고치는 방의 원래 이름, 만들 때는 없음)
 type RoomForm = { old?: string; name: string; password: string; guest: boolean; error: string };
 
@@ -40,7 +49,7 @@ export default function Home() {
           setRooms(list);
           // 고른 방이 목록에서 사라졌으면 방 주소(?room=)의 방, 이 탭에서 전에 고른 방, 그것도 없으면 첫 방
           const invited = new URLSearchParams(location.search).get("room");
-          setRoom((cur) => [cur, invited, sessionStorage.getItem("room")].find((n) => list.some((x) => x.name === n)) ?? list[0]?.name ?? "");
+          setRoom((cur) => [cur, invited, sessionStorage.getItem("room")].find((n) => list.some((x) => keyOf(x) === n || x.name === n)) ?? (list[0] ? keyOf(list[0]) : ""));
         })
         .catch(() => {}),
     [],
@@ -106,7 +115,12 @@ export default function Home() {
     // 도름스 로그인 전이면 들어가지 않고 [로그인]부터 누르게 한다 (여기서 바로 도름스로 보내면, 도름스에 로그인돼 있는 브라우저는
     // 묻지 않고 다시 로그인돼서 로그아웃했는데도 들어가지는 것처럼 보인다). 허용이 끊겼거나 도름스가 안 되면 안내 화면.
     // 진짜 문은 서버(app/room/layout.tsx, api/token)가 다시 확인한다
-    const target = rooms?.find((r) => r.name === room);
+    const target = rooms?.find((r) => keyOf(r) === room || r.name === room);
+    // 연수 방은 연수 입장 화면이 도름스에 물어 들여보낸다 (신청·확정·시간까지 거기서 안내한다)
+    if (target?.yeonsu) {
+      router.push(target.yeonsu.href);
+      return;
+    }
     if (me && !me.local && !me.dorms && !target?.guest) {
       if (me.dormsReason === "access_denied" || me.dormsReason === "temporarily_unavailable")
         location.href = `/dorms-denied?reason=${me.dormsReason}&next=/room`;
@@ -142,7 +156,7 @@ export default function Home() {
   // [+ 방 만들기]: 도름스 회원(마스터는 로그인 없이)만. 만들면 목록에서 그 방을 골라 둔다 (들어가는 건 각자 [LIVE 입장]으로)
   function openCreate() {
     if (me && !me.local && !me.dorms) return needLogin.current?.showModal();
-    if ((rooms?.length ?? 0) >= MAX_ROOMS) return full.current?.showModal();
+    if ((rooms?.filter((r) => !r.yeonsu).length ?? 0) >= MAX_ROOMS) return full.current?.showModal();
     setForm({ name: "", password: "", guest: false, error: "" });
     roomDlg.current?.showModal();
   }
@@ -314,22 +328,28 @@ export default function Home() {
           // 이름 앞 ON AIR = 방장이 들어가 있거나 화면공유 중이면 빨갛게 빛나고, 아니면 불 꺼진 회색. 오른쪽 자물쇠 = 비밀번호 방, 톱니바퀴 = 내 방 설정
           <div role="radiogroup" aria-label="방송 목록" className="flex max-h-60 flex-col gap-1.5 overflow-y-auto">
             {rooms.map((r) => (
-              <div key={r.name} className="relative">
+              <div key={keyOf(r)} className="relative">
                 <button
                   role="radio"
-                  aria-checked={room === r.name}
-                  onClick={() => setRoom(r.name)}
-                  className={`flex w-full items-center gap-2 rounded-lg border px-4 py-3 text-left ${r.canEdit ? "pr-12" : ""} ${room === r.name ? "border-indigo-500 bg-indigo-500/10 text-white ring-1 ring-indigo-500 ring-inset" : "border-zinc-700 text-zinc-300 hover:border-zinc-500"}`}
+                  aria-checked={room === keyOf(r)}
+                  onClick={() => setRoom(keyOf(r))}
+                  className={`flex w-full items-center gap-2 rounded-lg border px-4 py-3 text-left ${r.canEdit ? "pr-12" : ""} ${room === keyOf(r) ? "border-indigo-500 bg-indigo-500/10 text-white ring-1 ring-indigo-500 ring-inset" : "border-zinc-700 text-zinc-300 hover:border-zinc-500"}`}
                 >
                   <span
-                    className={`mr-1 size-[18px] shrink-0 rounded-full border-2 ${room === r.name ? "border-indigo-400 bg-indigo-400 shadow-[inset_0_0_0_3px_#18181b]" : "border-zinc-500"}`}
+                    className={`mr-1 size-[18px] shrink-0 rounded-full border-2 ${room === keyOf(r) ? "border-indigo-400 bg-indigo-400 shadow-[inset_0_0_0_3px_#18181b]" : "border-zinc-500"}`}
                   />
                   <span
                     className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold tracking-wider ${r.onAir ? "bg-red-600 text-white shadow-[0_0_10px_rgba(239,68,68,.65)]" : "bg-zinc-800/60 text-zinc-600 ring-1 ring-zinc-700 ring-inset"}`}
                   >
                     ON AIR
                   </span>
+                  {r.yeonsu && (
+                    <span className="shrink-0 rounded bg-indigo-500/20 px-1.5 py-0.5 text-[11px] font-bold text-indigo-300 ring-1 ring-indigo-500/40 ring-inset">연수</span>
+                  )}
                   <span className="truncate">{r.name}</span>
+                  {r.yeonsu && (
+                    <span className="ml-auto shrink-0 text-[11px] text-zinc-400">{r.yeonsu.hostName} · {hhmm(r.yeonsu.startsAt)}–{hhmm(r.yeonsu.endsAt)}</span>
+                  )}
                   {r.locked && (
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-label="비밀번호" className="ml-auto size-4 shrink-0 text-zinc-400">
                       <rect x="5" y="11" width="14" height="10" rx="2" />
