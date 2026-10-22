@@ -61,7 +61,7 @@ export default function Home() {
   }, [loadRooms]);
   const roomDlg = useRef<HTMLDialogElement>(null); // 방 만들기·설정 창 (모양은 아래 창들과 같게)
   const askDelete = useRef<HTMLDialogElement>(null); // "방을 삭제하시겠습니까?" 창 (채팅방의 나가기 창과 같은 모양)
-  const full = useRef<HTMLDialogElement>(null); // "방송은 최대 4개까지만 지원합니다" 창 (로그인 안내 창과 같은 모양)
+  const full = useRef<HTMLDialogElement>(null); // "방송은 최대 10개까지만 지원합니다" 창 (로그인 안내 창과 같은 모양)
   const [form, setForm] = useState<RoomForm>({ name: "", password: "", guest: false, error: "" });
   // 오른쪽 위: 서버 PC(방장)면 아무것도 없고, 나머지는 도름스 칸 (로그인했으면 도름스 프로필 사진(없으면 이름) + [로그아웃], 아니면 [로그인]).
   // 도름스 회원만 채팅방에 들어간다. 운영진(서버 켜기 창 톱니바퀴에 적은 도름스 닉네임)은 방에서 방장 권한을 받는다 (lib/server.ts isStaff)

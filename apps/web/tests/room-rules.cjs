@@ -206,17 +206,19 @@ const B = { id: "b", name: "다라" };
   assert.equal(server.findRoom("다라의 방"), undefined);
   assert.equal((await roomsApi.PUT(req("/api/rooms", "PUT", { name: "다라의 새 방" }))).status, 201); // 지웠으니 다시 만들 수 있다
 
-  // 마스터(이 PC): 고정 방을 만들고 모든 방을 고친다. 방송은 마스터 것까지 모두 합쳐 4개까지
+  // 마스터(이 PC): 고정 방을 만들고 모든 방을 고친다. 방송은 마스터 것까지 모두 합쳐 MAX_ROOMS(10)개까지
   user = { id: "s", name: "운영진" };
   assert.equal((await roomsApi.DELETE(req("/api/rooms?room=다라의 새 방", "DELETE"))).status, 204); // 관리자는 남의 방도 지운다
   user = B;
   assert.equal((await roomsApi.PUT(req("/api/rooms", "PUT", { name: "다라의 새 방 2" }))).status, 201);
   user = undefined;
   assert.equal((await roomsApi.PUT(req("/api/rooms", "PUT", { name: "새 고정 방", guest: true }, "localhost"))).status, 201);
-  const fifth = await roomsApi.PUT(req("/api/rooms", "PUT", { name: "새 고정 방 2" }, "localhost"));
-  assert.equal(fifth.status, 409);
-  assert.equal((await fifth.json()).reason, "full");
   assert.match(written, /새 고정 방\t\tguest\t\r\n$/);
+  for (let i = 2; i <= 7; i++) assert.equal((await roomsApi.PUT(req("/api/rooms", "PUT", { name: `새 고정 방 ${i}` }, "localhost"))).status, 201); // 10개까지 된다
+  const eleventh = await roomsApi.PUT(req("/api/rooms", "PUT", { name: "새 고정 방 8" }, "localhost"));
+  assert.equal(eleventh.status, 409);
+  assert.equal((await eleventh.json()).reason, "full");
+  for (let i = 2; i <= 7; i++) assert.equal((await roomsApi.DELETE(req(`/api/rooms?room=새 고정 방 ${i}`, "DELETE", undefined, "localhost"))).status, 204);
   assert.equal((await find("다라의 새 방 2")).canEdit, false); // 바깥에서 보면 남의 방
   assert.equal((await roomsApi.DELETE(req("/api/rooms?room=다라의 새 방 2", "DELETE", undefined, "localhost"))).status, 204);
   assert.equal(server.findRoom("다라의 새 방 2"), undefined);
@@ -232,7 +234,7 @@ const B = { id: "b", name: "다라" };
   user = undefined;
   assert.equal((await roomsApi.PATCH(req("/api/rooms?room=옛 방", "PATCH", { name: "옛 방", password: "새암호", guest: false }, "localhost"))).status, 204);
   assert.match(written, /옛 방\t새암호\tmembers/);
-  console.log("통과: 비회원 입장, 방 만들기·고치기·지우기 권한(만든 사람·관리자·마스터), 만든 사람 방장, 방장 넘기기, ON AIR, 방 목록 파일 저장, 최대 4개");
+  console.log("통과: 비회원 입장, 방 만들기·고치기·지우기 권한(만든 사람·관리자·마스터), 만든 사람 방장, 방장 넘기기, ON AIR, 방 목록 파일 저장, 최대 10개");
 
   if (process.argv.includes("--live")) await live();
 })().catch((error) => {

@@ -108,7 +108,7 @@ export function leaveForDorms(reason: unknown) {
 }
 
 // 방송은 모두 합쳐(마스터가 만든 방 포함) 이 개수까지만. 더 많으면 서버 PC가 감당하기 어렵다 (api/rooms 가 막고, 입장 화면은 안내 창)
-export const MAX_ROOMS = 4;
+export const MAX_ROOMS = 10;
 
 // 카메라(얼굴) 설정. 위치는 저장하지 않고 항상 왼쪽 아래로 시작한다. 나머지는 이 브라우저에 남긴다.
 // pos: 화면공유 시 얼굴 위치 (네 구석, row = 겹치지 않고 공유 화면 아래 얼굴 줄. 얼굴 줄은 네모만), shape: 구석에 띄울 모양,
