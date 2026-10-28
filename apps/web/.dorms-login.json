@@ -1,22 +1,25 @@
 {
   "schemaVersion": 1,
   "donations": true,
-  "version": "0.3.0",
-  "targetVersion": "0.3.0",
+  "donationsAtLogin": true,
+  "doreumi": false,
+  "version": "0.5.0",
+  "targetVersion": "0.5.0",
   "files": {
-    "app/api/auth/dorms/callback/route.ts": "f79ddfdc5a6785f5631fc1ac2cda2f54776c34290b3b8ab306a1235e6e9a858e",
+    "app/api/auth/dorms/callback/route.ts": "caa456e532985d5d91242f7643aca1cfa482cd0e18edd55e77e33c2b109b2477",
     "app/api/auth/dorms/logout/route.ts": "921bf9c8f1179de23a841640ca9206c73c40c6323d7dbb931acedf44f83e22f9",
-    "app/api/auth/dorms/start/route.ts": "cd950d8806c0771f9f748d63d60934c1e8b365da196d835d8d9a34a8ecfbc13b",
+    "app/api/auth/dorms/start/route.ts": "b6f5dc6bc86d42cddd3e352f43c1e779305037b63c039c2bea6fa969eb0d4be7",
     "app/dorms-denied/page.tsx": "d5eab685d0cf42b516ffc8ce2786ab5a3cd00acab8971a9dc94bf524a022d3f0",
     "components/DormsLoginButton.tsx": "d6c5e4e8bc4be63c112c032b3110966512e60b22ace946e257bd66d9f70a8dd4",
-    "lib/dormsLogin.ts": "e29e473004a1e70e6a0bd374f10a84e40ab443f89520274cda8e56c4569c6e6d",
+    "lib/dormsLogin.ts": "4b2da2809398b7303f561ee9b1d7911bcb97713e667daff7df6aeb472e299748",
     "app/api/auth/dorms/donation/callback/route.ts": "a09658ec6206923b9837e52900eb9644524ea1b39977a30bdafd27bf94dc519a",
     "app/api/auth/dorms/donation/send/route.ts": "bbd42617bb3b1be0d29c393afa999710a0a24298a2b5c89e45116a71f2056d21",
     "app/api/auth/dorms/donation/start/route.ts": "557f0c2676221646133a5085c1bcccba5a85624a77000ec0eabac1b1f94bce0e",
     "app/api/auth/dorms/donation/status/route.ts": "47e58d015c88816b3b162b66ae094625e17c151ce5eeb3e0a1586ed7d1665948",
     "app/dorms-donation-denied/page.tsx": "3f15fe84c224b0bd81562b9dca97b82d45e1aa204751a1c27104a324ab96801a",
-    "components/DormsDonationButton.tsx": "0c328d021bc2ded56e41da9c4504b5a8ac4d099eb2ae7755c7318f18437ed1fb",
-    "lib/dormsDonation.ts": "522d3d87011e1c3c79224020a955e1bf30993538422174f61d49c34b4cb47467"
+    "components/DormsDonationButton.tsx": "807c72e3bc87128bedb8cbf37a481a1363315ed964b50f0eec935c5d6d0bdc00",
+    "lib/dormsDonation.ts": "efd81e4cb4969742becdab1bf899ceabd4e9ca9a3de63064e93a06ce96aacd4c",
+    "app/dorms-donation-allowed/page.tsx": "ee2fa6bc3f80f1a4ed0dc62d2abdd7f45f840fc9a4aba194b98e8265954545ca"
   },
   "pending": []
 }

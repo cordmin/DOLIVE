@@ -11,7 +11,7 @@ const sdk = require("livekit-server-sdk");
 const env = { NODE_ENV: "test", DORMS_CLIENT_ID: randomUUID(), DORMS_SITE_URL: "https://test.example", DORMS_API_ORIGIN_DEV: "http://localhost:3999" };
 const jar = new Map();
 const h = new Headers({ origin: "https://test.example", "sec-fetch-site": "same-origin" });
-let state = { approval: "approved", login: true, permission: true, balance: 10, daily: 3, donationValid: true, loseReply: false };
+let state = { approval: "approved", atLogin: true, tokenFailure: false, login: true, permission: true, balance: 10, daily: 3, donationValid: true, loseReply: false };
 const subject = randomUUID(), recipient = randomUUID(), grants = randomUUID();
 const saved = new Map();
 const announcements = [];
@@ -22,7 +22,7 @@ const fail = (reason, status) => Response.json({ reason }, { status });
 async function provider(raw, init = {}) {
   const url = new URL(raw);
   assert.equal(url.origin, "http://localhost:3999");
-  if (url.pathname.endsWith("/configuration")) return Response.json({ active: true, scopes: ["openid", "profile"], donations: { status: state.approval } });
+  if (url.pathname.endsWith("/configuration")) return Response.json({ active: true, scopes: ["openid", "profile"], donations: { status: state.approval, atLogin: state.atLogin } });
   if (url.pathname === "/api/sso/token") return Response.json({ id_token: signed });
   if (url.pathname.endsWith("/userinfo")) {
     checks++;
@@ -32,6 +32,7 @@ async function provider(raw, init = {}) {
   }
   if (url.pathname.endsWith("/donations/token")) {
     assert.equal(init.headers.Authorization, `Bearer ${signed}`);
+    if (state.tokenFailure) return fail("temporarily_unavailable", 503);
     return Response.json({ subject, donation_token: "test-only-donation-token-never-for-real", expires_in: 3600 });
   }
   if (url.pathname.endsWith("/revoke")) { state.donationValid = false; return Response.json({ ok: true }); }
@@ -67,7 +68,14 @@ async function main() {
   ({ privateKey, publicKey } = await jose.generateKeyPair("EdDSA"));
   const next = { cookies: async () => ({ get: (name) => jar.has(name) ? { value: jar.get(name) } : undefined }), headers: async () => h };
   const login = load("lib/dormsLogin.ts", { "next/headers": next, jose: { ...jose, createRemoteJWKSet: () => async () => publicKey } });
-  const begin = await login.beginDormsLogin("https://test.example/", "/room");
+  const donation = load("lib/dormsDonation.ts", { "next/headers": next, "./dormsLogin": login });
+  const publicServer = { publicUrl: () => "https://test.example/" };
+  const startRoute = load("app/api/auth/dorms/start/route.ts", { "@/lib/server": publicServer, "../../../../../lib/dormsLogin": login, "../../../../../lib/dormsDonation": donation });
+  const startResponse = await startRoute.GET({ nextUrl: new URL("https://test.example/api/auth/dorms/start?next=%2Froom") });
+  const begin = { authorizeUrl: startResponse.headers.get('location'), cookie: { value: startResponse.cookies.get(login.FLOW_COOKIE).value }, donationFlow: startResponse.cookies.get(donation.DONATION_LOGIN_FLOW_COOKIE).value };
+  const combinedUrl = new URL(begin.authorizeUrl);
+  assert.ok(combinedUrl.searchParams.get('scope').split(' ').includes('donation'));
+  assert.notEqual(combinedUrl.searchParams.get('code_challenge'), combinedUrl.searchParams.get('donation_code_challenge'), '로그인과 전송 권한은 별도 PKCE');
   const flow = login.parseFlowCookie(begin.cookie.value);
   nonce = flow.nonce;
   const now = Math.floor(Date.now() / 1000);
@@ -76,7 +84,38 @@ async function main() {
   jar.set(login.SESSION_COOKIE, logged.idToken);
   assert.equal((await login.getDormsUser()).id, subject);
   assert.equal(login.safeDormsNext("//elsewhere.example"), "/");
-  const donation = load("lib/dormsDonation.ts", { "next/headers": next, "./dormsLogin": login });
+  // 실제 로그인 콜백 경로에서 함께 받은 도름네이션 코드를 서버끼리 교환한다.
+  const loginCallback = load("app/api/auth/dorms/callback/route.ts", { "@/lib/server": publicServer, "../../../../../lib/dormsLogin": login, "../../../../../lib/dormsDonation": donation });
+  const donationCode = require('node:crypto').randomBytes(32).toString('base64url');
+  const callbackCookies = new Map([[login.FLOW_COOKIE, begin.cookie.value], [donation.DONATION_LOGIN_FLOW_COOKIE, begin.donationFlow]]);
+  const callbackRequest = code => ({ nextUrl: new URL(`https://test.example/api/auth/dorms/callback?code=login-code&state=${flow.state}${code ? '&donation_code=' + code : ''}`), cookies: { get: name => callbackCookies.has(name) ? { value: callbackCookies.get(name) } : undefined } });
+  const combined = await loginCallback.GET(callbackRequest(donationCode));
+  assert.equal(combined.headers.get('location'), 'https://test.example/room');
+  assert.equal(combined.cookies.get(login.SESSION_COOKIE).value, signed);
+  assert.ok(combined.cookies.get(donation.DONATION_COOKIE).value);
+  assert.equal(combined.cookies.get(donation.DONATION_LOGIN_FLOW_COOKIE).value, '');
+  jar.set(donation.DONATION_COOKIE, combined.cookies.get(donation.DONATION_COOKIE).value);
+  assert.equal((await donation.getDonationStatus()).dailyRemaining, 3, '로그인 직후 별도 이동 없이 전송 준비');
+  const pass = JSON.parse(Buffer.from(jar.get(donation.DONATION_COOKIE), 'base64url'));
+  assert.equal(pass.session, createHash('sha256').update(signed).digest('base64url'));
+  assert.ok(pass.expiresAt <= logged.expiresAt);
+  const loginOnly = await loginCallback.GET(callbackRequest(null));
+  assert.equal(loginOnly.cookies.get(login.SESSION_COOKIE).value, signed, '도름네이션 없이 로그인만 허용');
+  assert.equal(loginOnly.cookies.get(donation.DONATION_COOKIE).value, '', '예전 전송 권한 삭제');
+  state.tokenFailure = true;
+  const unavailable = await loginCallback.GET(callbackRequest(donationCode));
+  assert.equal(unavailable.cookies.get(login.SESSION_COOKIE).value, signed, '전송 권한 교환 실패해도 로그인 유지');
+  assert.equal(unavailable.cookies.get(donation.DONATION_COOKIE).value, '');
+  state.tokenFailure = false;
+  await assert.rejects(donation.finishDonationLogin('https://test.example', { ...logged, subject, state: 'wrong', code: donationCode, flow: begin.donationFlow }), { reason: 'authentication_required' });
+  for (const approval of ['pending', 'suspended']) {
+    state.approval = approval;
+    assert.equal((await donation.beginDonationLogin('https://test.example')).donationFlow, null, '미승인 앱도 일반 로그인은 유지');
+  }
+  state.approval = 'approved'; state.atLogin = false;
+  assert.equal((await donation.beginDonationLogin('https://test.example')).donationFlow, null, '이전 도름스 서버에서는 일반 로그인');
+  state.atLogin = true;
+  jar.delete(donation.DONATION_COOKIE);
   await assert.rejects(donation.getDonationStatus(), { reason: "connection_required" });
   const allow = await donation.beginDonation("https://test.example/", "/room");
   const donationFlow = JSON.parse(Buffer.from(allow.flow, "base64url"));
@@ -213,6 +252,7 @@ async function main() {
   assert.equal(response.status, 303);
   assert.equal(response.cookies.get(login.SESSION_COOKIE).value, "");
   assert.equal(response.cookies.get(donation.DONATION_COOKIE).value, "");
+  assert.equal(response.cookies.get(donation.DONATION_LOGIN_FLOW_COOKIE).value, "");
   jar.delete(login.SESSION_COOKIE);
   await assert.rejects(donation.sendDonation(input), { reason: "authentication_required" });
   assert.ok(checks > 10);

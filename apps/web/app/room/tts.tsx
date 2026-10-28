@@ -41,7 +41,7 @@ export function TtsButton() {
         icon={
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-[17px]">
             <path d="M3 5h9M7.5 5v14M16 9a5 5 0 0 1 0 6M19 6a9 9 0 0 1 0 12" />
-            {mode === "off" && <path className="md:hidden" d="M20 4 4 20" stroke="#ffffff" strokeWidth="2.2" />}
+            {mode === "off" && <path className="md:hidden phone-land:block!" d="M20 4 4 20" stroke="#ffffff" strokeWidth="2.2" />}
           </svg>
         }
       />

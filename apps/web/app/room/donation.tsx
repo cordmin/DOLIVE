@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DonationResult, DonationStatus } from "@/lib/dormsDonation";
 import type { DonationRecipient } from "@/lib/donationTargets";
-import { DONATION_CONNECT_HREF, finishDonationConnection, rememberDonationReturn, restoreDonationConnection } from "./donation-connection";
 
 const messages: Record<string, string> = {
   approval_required: "도름네이션을 신청하고 승인을 받아야 사용할 수 있어요.",
@@ -24,6 +23,8 @@ const messages: Record<string, string> = {
   idempotency_conflict: "이전에 보낸 요청과 내용이 달라요. 새로 보내지 않고 확인을 멈췄어요.",
 };
 const pendingKey = "dolive-donation-pending";
+const permissionHref = "/api/auth/dorms/donation/start?next=%2Fdorms-donation-allowed";
+const loginHref = "/api/auth/dorms/start?next=%2Fdorms-donation-allowed";
 type Pending = { requestId: string; recipientId: string; identity: string; name: string; amount: number; subject: string; room: string };
 export type DonationTarget = { recipientId: string; identity: string; name: string; isSelf?: boolean };
 
@@ -41,6 +42,7 @@ export function DonationDialog({ token, room, target, close, success, isGuest = 
   const [recipientId, setRecipientId] = useState("");
   const [targetMessage, setTargetMessage] = useState("");
   const [checking, setChecking] = useState(!isGuest);
+  const [refresh, setRefresh] = useState(0);
   useEffect(() => {
     dialog.current?.showModal();
     if (isGuest) return;
@@ -68,13 +70,12 @@ export function DonationDialog({ token, room, target, close, success, isGuest = 
       const body = await response.json();
       if (!alive) return;
       if (!response.ok) {
-        if (restoreDonationConnection(body.reason, room)) return;
         setReason(body.reason); setMessage(messages[body.reason] ?? "도름스에 연결하지 못했어요. 잠시 뒤 다시 확인해 주세요.");
       }
-      else { finishDonationConnection(room); setStatus(body); setMessage(""); }
+      else { setStatus(body); setReason(""); setMessage(""); }
     }).catch(() => { if (alive) setMessage("도름스에 연결하지 못했어요. 잠시 뒤 다시 확인해 주세요."); }).finally(() => { if (alive) setChecking(false); });
     return () => { alive = false; };
-  }, []);
+  }, [refresh]);
   const selected = pending ?? (example && target?.isSelf ? target : targets?.find((p) => p.recipientId === recipientId));
   const self = isGuest || (example && !pending && !!target?.isSelf) || (!!status && !!selected && status.subject === selected.recipientId);
   const another = pending && (pending.subject !== status?.subject || pending.room !== room);
@@ -124,8 +125,9 @@ export function DonationDialog({ token, room, target, close, success, isGuest = 
       <h2 className="mb-6 text-center font-bold">도름네이션 최초 권한 요청</h2>
       <div className="flex gap-4">
         <button type="button" onClick={close} className="dolive-button dolive-danger flex h-11 flex-1 items-center justify-center rounded-full border border-zinc-600 text-zinc-300 transition hover:bg-zinc-700/50 hover:text-white active:scale-95"><span className="dolive-button-cap">반려</span></button>
-        {example ? <button type="button" className="dolive-button dolive-primary donation-send flex h-11 flex-1 items-center justify-center rounded-full font-semibold text-[#29231a]" onClick={() => { setStatus({ subject: "예시 보낸 사람", availableBalance: 8, dailyRemaining: 3, resetsAt: "예시" }); setReason(""); setMessage(""); }}><span className="dolive-button-cap">허용</span></button> : <a className="dolive-button dolive-primary donation-send flex h-11 flex-1 items-center justify-center rounded-full font-semibold text-[#29231a]" href={DONATION_CONNECT_HREF} onClick={() => rememberDonationReturn(room)}><span className="dolive-button-cap">허용</span></a>}
+        {example ? <button type="button" className="dolive-button dolive-primary donation-send flex h-11 flex-1 items-center justify-center rounded-full font-semibold text-[#29231a]" onClick={() => { setStatus({ subject: "예시 보낸 사람", availableBalance: 8, dailyRemaining: 3, resetsAt: "예시" }); setReason(""); setMessage(""); }}><span className="dolive-button-cap">허용</span></button> : <a className="dolive-button dolive-primary donation-send flex h-11 flex-1 items-center justify-center rounded-full font-semibold text-[#29231a]" href={permissionHref} target="_blank" rel="noopener noreferrer"><span className="dolive-button-cap">허용</span></a>}
       </div>
+      {!example && <p className="mt-4 text-center text-sm text-zinc-400">방송 화면은 유지돼요. 새 창에서 허용한 뒤 이 창을 닫았다 다시 열어 주세요.</p>}
     </> : <>
     <h2 className="mb-4 text-center font-bold">{selected && !self && !unavailable ? `${selected.name}님에게 도름네이션 해요!` : "도름네이션"}</h2>
     <div className="relative">
@@ -148,8 +150,12 @@ export function DonationDialog({ token, room, target, close, success, isGuest = 
     </div>}
     {info && !(dailyExhausted && info === messages.daily_limit) && !(balanceExhausted && info === messages.insufficient_dorms) && <p role="status" className="mt-6 mb-4 text-center text-sm text-zinc-400">{info}</p>}
     {pending && <p className="mb-3 text-xs text-zinc-400">이전 보내기 결과를 확인할 때까지 받는 사람과 금액은 바꿀 수 없어요.</p>}
-    {reason === "authentication_required" && <a className="mb-3 block text-center text-amber-300" href="/api/auth/dorms/start?next=%2Froom">DoRms로 로그인</a>}
-    {["connection_required", "invalid_token", "permission_expired"].includes(reason) && <a className="dolive-button dolive-primary donation-send mb-3 flex h-11 items-center justify-center rounded-full font-semibold text-[#29231a]" href={DONATION_CONNECT_HREF} onClick={() => rememberDonationReturn(room)}><span className="dolive-button-cap">연결 다시 확인</span></a>}
+    {reason === "authentication_required" && <a className="mb-3 block text-center text-amber-300" href={loginHref} target="_blank" rel="noopener noreferrer">새 창에서 DoRms로 로그인</a>}
+    {["connection_required", "invalid_token", "permission_expired"].includes(reason) && <a className="dolive-button dolive-primary donation-send mb-3 flex h-11 items-center justify-center rounded-full font-semibold text-[#29231a]" href={permissionHref} target="_blank" rel="noopener noreferrer"><span className="dolive-button-cap">새 창에서 연결 다시 확인</span></a>}
+    {["authentication_required", "connection_required", "invalid_token", "permission_expired"].includes(reason) && <>
+      <p className="mb-3 text-center text-xs text-zinc-400">방송 화면은 유지돼요. 새 창에서 확인을 마친 뒤 아래 버튼을 눌러 주세요.</p>
+      <button type="button" className="mb-3 min-h-11 w-full text-sm text-amber-300" disabled={checking} onClick={() => { setChecking(true); setStatus(undefined); setRefresh((n) => n + 1); }}>권한 다시 확인</button>
+    </>}
     {reason === "access_denied" && <a className="mb-3 block text-center text-amber-300" href="https://dorms.school/connect" target="_blank" rel="noopener noreferrer">도름스에서 연결 확인</a>}
     </div>
     </div>

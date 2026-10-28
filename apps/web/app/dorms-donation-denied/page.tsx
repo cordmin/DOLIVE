@@ -15,7 +15,7 @@ export default async function DonationDenied({ searchParams }: { searchParams: P
   return <main style={{ maxWidth: 480, margin: "0 auto", padding: "48px 20px", wordBreak: "keep-all", overflowWrap: "anywhere" }}>
     <h1>도름네이션을 확인해 주세요</h1>
     <p>{messages[reason ?? ""] ?? messages.access_denied}</p>
-    {reason === "authentication_required" && <a href={dormsLoginHref()}>다시 로그인</a>}
+    {reason === "authentication_required" && <a href={dormsLoginHref("/dorms-donation-allowed")}>다시 로그인</a>}
     <p><Link href="/">앱으로 돌아가기</Link></p>
     <a href="https://dorms.school/connect" target="_blank" rel="noopener noreferrer">도름스에서 확인</a>
   </main>;

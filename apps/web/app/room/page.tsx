@@ -13,7 +13,7 @@ import {
 import { ConnectionError, ConnectionErrorReason, ConnectionState, DisconnectReason, Track, VideoPresets, type Participant, type RoomOptions } from "livekit-client";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Knob } from "@/components/Knob";
 import { Tooltips } from "@/components/Tooltips";
 import { VOICE_BOT, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
@@ -23,8 +23,8 @@ import { CAM_CAPTURE } from "./camera";
 import { MediaControls, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
 import { SplitTop, Stage } from "./stage";
 import { DonationDialog } from "./donation";
-import { donationReturning, DONATION_RETURN_KEY } from "./donation-connection";
 import { usePhoneAudio } from "./phone-audio";
+import { useLandscapeChat } from "./landscape-chat";
 import { PersonRow, SplitPeople } from "./participants";
 import { useMessages } from "./messages";
 import { useSplitChat } from "./split-chat";
@@ -241,10 +241,7 @@ function RoomView({ token }: { token: string }) {
   useDuckShareAudio();
 
   const { floats, react, donation } = useReactions();
-  const [donating, setDonating] = useState(() => donationReturning(room.name));
-  useEffect(() => {
-    if (donationReturning(room.name)) sessionStorage.removeItem(DONATION_RETURN_KEY);
-  }, [room.name]);
+  const [donating, setDonating] = useState(false);
   const { waiting, answer, asked, requestShare } = useShareRequests(isAdmin, participants, token);
 
   // PC 채팅 카드 폭(px). 왼쪽 가장자리를 끌어서 바꾸고, 이 브라우저에만 기억한다. null = 기본 폭
@@ -266,21 +263,32 @@ function RoomView({ token }: { token: string }) {
   function dragChat(e: React.PointerEvent<HTMLDivElement>) {
     e.preventDefault(); // 끄는 동안 글자가 선택되지 않게
     const handle = e.currentTarget;
-    const box = grid.current!.getBoundingClientRect();
+    const layout = grid.current!.closest<HTMLElement>(".room-layout")!;
+    const phone = document.documentElement.hasAttribute("data-phone-land");
+    const box = (phone ? layout : grid.current!).getBoundingClientRect();
+    const property = phone ? "--phone-chat-width" : "--chat-width";
+    const initialWidth = layout.querySelector(".room-chat-log")!.getBoundingClientRect().width;
+    const startX = e.clientX;
     handle.setPointerCapture(e.pointerId);
-    let w = chatW;
+    let w = initialWidth;
     // 채팅 칸은 300px ~ 600px (창이 좁으면 절반까지). 큰 모니터에서 공유 화면 자리를 뺏지 않게
     const move = (ev: PointerEvent) => {
-      w = Math.round(Math.min(Math.max(box.right - ev.clientX, 300), 600, box.width * 0.5));
-      setChatW(w);
+      const max = Math.min(phone ? 500 : 600, box.width * (phone ? 0.65 : 0.5));
+      w = Math.round(Math.min(Math.max(initialWidth + startX - ev.clientX, Math.min(phone ? 280 : 300, max)), max));
+      // 손가락이 움직일 때 영상·채팅 전체를 React로 다시 그리지 않고 칸 너비만 바꾼다.
+      layout.style.setProperty(property, `${w}px`);
     };
     const up = () => {
       handle.removeEventListener("pointermove", move);
       handle.removeEventListener("pointerup", up);
-      saveChatW(w);
+      handle.removeEventListener("pointercancel", up);
+      handle.removeEventListener("lostpointercapture", up);
+      if (!phone) saveChatW(w);
     };
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
+    handle.addEventListener("lostpointercapture", up);
   }
 
   const { isScreenShareEnabled: sharing } = useLocalParticipant();
@@ -299,9 +307,7 @@ function RoomView({ token }: { token: string }) {
     document.fullscreenElement ? document.exitFullscreen().catch(() => {}) : document.documentElement.requestFullscreen?.().catch(() => {});
   // PC 로고 아래 불빛: 통화 서버와 이어져 있으면 초록 "방송중", 끊겨서 다시 붙는 중이면 호박색
   const live = useConnectionState() === ConnectionState.Connected;
-
-  // 휴대폰을 가로로 눕히면 공유 화면만 꽉 차게 보여 주고 나머지는 모두 숨긴다
-  const hideOnLand = screen ? "phone-land:hidden!" : "";
+  const landscapeChat = useLandscapeChat();
 
   // 브라우저가 소리를 막아 둔 경우, 화면을 한 번이라도 누르면 풀린다
   useEffect(() => {
@@ -365,19 +371,19 @@ function RoomView({ token }: { token: string }) {
         </div>
       )}
       {/* PC: 바깥 판 없이 공유 화면과 채팅의 파인 테두리만 둔다. 휴대폰은 그대로 */}
-      <div className="contents md:flex md:min-h-0 md:flex-1 md:flex-col md:gap-3.5 md:px-[18px] md:pt-3.5 md:pb-[18px]">
+      <div style={{ "--chat-width": chatW ? `${chatW}px` : undefined } as CSSProperties} data-chat-hidden={landscapeChat.hidden || undefined} onPointerDownCapture={landscapeChat.wake} className="room-layout contents md:flex md:min-h-0 md:flex-1 md:flex-col md:gap-3.5 md:px-[18px] md:pt-3.5 md:pb-[18px]">
         <header
           // 위 줄(로고·참여자·버튼들) 어디를 오른쪽 클릭해도 브라우저 메뉴가 뜨지 않게 (카메라 버튼·참여자는 자기 메뉴를 먼저 띄운다)
           onContextMenu={(e) => e.preventDefault()}
           // PC 는 아래로 펼치는 참여자 목록이 잘리지 않게 overflow 를 풀어 둔다 (휴대폰은 좁아서 옆으로 밀어 본다)
-          className={`${hideOnLand} flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-zinc-800 px-3 md:h-auto md:gap-4 md:overflow-visible md:border-b-0 md:px-0 text-sm whitespace-nowrap`}
+          className="room-toolbar flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-zinc-800 px-3 md:h-auto md:gap-4 md:overflow-visible md:border-b-0 md:px-0 text-sm whitespace-nowrap"
         >
           {/* 로고를 누르면 메인화면으로 돌아간다. */}
-          <button type="button" onClick={() => leave.current?.showModal()} aria-label="메인화면으로 가기" className="text-base font-bold md:hidden">
+          <button type="button" onClick={() => leave.current?.showModal()} aria-label="메인화면으로 가기" className="text-base font-bold md:hidden phone-land:hidden!">
             DO<span className="text-red-500">LIVE</span>
           </button>
           {/* PC: 로고(+ 관리자 배지) 아래에 불빛과 참여자 수 */}
-          <div className="hidden flex-col gap-1.5 md:flex">
+          <div className="hidden flex-col gap-1.5 md:flex phone-land:hidden!">
             <div className="flex items-center gap-2">
               <button type="button" aria-label="메인화면으로 가기" onClick={() => leave.current?.showModal()} className="cursor-pointer text-2xl font-bold tracking-tight text-[#d3d0ca] transition-[filter,text-shadow] duration-150 hover:brightness-125 hover:[text-shadow:0_0_10px_rgb(255_255_255/0.2)] focus-visible:rounded focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400">
                 DO<span className="text-red-500">LIVE</span>
@@ -400,14 +406,14 @@ function RoomView({ token }: { token: string }) {
               setShowPeople(!showPeople);
             }}
             aria-expanded={showPeople}
-            className="flex min-h-11 shrink-0 items-center gap-1 rounded px-1 text-xs font-normal text-[#b1aea8] active:text-zinc-100 focus-visible:outline-2 focus-visible:outline-zinc-400 md:hidden"
+            className="flex min-h-11 shrink-0 items-center gap-1 rounded px-1 text-xs font-normal text-[#b1aea8] active:text-zinc-100 focus-visible:outline-2 focus-visible:outline-zinc-400 md:hidden phone-land:flex!"
           ><span className="flex items-center gap-1">
             참여 {participants.length}명
             <svg
               viewBox="0 0 20 20"
               fill="currentColor"
               aria-hidden
-              className={`size-4 transition-transform md:hidden ${showPeople ? "rotate-180" : ""}`}
+              className={`size-4 transition-transform md:hidden phone-land:block! ${showPeople ? "rotate-180" : ""}`}
             >
               <path d="M5.2 7.2a.75.75 0 0 1 1.06 0L10 10.94l3.74-3.74a.75.75 0 1 1 1.06 1.06l-4.27 4.27a.75.75 0 0 1-1.06 0L5.2 8.26a.75.75 0 0 1 0-1.06Z" />
             </svg>
@@ -419,7 +425,7 @@ function RoomView({ token }: { token: string }) {
             onPointerLeave={(e) => e.currentTarget.firstElementChild?.scrollTo({ top: 0, behavior: "smooth" })}
             // 빈 곳을 오른쪽 클릭해도 브라우저 메뉴가 뜨지 않게 (사람 위는 PersonRow 가 자기 메뉴를 띄운다)
             onContextMenu={(e) => e.preventDefault()}
-            className="group relative mr-6 hidden h-[71px] min-w-0 flex-1 md:z-30 md:block md:translate-y-[2px]"
+            className="group relative mr-6 hidden h-[71px] min-w-0 flex-1 md:z-30 md:block md:translate-y-[2px] phone-land:hidden!"
           >
             <div className="absolute inset-x-0 top-0 z-30 h-[71px] max-h-[60vh] overflow-hidden rounded-xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden transition-[height,background-color,box-shadow] duration-300 ease-out [interpolate-size:allow-keywords] strip-open:h-auto strip-open:-inset-x-2 strip-open:overflow-y-auto strip-open:bg-[#232324] strip-open:p-2 strip-open:shadow-xl strip-open:shadow-black/50 strip-open:ring-1 strip-open:ring-[#3a3836]">
               <div className="flex flex-wrap gap-x-2 gap-y-1">
@@ -430,7 +436,7 @@ function RoomView({ token }: { token: string }) {
             </div>
           </div>
           {/* 휴대폰: 버튼 4개(전체화면·TTS·카메라·마이크)가 375px 폭에 다 들어가게 사이를 8px 로 */}
-          <div className="ml-auto mr-1.5 flex items-center gap-2 md:mr-0 md:items-end md:gap-5">
+          <div className="room-controls ml-auto mr-1.5 flex items-center gap-2 md:mr-0 md:items-end md:gap-5">
             {canFullscreen && <Knob
               compactMobile
               label="전체화면"
@@ -440,15 +446,15 @@ function RoomView({ token }: { token: string }) {
               onClick={toggleFullscreen}
               icon={
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-[17px]">
-                  <path className="hidden md:block" d="M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5" />
-                  <path className="md:hidden" d={fullscreen ? "M3 8h5V3M16 3v5h5M21 16h-5v5M8 21v-5H3" : "M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5"} />
+                  <path className="hidden md:block phone-land:hidden!" d="M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5" />
+                  <path className="md:hidden phone-land:block!" d={fullscreen ? "M3 8h5V3M16 3v5h5M21 16h-5v5M8 21v-5H3" : "M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5"} />
                 </svg>
               }
             />}
             <MediaControls asked={asked} requestShare={requestShare} token={token} record={isAdmin && typeof window !== "undefined" && !isPhone() && <RecordKnob screen={screen} />} />
             {docPip && sharing && isAdmin && (
               <Knob
-                className="hidden md:flex"
+                className="hidden md:flex phone-land:hidden!"
                 role="switch"
                 aria-checked={!!pip}
                 label="채팅 분리"
@@ -463,42 +469,54 @@ function RoomView({ token }: { token: string }) {
               />
             )}
           </div>
+          <button type="button" aria-label="채팅창 숨기기" onClick={() => { setShowPeople(false); landscapeChat.hide(); }} className="hidden min-h-11 min-w-8 items-center justify-center text-zinc-200 phone-land:flex">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden className="size-6"><path d="m5 5 14 14M19 5 5 19" /></svg>
+          </button>
         </header>
 
         {/* PC는 2x2 칸(grid): 왼쪽은 위아래 두 칸을 다 쓰는 공유 화면, 오른쪽은 채팅 내용 + 입력칸. 오른쪽 채팅 칸은 기본 500px, 창이 좁으면 절반까지만 (끌어서 바꾼 폭이 있으면 그 폭).
             휴대폰은 위에서 아래로 쌓고, 안쪽 칸(md:contents)이 참여자 목록을 띄울 자리가 된다. (PC 참여자 목록은 맨 위 줄에)
-            휴대폰 가로 + 화면공유는 공유 화면만 꽉 차게 (나머지는 hideOnLand 로 숨김) */}
+            휴대폰 가로는 바깥 grid에 영상·오른쪽 조작 버튼·채팅을 배치한다. */}
         <div
           ref={grid}
-          style={chatW ? { gridTemplateColumns: `minmax(0,1fr) min(${chatW}px,600px,50%)` } : undefined}
-          className={`flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[minmax(0,1fr)_min(500px,50%)] md:grid-rows-[minmax(0,1fr)_auto] ${screen ? "phone-land:flex!" : ""}`}
+          className="room-grid flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[minmax(0,1fr)_min(var(--chat-width,500px),600px,50%)] md:grid-rows-[minmax(0,1fr)_auto]"
         >
           {/* PC: 채팅 카드 왼쪽 가장자리. 끌면 폭이 바뀌고, 두 번 누르면 기본 폭으로. 평소엔 안 보이고 마우스를 올리면 보라색.
               위아래 끝은 채팅 카드 위아래 끝과 맞춘다 */}
           <div
             onPointerDown={dragChat}
-            onDoubleClick={() => saveChatW(null)}
+            onDoubleClick={() => {
+              if (document.documentElement.hasAttribute("data-phone-land")) grid.current!.closest<HTMLElement>(".room-layout")!.style.removeProperty("--phone-chat-width");
+              else saveChatW(null);
+            }}
             data-tip="드래그 너비 조절"
-            className={`z-10 hidden w-3 -translate-x-1.5 cursor-col-resize justify-self-start rounded-full hover:bg-indigo-500/40 md:col-start-2 md:row-span-2 md:row-start-1 md:block ${hideOnLand}`}
+            className="room-chat-resize z-10 hidden w-3 -translate-x-1.5 touch-none cursor-col-resize justify-self-start rounded-full hover:bg-indigo-500/40 md:col-start-2 md:row-span-2 md:row-start-1 md:block phone-land:block!"
           />
           {/* 공유 화면을 쓸어 올려 커지는 동안(data-grow)은 위로 삐져나와도 잘리지 않게 */}
-          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:contents [&:has([data-grow])]:overflow-visible">
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:contents phone-land:contents [&:has([data-grow])]:overflow-visible">
             {/* 휴대폰: 목록이 열려 있을 때 바깥을 누르면 닫힌다 */}
-            {showPeople && <div onClick={() => setShowPeople(false)} className="fixed inset-0 z-20 md:hidden" />}
+            {showPeople && <div onClick={() => setShowPeople(false)} className="fixed inset-0 z-20 md:hidden phone-land:block!" />}
             {/* 휴대폰: 배지 아래로 스르륵 내려오는 둥근 카드 (가로 가운데를 배지와 맞춤). PC 는 맨 위 줄에 따로 있어서 숨긴다 */}
             <aside
               style={{ left: peopleAt.left, top: peopleAt.top }}
-              className={`fixed z-30 flex max-h-[60dvh] w-max max-w-[80vw] origin-top -translate-x-1/2 flex-col gap-1 overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-2 shadow-xl shadow-black/50 transition-[opacity,translate,scale,visibility] duration-200 ease-out ${showPeople ? "" : "pointer-events-none invisible -translate-y-2 scale-95 opacity-0"} md:hidden ${hideOnLand}`}
+              className={`fixed z-30 flex max-h-[60dvh] w-max max-w-[80vw] origin-top -translate-x-1/2 flex-col gap-1 overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-2 shadow-xl shadow-black/50 transition-[opacity,translate,scale,visibility] duration-200 ease-out ${showPeople ? "" : "pointer-events-none invisible -translate-y-2 scale-95 opacity-0"} md:hidden phone-land:flex!`}
             >
               {participants.map((p) => (
                 <PersonRow key={p.identity} p={p} isAdmin={isAdmin} isOwner={isOwner} token={token} />
               ))}
             </aside>
 
-            <Stage screen={screen} floats={floats} confirmShare={() => isAdmin && !isPhone() ? togglePip(true) : Promise.resolve(true)} />
-            <div className={`flex min-h-0 flex-1 flex-col md:contents ${hideOnLand}`}>
+            <Stage screen={screen} floats={floats} confirmShare={() => isAdmin && !isPhone() ? togglePip(true) : Promise.resolve(true)} overlay={landscapeChat.buttonVisible && (
+              <button type="button" aria-label="채팅창 열기" onClick={(e) => { e.stopPropagation(); landscapeChat.open(); }} className="absolute top-2 right-2 z-30 hidden size-11 items-center justify-center rounded-lg bg-black/60 text-white focus-visible:outline-2 focus-visible:outline-white phone-land:flex">
+                <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-7">
+                  <path d="M25 10h3v18l-5-4h-9v-3" />
+                  <path d="M5 4h18a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-9l-7 5v-5H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
+                </svg>
+              </button>
+            )} />
+            <div className="flex min-h-0 flex-1 flex-col md:contents phone-land:contents">
               {/* PC만 채팅 내용과 입력칸을 한 테두리로 감싼다. 그림자만 겹쳐서 버튼 누르기와 폭 조절은 그대로 */}
-              <div aria-hidden className="pointer-events-none z-20 hidden rounded-xl md:block md:hw-inset md:col-start-2 md:row-span-2 md:row-start-1" />
+              <div aria-hidden className="room-chat-border pointer-events-none z-20 hidden rounded-xl md:block md:hw-inset md:col-start-2 md:row-span-2 md:row-start-1" />
               {/* 휴대폰에서 화면공유 중에 자판이 올라오면 채팅 내용 칸이 먼저 줄고, 그래도 좁으면 공유 화면도 줄어든다 */}
               <ChatLog
                 messages={messages}
@@ -506,7 +524,7 @@ function RoomView({ token }: { token: string }) {
                 remove={removeChat} edit={editChat}
                 // PC: 채팅 내용 + 아래 입력칸이 둥근 카드 하나로 이어진다 (구분선 없이 카드로 나눔)
                 // (PC 카드 색 #1e1e21 = 예전 zinc-900 바탕 위 zinc-800/40 과 같은 색. 판 위에서도 지금과 같아 보이게)
-                className={`${screen ? "min-h-24 flex-1" : "min-h-0 flex-1"} md:rounded-t-xl md:col-start-2 md:row-start-1 md:min-h-0 md:bg-[#1e1e21] ${hideOnLand}`}
+                className={`room-chat-log ${screen ? "min-h-24 flex-1" : "min-h-0 flex-1"} md:rounded-t-xl md:col-start-2 md:row-start-1 md:min-h-0 md:bg-[#1e1e21]`}
               />
 
               <ChatInput
@@ -515,7 +533,7 @@ function RoomView({ token }: { token: string }) {
                 sendImage={sendImage}
                 react={react}
                 // PC: 경계선이 없어서 "맨 아래로" 버튼은 이 칸 위쪽 끝을 사이에 두고 보내기 버튼과 대칭 = (칸 높이 - 버튼 48px) / 2
-                className={`border-t-0! md:rounded-b-xl md:col-start-2 md:row-start-2 md:bg-[#1e1e21] md:pb-3 md:[--down-gap:calc(50%-24px)] ${hideOnLand}`}
+                className="room-chat-input border-t-0! md:rounded-b-xl md:col-start-2 md:row-start-2 md:bg-[#1e1e21] md:pb-3 md:[--down-gap:calc(50%-24px)]"
               />
             </div>
           </div>

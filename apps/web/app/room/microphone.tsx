@@ -198,7 +198,7 @@ export function MicrophoneKnob() {
       }}
       icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden className="size-[17px]">
         <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-        {!isMicrophoneEnabled && <path className="md:hidden" d="M20 4 4 20" stroke="#ffffff" strokeWidth="2.2" />}
+        {!isMicrophoneEnabled && <path className="md:hidden phone-land:block!" d="M20 4 4 20" stroke="#ffffff" strokeWidth="2.2" />}
       </svg>} />
     <dialog ref={box} onCancel={cancel} onClose={cancel} aria-labelledby="microphone-title"
       className="m-auto max-h-[92dvh] w-[350px] max-w-[calc(100%-2rem)] overflow-x-hidden overflow-y-auto rounded-[18px] border border-[#3d3b3a] bg-[#252526] p-7 text-[13px] break-words whitespace-normal text-[#d6d3cd] backdrop:bg-black/60">

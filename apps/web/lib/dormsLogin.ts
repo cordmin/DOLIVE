@@ -1,5 +1,5 @@
 /**
- * DoRms login v0.2.0. Server components, route handlers and server actions only.
+ * DoRms login v0.5.0. Server components, route handlers and server actions only.
  * Every protected call verifies the token and asks DoRms for current permission.
  * Do not cache the result across requests or continue with an old user on failure.
  */
@@ -100,7 +100,11 @@ async function requestJson(url: string, init: RequestInit = {}, fallback: DormsF
   }
 }
 
-export async function beginDormsLogin(requestUrl: string, next?: string | null): Promise<{ authorizeUrl: string; cookie: { name: string; value: string; maxAge: number } }> {
+/**
+ * `donations` is the site's DoRms donation approval ("approved", "pending", "none", ...) and `donationsAtLogin` says whether
+ * DoRms accepts donation permission inside the login request. The optional donation add-on reads both.
+ */
+export async function beginDormsLogin(requestUrl: string, next?: string | null): Promise<{ authorizeUrl: string; cookie: { name: string; value: string; maxAge: number }; donations: string | null; donationsAtLogin: boolean }> {
   const id = clientId();
   const callback = callbackUrl(requestUrl);
   const configUrl = new URL(`${API_ORIGIN}/api/sso/clients/${encodeURIComponent(id)}/configuration`);
@@ -108,17 +112,21 @@ export async function beginDormsLogin(requestUrl: string, next?: string | null):
   const config = await requestJson(configUrl.toString());
   if (config.active !== true) throw new DormsAuthError("access_denied");
   if (!Array.isArray(config.scopes) || !config.scopes.includes("openid") || !config.scopes.includes("profile") || !config.scopes.every((s) => ["openid", "profile", "email"].includes(String(s)))) throw new DormsAuthError("temporarily_unavailable");
+  // The Doreumi outfit is a separate opt-in flag so older installations keep working; ask for it only when DoRms says the site enabled it.
+  const scopes = [...new Set(config.scopes.map(String)), ...(config.doreumi === true ? ["doreumi"] : [])];
   const flow: LoginFlow = { version: 2, state: random(), verifier: random(), nonce: random(), next: safeDormsNext(next), createdAt: Math.floor(Date.now() / 1000) };
   const url = new URL(DORMS_AUTHORIZE_URL);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", id);
   url.searchParams.set("redirect_uri", callback);
-  url.searchParams.set("scope", [...new Set(config.scopes)].join(" "));
+  url.searchParams.set("scope", scopes.join(" "));
   url.searchParams.set("state", flow.state);
   url.searchParams.set("nonce", flow.nonce);
   url.searchParams.set("code_challenge", createHash("sha256").update(flow.verifier, "ascii").digest("base64url"));
   url.searchParams.set("code_challenge_method", "S256");
-  return { authorizeUrl: url.toString(), cookie: { name: FLOW_COOKIE, value: Buffer.from(JSON.stringify(flow)).toString("base64url"), maxAge: FLOW_TTL_SECONDS } };
+  const donations = config.donations && typeof config.donations === "object" && typeof (config.donations as { status?: unknown }).status === "string" ? String((config.donations as { status: string }).status) : null;
+  const donationsAtLogin = !!config.donations && typeof config.donations === "object" && (config.donations as { atLogin?: unknown }).atLogin === true;
+  return { authorizeUrl: url.toString(), cookie: { name: FLOW_COOKIE, value: Buffer.from(JSON.stringify(flow)).toString("base64url"), maxAge: FLOW_TTL_SECONDS }, donations, donationsAtLogin };
 }
 
 export function parseFlowCookie(value: string | undefined): LoginFlow | null {
@@ -147,7 +155,7 @@ async function verifyIdToken(token: string): Promise<JWTPayload> {
   }
 }
 
-export async function finishDormsLogin(input: { code: string; verifier: string; nonce: string; requestUrl: string }): Promise<{ idToken: string; expiresAt: number }> {
+export async function finishDormsLogin(input: { code: string; verifier: string; nonce: string; requestUrl: string }): Promise<{ idToken: string; expiresAt: number; subject: string }> {
   const body = await requestJson(DORMS_TOKEN_URL, {
     method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ grant_type: "authorization_code", code: input.code, code_verifier: input.verifier, client_id: clientId(), redirect_uri: callbackUrl(input.requestUrl) }),
@@ -155,7 +163,7 @@ export async function finishDormsLogin(input: { code: string; verifier: string; 
   if (typeof body.id_token !== "string" || body.id_token.length > 3800) throw new DormsAuthError("temporarily_unavailable");
   const payload = await verifyIdToken(body.id_token);
   if (payload.nonce !== input.nonce) throw new DormsAuthError("authentication_required");
-  return { idToken: body.id_token, expiresAt: Number(payload.exp) };
+  return { idToken: body.id_token, expiresAt: Number(payload.exp), subject: String(payload.sub) };
 }
 
 async function currentUser(token: string): Promise<DormsUser> {

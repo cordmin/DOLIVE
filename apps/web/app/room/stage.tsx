@@ -18,7 +18,7 @@ import { Floats, type Float } from "./reactions";
 // 화면공유 중이면 공유하는 사람 얼굴은 공유 화면 구석에(방송인처럼, 그 사람이 고른 자리·모양), 나머지 얼굴은 공유 화면 아래 한 줄.
 // 공유가 없을 때는 얼굴 위치 설정과 관계없이 카메라 켠 사람들 모두 얼굴 바둑판.
 // 자리가 모자라면 공유 화면이 줄어든다. 휴대폰은 채팅 내용이 그 아래, PC는 오른쪽.
-export function Stage({ screen, floats, confirmShare }: { screen?: TrackReference; floats: Float[]; confirmShare: () => Promise<boolean> }) {
+export function Stage({ screen, floats, confirmShare, overlay }: { screen?: TrackReference; floats: Float[]; confirmShare: () => Promise<boolean>; overlay?: ReactNode }) {
   const cams = useCams();
   const [dismissedShare, setDismissedShare] = useState("");
   useRoomTick(); // 얼굴 자리(camPos)·화면공유 권한이 바뀌면 다시 그린다
@@ -30,12 +30,13 @@ export function Stage({ screen, floats, confirmShare }: { screen?: TrackReferenc
   return (
     <div
       // PC: 위아래 두 칸을 다 써서 바닥이 오른쪽 채팅 카드 바닥과 맞는다. 공유 화면이 이 칸 크기(cqw·cqh)에 맞춰 커지게 크기를 알려 준다
-      className={`relative flex min-h-0 flex-col gap-2 p-2 md:col-start-1 md:row-span-2 md:row-start-1 md:p-0 md:pr-[18px] md:[container-type:size] ${screen ? "phone-land:flex-1 phone-land:p-0" : "shrink-0"}`}
+      className={`room-stage relative flex min-h-0 flex-col gap-2 p-2 md:col-start-1 md:row-span-2 md:row-start-1 md:p-0 md:pr-[18px] md:[container-type:size] ${screen ? "phone-land:flex-1 phone-land:p-0" : "shrink-0"}`}
     >
       {screen ? (
         // 아래 얼굴 줄이 생기면 공유 화면이 남은 높이 안에서 가장 크게 (휴대폰은 그대로)
         <div className="contents md:flex md:min-h-0 md:flex-1 md:[container-type:size]">
           <ScreenView screen={screen} floats={floats} face={onScreen}>
+            {overlay}
             {/* 내 공유 화면도 그대로 보여 준다. 한 모니터에서는 창을 내려야 겹친 화면이 사라진다. */}
             {screen.participant.isLocal && dismissedShare !== screen.publication.trackSid && (
               <ShareNotice
@@ -69,6 +70,7 @@ export function Stage({ screen, floats, confirmShare }: { screen?: TrackReferenc
       {screen && row.length > 0 && <FaceRow cams={row} />}
       {/* 공유 화면이 없으면 이 칸 안에서 띄운다. 있으면 공유 화면 안에서 띄운다. */}
       {!screen && <Floats floats={floats} />}
+      {!screen && overlay}
     </div>
   );
 }
@@ -316,7 +318,7 @@ function FaceOverlay({ cam }: { cam: TrackReference }) {
 }
 
 // 공유 화면. 휴대폰은 유튜브처럼 위로 쓸어 올리면 전체화면, 전체화면에서 아래로 쓸어 내리면 원래대로.
-// 휴대폰을 가로로 눕히고 화면을 눌러도 전체화면이 되고, 한 번 더 누르면 풀린다.
+// 휴대폰 가로에서 한 번 누르면 채팅 열기 버튼만 표시한다 (room/page.tsx).
 // 전체화면은 늘 가로. 왼쪽·오른쪽 어느 쪽으로 눕혀도 그 방향에 맞게 돌고, 눕혔다가 다시 세우면 끝난다 (안드로이드만)
 type IosVideo = HTMLVideoElement & { webkitEnterFullscreen?: () => void };
 type OrientationLock = { lock?: (o: "landscape") => Promise<void>; unlock?: () => void };
@@ -434,9 +436,8 @@ function ScreenView({ screen, floats, face, children }: { screen: TrackReference
     showBtn ? "opacity-100" : "pointer-events-none opacity-0"
   }`;
 
-  // 손가락으로 위아래로 쓸었는지 (50px 넘게, 옆보다 위아래로 더 많이). 쓸었으면 뒤따라오는 '누름'은 무시한다
+  // 손가락으로 위아래로 50px 넘게 쓸면 전체화면을 켜고 끈다.
   const touchStart = useRef<{ x: number; y: number } | null>(null);
-  const swiped = useRef(false);
   // 쓰는 동안 공유 화면이 손가락을 따라 움직인다 (유튜브처럼): 평소엔 아래 가운데를 붙박고 위·양옆으로 커지고(최대 1.5배), 전체화면에선 아래로만 밀려 내려온다.
   // 전체화면이 켜지고 꺼지는 순간은 브라우저가 해서 그 사이를 움직이게 할 수는 없다. 덜 쓸고 손을 떼면 제자리로 스르륵
   const [drag, setDrag] = useState({ d: 0, smooth: false });
@@ -446,6 +447,7 @@ function ScreenView({ screen, floats, face, children }: { screen: TrackReference
   return (
     <div
       ref={box}
+      data-share-view
       data-grow={drag.d < 0 || undefined} // 커지는 동안 바깥 칸이 잘라 내지 않게 (page.tsx)
       onPointerMove={(e) => {
         wake();
@@ -457,7 +459,6 @@ function ScreenView({ screen, floats, face, children }: { screen: TrackReference
       }}
       onPointerDown={(e) => {
         wake();
-        swiped.current = false;
         touchStart.current = e.pointerType === "touch" ? { x: e.clientX, y: e.clientY } : null;
       }}
       onPointerUp={(e) => {
@@ -467,13 +468,9 @@ function ScreenView({ screen, floats, face, children }: { screen: TrackReference
         const dx = e.clientX - s.x;
         const dy = e.clientY - s.y;
         if (Math.abs(dy) < 50 || Math.abs(dy) < Math.abs(dx)) return settle(true);
-        swiped.current = true;
         const toggle = dy < 0 !== full; // 위로 = 켜기, 아래로 = 끄기
         settle(!toggle); // 켜고 끌 때는 바로 제자리에 두고 브라우저에 넘긴다
         if (toggle) toggleFull();
-      }}
-      onClick={() => {
-        if (!swiped.current && document.documentElement.hasAttribute("data-phone-land")) toggleFull();
       }}
       // PC: 공유된 화면 비율 그대로(검은 띠 없이) 왼쪽 칸 안에서 가장 크게, 가운데에. 보통 PC 화면은 옆으로 넓어서 높이가 칸 바닥(= 채팅 카드 바닥)까지 닿는다.
       // 휴대폰 가로는 전처럼 꽉 채운다 (넓은 휴대폰은 md 도 걸려서 ! 로 이긴다)
@@ -487,7 +484,7 @@ function ScreenView({ screen, floats, face, children }: { screen: TrackReference
         } as React.CSSProperties
       }
       // 모서리는 채팅 카드와 같은 둥글기(rounded-xl). overflow-hidden: 영상 모서리도 같이 둥글게 잘리도록
-      className="relative aspect-video min-h-0 w-full touch-none overflow-hidden rounded-xl bg-black [&:fullscreen]:rounded-none md:m-auto md:aspect-(--ratio) md:w-[min(100cqw,calc(100cqh*var(--ratio)))] phone-land:m-0! phone-land:aspect-auto! phone-land:w-full! phone-land:flex-1 phone-land:rounded-none"
+      className="relative aspect-video min-h-0 w-full touch-none overflow-hidden rounded-xl bg-black [&:fullscreen]:rounded-none md:m-auto md:aspect-(--ratio) md:w-[min(100cqw,calc(100cqh*var(--ratio)))] phone-land:m-0! phone-land:aspect-auto! phone-land:w-full! phone-land:flex-1"
     >
       <div aria-hidden className="pointer-events-none absolute inset-0 z-10 hidden rounded-[inherit] md:block md:hw-inset" />
       <VideoTrack

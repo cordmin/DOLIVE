@@ -181,6 +181,80 @@
 /* 휴대폰을 가로로 눕혔을 때. room/page.tsx 의 usePhoneLandscape 가 <html data-phone-land> 를 붙인다 */
 @custom-variant phone-land (&:where([data-phone-land] *));
 
+/* 휴대폰 가로: 영상은 왼쪽 전체 높이, 오른쪽은 조작 버튼·채팅·입력칸.
+   기기 방향으로만 적용하므로 세로 화면에서 자판을 열어도 배치가 바뀌지 않는다. */
+[data-phone-land] .room-layout {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) clamp(min(280px, 50vw), var(--phone-chat-width, 35vw), min(500px, 65vw));
+  grid-template-rows: 44px minmax(0, 1fr) auto;
+  gap: 0 8px;
+  padding: max(6px, env(safe-area-inset-top)) max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
+}
+[data-phone-land] .room-grid { display: contents; }
+[data-phone-land] .room-toolbar {
+  grid-column: 2;
+  grid-row: 1;
+  height: 44px;
+  min-width: 0;
+  gap: 4px;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+}
+[data-phone-land] .room-controls { gap: 4px; margin-right: 0; align-items: center; }
+[data-phone-land] .room-toolbar [data-compact-mobile] { min-width: 36px; min-height: 44px; gap: 0; justify-content: center; }
+[data-phone-land] .room-toolbar [data-compact-mobile] > .hw-led,
+[data-phone-land] .room-toolbar [data-compact-mobile] > span:last-child { display: none; }
+[data-phone-land] .room-toolbar [data-compact-mobile] > .hw-cap { width: 34px; height: 34px; }
+[data-phone-land] .room-toolbar [data-mobile-ring="green"] > .hw-cap { outline: 1px solid #69c893; }
+[data-phone-land] .room-toolbar [data-mobile-ring="red"] > .hw-cap { outline: 1px solid #e42b20; }
+[data-phone-land] .room-stage {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  min-width: 0;
+  padding: 0;
+  container-type: size;
+}
+[data-phone-land] .room-stage > div { min-height: 0; }
+[data-phone-land] .room-stage > .aspect-video { aspect-ratio: auto; flex: 1; }
+[data-phone-land] .room-chat-log {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 12px 12px 0 0;
+  background: #1e1e21;
+}
+[data-phone-land] .room-chat-input {
+  grid-column: 2;
+  grid-row: 3;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 0 0 12px 12px;
+  background: #1e1e21;
+  --down-gap: 13px;
+}
+[data-phone-land] .room-chat-border {
+  display: block;
+  grid-column: 2;
+  grid-row: 2 / 4;
+  box-shadow: inset 0 2px 5px #0009, inset 0 0 0 1px #000;
+}
+[data-phone-land] .room-layout[data-chat-hidden] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  padding: 0;
+}
+[data-phone-land] .room-layout[data-chat-hidden] :is(.room-toolbar, .room-chat-log, .room-chat-input, .room-chat-border, .room-chat-resize) { display: none !important; }
+[data-phone-land] .room-chat-resize {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  width: 20px;
+  transform: translateX(-14px);
+}
+
 /* PC 맨 위 참여자 줄 펼치기 (room/page.tsx). group-hover 와 같은데, 오른쪽 클릭 메뉴가 떠 있는 동안에도 펼친 채로 둔다
    (메뉴 창이 화면 전체를 덮어서 마우스가 줄에서 빠진 것으로 쳐지면, 줄이 접히고 메뉴만 허공에 남는다) */
 @custom-variant strip-open {

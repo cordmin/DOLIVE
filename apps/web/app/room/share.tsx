@@ -199,7 +199,7 @@ export function MediaControls({ asked, requestShare, token, record }: { asked: b
       {canShare && (
         <button
           // 휴대폰은 화면공유를 못 하고 자리도 좁아서 숨긴다
-          className={`hidden rounded-full px-3 py-1.5 disabled:opacity-60 sm:block md:hidden ${
+          className={`hidden rounded-full px-3 py-1.5 disabled:opacity-60 sm:block md:hidden phone-land:hidden! ${
             isScreenShareEnabled ? "bg-indigo-600" : approved ? "bg-green-600 hover:bg-green-500" : "bg-zinc-800 hover:bg-zinc-700"
           }`}
           disabled={!isScreenShareEnabled && !allowed && asked}
@@ -211,7 +211,7 @@ export function MediaControls({ asked, requestShare, token, record }: { asked: b
       {/* PC: 화면공유 중이거나 승인받으면 초록 불빛 */}
       {canShare && (
         <Knob
-          className="hidden md:flex"
+          className="hidden md:flex phone-land:hidden!"
           label={shareLabel}
           led={isScreenShareEnabled || approved ? "green" : undefined}
           disabled={!isScreenShareEnabled && !allowed && asked}
