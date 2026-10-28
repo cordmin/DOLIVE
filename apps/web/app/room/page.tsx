@@ -270,6 +270,8 @@ function RoomView({ token }: { token: string }) {
     const initialWidth = layout.querySelector(".room-chat-log")!.getBoundingClientRect().width;
     const startX = e.clientX;
     handle.setPointerCapture(e.pointerId);
+    // 누르고 있는 동안만 보라색. 휴대폰은 손을 떼도 :hover가 남아 있어서 hover로는 안 된다
+    handle.dataset.dragging = "";
     let w = initialWidth;
     // 채팅 칸은 300px ~ 600px (창이 좁으면 절반까지). 큰 모니터에서 공유 화면 자리를 뺏지 않게
     const move = (ev: PointerEvent) => {
@@ -279,6 +281,7 @@ function RoomView({ token }: { token: string }) {
       layout.style.setProperty(property, `${w}px`);
     };
     const up = () => {
+      delete handle.dataset.dragging;
       handle.removeEventListener("pointermove", move);
       handle.removeEventListener("pointerup", up);
       handle.removeEventListener("pointercancel", up);
@@ -490,7 +493,7 @@ function RoomView({ token }: { token: string }) {
               else saveChatW(null);
             }}
             data-tip="드래그 너비 조절"
-            className="room-chat-resize z-10 hidden w-3 -translate-x-1.5 touch-none cursor-col-resize justify-self-start rounded-full hover:bg-indigo-500/40 md:col-start-2 md:row-span-2 md:row-start-1 md:block phone-land:block!"
+            className="room-chat-resize z-10 hidden w-3 -translate-x-1.5 touch-none cursor-col-resize justify-self-start rounded-full data-dragging:bg-indigo-500/40 [@media(pointer:fine)]:hover:bg-indigo-500/40 md:col-start-2 md:row-span-2 md:row-start-1 md:block phone-land:block!"
           />
           {/* 공유 화면을 쓸어 올려 커지는 동안(data-grow)은 위로 삐져나와도 잘리지 않게 */}
           <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:contents phone-land:contents [&:has([data-grow])]:overflow-visible">

@@ -45,11 +45,11 @@ const layout = { getBoundingClientRect: () => ({ right: 844, width: 844 }), quer
 const grid = { current: { closest: () => layout, getBoundingClientRect: () => ({ right: 1280, width: 1280 }) } };
 const resize = { document, grid, chatW: null, saveChatW: v => saved.push(v), Math };
 vm.runInNewContext(ts.transpileModule(drag.getText(source), {}).outputText, resize);
-const handle = { setPointerCapture() {}, addEventListener: (k,v) => listeners.set(k,v), removeEventListener: k => listeners.delete(k) };
+const handle = { dataset: {}, setPointerCapture() {}, addEventListener: (k,v) => listeners.set(k,v), removeEventListener: k => listeners.delete(k) };
 const start = () => resize.dragChat({ preventDefault() {}, currentTarget: handle, pointerId: 1, clientX: landscape ? 550 : 950 });
-start(); listeners.get('pointermove')({ clientX: 420 }); listeners.get('pointermove')({ clientX: 400 });
+start(); assert.ok('dragging' in handle.dataset, '누르는 동안 보라색 표시'); listeners.get('pointermove')({ clientX: 420 }); listeners.get('pointermove')({ clientX: 400 });
 assert.equal(widths.get('--phone-chat-width'), '444px'); assert.deepEqual(saved, [], '드래그 중 전체 방 상태를 갱신하지 않음');
-listeners.get('pointercancel')(); assert.equal(listeners.size, 0, '손가락 입력이 취소돼도 이벤트 정리');
+listeners.get('pointercancel')(); assert.equal(listeners.size, 0, '손가락 입력이 취소돼도 이벤트 정리'); assert.ok(!('dragging' in handle.dataset), '손을 떼면 보라색 해제');
 landscape = false; start(); listeners.get('pointermove')({ clientX: 900 }); listeners.get('pointerup')();
 assert.equal(widths.get('--chat-width'), '380px'); assert.deepEqual(saved, [380], 'PC 너비는 손을 뗄 때 한 번만 저장');
 console.log('통과: 채팅 숨김·한 번 눌러 아이콘 표시·다시 열기·타이머 정리·전체화면 복귀·모바일 경계 드래그·PC 너비 저장');
