@@ -506,14 +506,7 @@ function RoomView({ token }: { token: string }) {
               ))}
             </aside>
 
-            <Stage screen={screen} floats={floats} confirmShare={() => isAdmin && !isPhone() ? togglePip(true) : Promise.resolve(true)} overlay={landscapeChat.buttonVisible && (
-              <button type="button" aria-label="채팅창 열기" onClick={(e) => { e.stopPropagation(); landscapeChat.open(); }} className="absolute top-2 right-2 z-30 hidden size-11 items-center justify-center rounded-lg bg-black/60 text-white focus-visible:outline-2 focus-visible:outline-white phone-land:flex">
-                <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-7">
-                  <path d="M25 10h3v18l-5-4h-9v-3" />
-                  <path d="M5 4h18a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-9l-7 5v-5H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
-                </svg>
-              </button>
-            )} />
+            <Stage screen={screen} floats={floats} confirmShare={() => isAdmin && !isPhone() ? togglePip(true) : Promise.resolve(true)} onPhoneFullscreen={landscapeChat.enter} phoneFullscreen={fullscreen} />
             <div className="flex min-h-0 flex-1 flex-col md:contents phone-land:contents">
               {/* PC만 채팅 내용과 입력칸을 한 테두리로 감싼다. 그림자만 겹쳐서 버튼 누르기와 폭 조절은 그대로 */}
               <div aria-hidden className="room-chat-border pointer-events-none z-20 hidden rounded-xl md:block md:hw-inset md:col-start-2 md:row-span-2 md:row-start-1" />
@@ -540,6 +533,14 @@ function RoomView({ token }: { token: string }) {
         </div>
       </div>
 
+      {landscapeChat.buttonVisible && (
+        <button type="button" aria-label="채팅창 열기" onClick={landscapeChat.open} className="fixed top-[max(8px,env(safe-area-inset-top))] right-[max(8px,env(safe-area-inset-right))] z-40 hidden size-11 items-center justify-center rounded-lg bg-black/60 text-white focus-visible:outline-2 focus-visible:outline-white phone-land:flex">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-7">
+            <path d="M25 10h3v18l-5-4h-9v-3" />
+            <path d="M5 4h18a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-9l-7 5v-5H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
+          </svg>
+        </button>
+      )}
       {pip &&
         createPortal(
           <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">

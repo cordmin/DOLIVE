@@ -20,18 +20,18 @@ export function useLandscapeChat() {
     setButtonVisible(true);
     timer.current = setTimeout(() => setButtonVisible(false), 2500);
   }
-  async function open() {
+  function open() {
     clear();
     setHidden(false);
     setButtonVisible(false);
-    // 영상 요소만 전체화면이었다면 방 전체로 바꿔 채팅도 함께 표시한다.
-    if (document.fullscreenElement?.hasAttribute("data-share-view")) {
-      try {
-        // 영상을 남겨 둔 채 상위 요소를 전체화면으로 만들면 영상이 채팅을 계속 가린다.
-        await document.exitFullscreen();
-        await document.documentElement.requestFullscreen();
-      } catch { /* 전체화면을 지원하지 않더라도 일반 화면에서 채팅을 표시한다. */ }
-    }
   }
-  return { hidden, buttonVisible, hide, wake, open };
+  async function enter() {
+    hide();
+    try {
+      // 사용자가 전체화면 버튼이나 위 쓸기를 선택했을 때만 진입한다.
+      await document.documentElement.requestFullscreen();
+      await (window.screen.orientation as unknown as { lock?: (mode: "landscape") => Promise<void> }).lock?.("landscape");
+    } catch { /* 미지원 브라우저에서는 기기 방향에 맞춘 일반 화면을 유지한다. */ }
+  }
+  return { hidden, buttonVisible, hide, wake, open, enter };
 }

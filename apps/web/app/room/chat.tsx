@@ -397,16 +397,8 @@ export function ChatInput({
     setPending({ file, url: URL.createObjectURL(file) });
   }
   const filePicker = useRef<HTMLInputElement>(null);
-  // 휴대폰은 사진 고르는 창이 열리면 브라우저가 전체화면을 풀어 버린다 (막을 방법이 없다).
-  // 그래서 돌아와서 화면을 처음 누를 때 다시 전체화면으로 (브라우저는 사람이 누른 순간에만 전체화면을 허락한다)
+  // 사진 선택 후 브라우저가 전체화면을 풀면, 사용자가 전체화면 버튼으로 다시 선택한다.
   function pickFile() {
-    const doc = box.current!.ownerDocument;
-    if (doc.fullscreenElement === doc.documentElement) {
-      const back = () => {
-        if (!doc.fullscreenElement) doc.documentElement.requestFullscreen?.().catch(() => {});
-      };
-      doc.addEventListener("pointerup", back, { once: true });
-    }
     filePicker.current?.click();
   }
 

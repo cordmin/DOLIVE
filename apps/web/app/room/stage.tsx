@@ -18,7 +18,7 @@ import { Floats, type Float } from "./reactions";
 // 화면공유 중이면 공유하는 사람 얼굴은 공유 화면 구석에(방송인처럼, 그 사람이 고른 자리·모양), 나머지 얼굴은 공유 화면 아래 한 줄.
 // 공유가 없을 때는 얼굴 위치 설정과 관계없이 카메라 켠 사람들 모두 얼굴 바둑판.
 // 자리가 모자라면 공유 화면이 줄어든다. 휴대폰은 채팅 내용이 그 아래, PC는 오른쪽.
-export function Stage({ screen, floats, confirmShare, overlay }: { screen?: TrackReference; floats: Float[]; confirmShare: () => Promise<boolean>; overlay?: ReactNode }) {
+export function Stage({ screen, floats, confirmShare, onPhoneFullscreen, phoneFullscreen = false }: { screen?: TrackReference; floats: Float[]; confirmShare: () => Promise<boolean>; onPhoneFullscreen?: () => Promise<void>; phoneFullscreen?: boolean }) {
   const cams = useCams();
   const [dismissedShare, setDismissedShare] = useState("");
   useRoomTick(); // 얼굴 자리(camPos)·화면공유 권한이 바뀌면 다시 그린다
@@ -35,8 +35,7 @@ export function Stage({ screen, floats, confirmShare, overlay }: { screen?: Trac
       {screen ? (
         // 아래 얼굴 줄이 생기면 공유 화면이 남은 높이 안에서 가장 크게 (휴대폰은 그대로)
         <div className="contents md:flex md:min-h-0 md:flex-1 md:[container-type:size]">
-          <ScreenView screen={screen} floats={floats} face={onScreen}>
-            {overlay}
+          <ScreenView screen={screen} floats={floats} face={onScreen} onPhoneFullscreen={onPhoneFullscreen} phoneFullscreen={phoneFullscreen}>
             {/* 내 공유 화면도 그대로 보여 준다. 한 모니터에서는 창을 내려야 겹친 화면이 사라진다. */}
             {screen.participant.isLocal && dismissedShare !== screen.publication.trackSid && (
               <ShareNotice
@@ -70,7 +69,6 @@ export function Stage({ screen, floats, confirmShare, overlay }: { screen?: Trac
       {screen && row.length > 0 && <FaceRow cams={row} />}
       {/* 공유 화면이 없으면 이 칸 안에서 띄운다. 있으면 공유 화면 안에서 띄운다. */}
       {!screen && <Floats floats={floats} />}
-      {!screen && overlay}
     </div>
   );
 }
@@ -346,7 +344,7 @@ function useSlowNotice(screen: TrackReference) {
   return null;
 }
 
-function ScreenView({ screen, floats, face, children }: { screen: TrackReference; floats: Float[]; face?: TrackReference; children?: ReactNode }) {
+function ScreenView({ screen, floats, face, children, onPhoneFullscreen, phoneFullscreen = false }: { screen: TrackReference; floats: Float[]; face?: TrackReference; children?: ReactNode; onPhoneFullscreen?: () => Promise<void>; phoneFullscreen?: boolean }) {
   const slow = useSlowNotice(screen);
   const [full, setFull] = useState(false);
   const [pip, setPip] = useState(false);
@@ -355,11 +353,11 @@ function ScreenView({ screen, floats, face, children }: { screen: TrackReference
 
   useEffect(() => {
     // 휴대폰은 방 전체가 이미 전체화면일 수 있어서(입장 버튼), 공유 화면이 전체화면일 때만 true.
-    // 공유 화면 전체화면이 끝나 방 전체화면으로 돌아오면 가로 잠금도 푼다 (브라우저는 전체화면이 다 끝나야 풀어 줘서)
+    // 방 전체화면에서 채팅을 열어도 가로 잠금은 유지하고, 전체화면을 완전히 끝낼 때만 푼다.
     const onChange = () => {
       const on = document.fullscreenElement === box.current;
       setFull(on);
-      if (!on) (window.screen.orientation as unknown as OrientationLock).unlock?.();
+      if (!document.fullscreenElement) (window.screen.orientation as unknown as OrientationLock).unlock?.();
     };
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
@@ -408,9 +406,10 @@ function ScreenView({ screen, floats, face, children }: { screen: TrackReference
   // (전체화면이 풀리면 브라우저가 알아서 원래대로. PC는 돌리기가 없어서 그냥 넘어간다)
   async function toggleFull() {
     if (full) return document.exitFullscreen();
+    if (isPhone() && onPhoneFullscreen && document.fullscreenEnabled && typeof document.documentElement.requestFullscreen === "function") return onPhoneFullscreen();
     const el = box.current!;
     // 아이폰은 영상 말고는 전체화면이 안 돼서 아이폰 기본 전체화면으로 띄운다 (돌리기·쓸어 내려 닫기는 아이폰이 알아서)
-    if (!el.requestFullscreen) return (el.querySelector("video") as IosVideo | null)?.webkitEnterFullscreen?.();
+    if (!document.fullscreenEnabled || !el.requestFullscreen) return (el.querySelector("video") as IosVideo | null)?.webkitEnterFullscreen?.();
     await el.requestFullscreen().catch(() => {});
     await (window.screen.orientation as unknown as OrientationLock).lock?.("landscape").catch(() => {});
   }
@@ -419,7 +418,7 @@ function ScreenView({ screen, floats, face, children }: { screen: TrackReference
   // 화면이 가로로 잠겨 있어서 화면 방향으로는 알 수 없으니, 휴대폰이 받는 중력 방향(기울기)으로 본다.
   // '눕혔다가'일 때만: 세로로 들고 쓸어 올린 직후, 아직 눕히기 전에 바로 풀리지 않게
   useEffect(() => {
-    if (!full || !isPhone()) return;
+    if ((!full && !phoneFullscreen) || !isPhone()) return;
     let lay = false;
     const onMotion = (e: DeviceMotionEvent) => {
       const x = Math.abs(e.accelerationIncludingGravity?.x ?? 0); // 휴대폰 옆쪽으로 쏠린 힘 = 눕힘
@@ -429,7 +428,7 @@ function ScreenView({ screen, floats, face, children }: { screen: TrackReference
     };
     window.addEventListener("devicemotion", onMotion);
     return () => window.removeEventListener("devicemotion", onMotion);
-  }, [full]);
+  }, [full, phoneFullscreen]);
 
   // 공유 화면 오른쪽 위·아래 버튼 (팝업, 전체화면)
   const overlayBtn = `absolute right-2 rounded bg-black/60 p-1.5 text-white transition-opacity duration-300 hover:bg-black/80 phone-land:hidden ${
@@ -468,6 +467,12 @@ function ScreenView({ screen, floats, face, children }: { screen: TrackReference
         const dx = e.clientX - s.x;
         const dy = e.clientY - s.y;
         if (Math.abs(dy) < 50 || Math.abs(dy) < Math.abs(dx)) return settle(true);
+        // 채팅을 다시 열면 방 전체(HTML)가 전체화면이다. 영상만 전체화면인지(full)만 보면 아래 쓸기가 무시된다.
+        if (dy > 0 && document.documentElement.hasAttribute("data-phone-land") && document.fullscreenElement) {
+          settle(false);
+          document.exitFullscreen().catch(() => {});
+          return;
+        }
         const toggle = dy < 0 !== full; // 위로 = 켜기, 아래로 = 끄기
         settle(!toggle); // 켜고 끌 때는 바로 제자리에 두고 브라우저에 넘긴다
         if (toggle) toggleFull();

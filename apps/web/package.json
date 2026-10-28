@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -H 127.0.0.1",
     "lint": "eslint",
-    "test": "node --test --test-concurrency=1 tests/camera-blur.cjs tests/camera-size.cjs tests/donation-connection.cjs tests/donation-reactions.cjs tests/donation-return.cjs tests/donation.cjs tests/face-order.cjs tests/faces.cjs tests/landscape-chat.cjs tests/microphone.cjs tests/phone-audio.cjs tests/recording.cjs tests/room-history.cjs tests/room-rules.cjs tests/share-view.cjs tests/yeonsu.cjs"
+    "test": "node --test --test-concurrency=1 tests/camera-blur.cjs tests/camera-size.cjs tests/donation-connection.cjs tests/donation-reactions.cjs tests/donation-return.cjs tests/donation.cjs tests/face-order.cjs tests/faces.cjs tests/landscape-chat.cjs tests/microphone.cjs tests/phone-audio.cjs tests/recording.cjs tests/room-history.cjs tests/room-rules.cjs tests/share-gestures.cjs tests/share-view.cjs tests/yeonsu.cjs"
   },
   "dependencies": {
     "@livekit/components-react": "^2.9.24",

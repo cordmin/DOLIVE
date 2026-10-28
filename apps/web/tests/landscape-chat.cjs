@@ -17,7 +17,7 @@ const hooks = {
   useRef: () => { const i = cursor++; return states[i] ??= { current: undefined }; },
   useEffect: f => { if (!cleanups.length) cleanups.push(f()); },
 };
-const context = { exports: {}, require: () => hooks, document,
+const context = { exports: {}, require: () => hooks, document, window: { screen: { orientation: { lock: async mode => fullscreenCalls.push(mode) } } },
   setTimeout: f => { timers.set(++nextTimer, f); return nextTimer; }, clearTimeout: id => timers.delete(id) };
 vm.runInNewContext(ts.transpileModule(fs.readFileSync('app/room/landscape-chat.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, context);
 const render = () => { cursor = 0; return context.exports.useLandscapeChat(); };
@@ -29,9 +29,11 @@ chat.wake(); assert.equal(timers.size, 1, '여러 번 눌러도 숨김 타이머
 timers.values().next().value(); assert.equal(render().buttonVisible, false, '잠시 뒤 아이콘만 숨기고 영상 유지');
 await chat.open(); chat = render(); assert.equal(chat.hidden, false); assert.equal(chat.buttonVisible, false);
 chat.hide(); landscape = false; chat = render(); chat.wake(); assert.equal(render().buttonVisible, false, '세로에서는 적용하지 않음');
-landscape = true; videoFull = true; await chat.open(); assert.equal(roomFullscreen, 1, '영상만 네이티브 전체화면이면 방 전체화면으로 전환');
-assert.deepEqual(fullscreenCalls, ['exit-video', 'room'], '이전 영상 전체화면을 먼저 끝내 채팅을 덮지 않게 한다');
-videoFull = true; chat = render(); chat.wake(); assert.equal(render().buttonVisible, true, '영상만 네이티브 전체화면이어도 아이콘 표시');
+landscape = true; await chat.enter(); assert.equal(roomFullscreen, 1, '위로 쓸면 처음부터 방 전체화면으로 진입');
+assert.deepEqual(fullscreenCalls, ['room', 'landscape'], '방 전체화면 진입 후 가로 잠금');
+chat = render(); assert.equal(chat.hidden, true, '영상만 보이게 채팅 숨김');
+await chat.open(); assert.deepEqual(fullscreenCalls, ['room', 'landscape'], '채팅을 열 때 전체화면·가로 잠금을 해제하지 않음');
+videoFull = true; chat = render(); chat.wake(); assert.equal(render().buttonVisible, true, '가로 전체화면에서도 아이콘 표시');
 cleanups.forEach(f => f()); assert.equal(timers.size, 0, '방을 나가면 타이머 해제');
 
 // 실제 너비 조절 함수를 실행해 드래그 중 React 갱신 없이 CSS 너비만 바꾸는지 확인.
