@@ -439,9 +439,14 @@ function ScreenView({ screen, floats, face, children, onPhoneFullscreen, phoneFu
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   // 쓰는 동안 공유 화면이 손가락을 따라 움직인다 (유튜브처럼): 평소엔 아래 가운데를 붙박고 위·양옆으로 커지고(최대 1.5배), 전체화면에선 아래로만 밀려 내려온다.
   // 전체화면이 켜지고 꺼지는 순간은 브라우저가 해서 그 사이를 움직이게 할 수는 없다. 덜 쓸고 손을 떼면 제자리로 스르륵
-  const [drag, setDrag] = useState({ d: 0, smooth: false });
-  const follow = (dy: number) => setDrag({ d: full ? Math.max(0, dy) : Math.min(0, dy), smooth: false });
-  const settle = (smooth: boolean) => setDrag({ d: 0, smooth });
+  // 휴대폰 가로는 방 전체(HTML)가 전체화면이라 full이 거짓이어도 아래로 밀려 내려와야 한다.
+  const sliding = () => full || (!!document.fullscreenElement && document.documentElement.hasAttribute("data-phone-land"));
+  const [drag, setDrag] = useState({ d: 0, down: false, smooth: false });
+  const follow = (dy: number) => {
+    const down = sliding();
+    setDrag({ d: down ? Math.max(0, dy) : Math.min(0, dy), down, smooth: false });
+  };
+  const settle = (smooth: boolean) => setDrag({ d: 0, down: false, smooth });
 
   return (
     <div
@@ -468,7 +473,7 @@ function ScreenView({ screen, floats, face, children, onPhoneFullscreen, phoneFu
         const dy = e.clientY - s.y;
         if (Math.abs(dy) < 50 || Math.abs(dy) < Math.abs(dx)) return settle(true);
         // 채팅을 다시 열면 방 전체(HTML)가 전체화면이다. 영상만 전체화면인지(full)만 보면 아래 쓸기가 무시된다.
-        if (dy > 0 && document.documentElement.hasAttribute("data-phone-land") && document.fullscreenElement) {
+        if (dy > 0 && sliding()) {
           settle(false);
           document.exitFullscreen().catch(() => {});
           return;
@@ -482,8 +487,8 @@ function ScreenView({ screen, floats, face, children, onPhoneFullscreen, phoneFu
       style={
         {
           "--ratio": ratio,
-          translate: drag.d && full ? `0 ${drag.d}px` : undefined,
-          scale: drag.d && !full ? Math.min(1.5, 1 - drag.d / 400) : undefined,
+          translate: drag.d && drag.down ? `0 ${drag.d}px` : undefined,
+          scale: drag.d && !drag.down ? Math.min(1.5, 1 - drag.d / 400) : undefined,
           transformOrigin: "50% 100%",
           transition: drag.smooth ? "translate 200ms ease-out, scale 200ms ease-out" : undefined,
         } as React.CSSProperties

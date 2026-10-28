@@ -8,7 +8,7 @@ const fn = source.statements.find(s => ts.isFunctionDeclaration(s) && s.name?.te
 const code = ts.transpileModule(fn.getText(source), { compilerOptions: { jsx: ts.JsxEmit.React } }).outputText;
 function view({ land = true, mode = 'room', phoneEnter = false, fullscreenEnabled = true } = {}) {
   let stateIndex = 0, refIndex = 0, exits = 0, enters = 0, unlocks = 0, phoneEnters = 0, nativeEnters = 0;
-  const effects = [], listeners = new Map();
+  const effects = [], listeners = new Map(), drags = [];
   const box = { querySelector: () => ({ webkitEnterFullscreen: () => nativeEnters++ }), requestFullscreen: async () => { enters++; } };
   const document = {
     fullscreenEnabled,
@@ -18,7 +18,7 @@ function view({ land = true, mode = 'room', phoneEnter = false, fullscreenEnable
     exitFullscreen: async () => { exits++; document.fullscreenElement = null; listeners.get('fullscreenchange')?.(); },
   };
   const bindings = { React, document, window: { screen: { orientation: { unlock: () => unlocks++, lock: async () => {} } } },
-    useState: initial => [stateIndex++ === 0 ? mode === 'video' : initial, () => {}],
+    useState: initial => [stateIndex++ === 0 ? mode === 'video' : initial, v => { if (v?.d !== undefined) drags.push(v); }],
     useRef: initial => ({ current: refIndex++ === 0 ? box : initial }), useEffect: f => effects.push(f),
     useSlowNotice: () => null, Floats: () => null, VideoTrack: 'video', FaceOverlay: () => null, isPhone: () => true,
     clearTimeout() {}, setTimeout: () => 1,
@@ -30,7 +30,8 @@ function view({ land = true, mode = 'room', phoneEnter = false, fullscreenEnable
     tree.props.onPointerDown({ clientX: 100, clientY: 100, pointerType });
     tree.props.onPointerUp({ clientX: 100 + dx, clientY: 100 + dy, pointerType });
   }
-  return { swipe, change: () => listeners.get('fullscreenchange')?.(), get exits() { return exits; }, get enters() { return enters; }, get unlocks() { return unlocks; }, get phoneEnters() { return phoneEnters; }, get nativeEnters() { return nativeEnters; } };
+  const move = dy => { tree.props.onPointerDown({ clientX: 100, clientY: 100, pointerType: 'touch' }); tree.props.onPointerMove({ clientX: 100, clientY: 100 + dy }); return drags.at(-1); };
+  return { swipe, move, change: () => listeners.get('fullscreenchange')?.(), get exits() { return exits; }, get enters() { return enters; }, get unlocks() { return unlocks; }, get phoneEnters() { return phoneEnters; }, get nativeEnters() { return nativeEnters; } };
 }
 for (const mode of ['room', 'video']) {
   const v = view({ mode }); v.swipe(0, 90);
@@ -38,6 +39,8 @@ for (const mode of ['room', 'video']) {
   assert.equal(v.enters, 0, '아래 쓸기로 영상 전체화면을 새로 열지 않음');
   assert.equal(v.unlocks, 1, '가로 잠금을 풀어 원래 기기 방향으로 복귀');
 }
+for (const mode of ['room', 'video']) assert.deepEqual(view({ mode }).move(80), { d: 80, down: true, smooth: false }, `${mode}: 가로 전체화면에서 아래로 끌면 화면이 따라 내려옴`);
+assert.deepEqual(view({ land: false, mode: 'none' }).move(-80), { d: -80, down: false, smooth: false }, '세로에서 위로 끌면 화면이 커짐');
 for (const [dx, dy, pointer] of [[0, 20, 'touch'], [100, 60, 'touch'], [0, 90, 'mouse']]) {
   const v = view(); v.swipe(dx, dy, pointer); assert.equal(v.exits, 0, '짧은 쓸기·가로 쓸기·마우스는 종료하지 않음');
 }
