@@ -153,4 +153,4 @@ npm --prefix apps/web run build
 | [정리 기록](docs/정리_기록.md) | 작업 내용과 확인 결과 |
 | [후원 안내](docs/donation/README.md) | 도름네이션 확인 기록 |
 
-옛 Windows 실행 파일과 설정은 과거 이관 자료입니다. 현재 서버 운영에 `DOLIVE.lnk`나 `scripts/start_dolive.ps1`를 사용하지 않습니다. 집 공유기와 DuckDNS 정리는 새 서비스 확인 후 [전환 기록](docs/2026-10-14_VPS_전환.md)의 순서대로 진행합니다.
+옛 Windows 실행 파일과 설정은 로컬서버 백업에 보관하고 웹서버 작업본에서는 정리했습니다. 현재 서버 운영은 Linux 명령으로만 관리합니다. 집 공유기와 DuckDNS 정리는 새 서비스 확인 후 [전환 기록](docs/2026-10-14_VPS_전환.md)의 순서대로 진행합니다.

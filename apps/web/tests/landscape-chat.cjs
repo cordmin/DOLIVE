@@ -3,10 +3,13 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const ts = require('typescript');
 
+(async () => {
 const states = [], timers = new Map(), cleanups = [];
+const fullscreenCalls = [];
 let cursor = 0, nextTimer = 0, landscape = true, videoFull = false, roomFullscreen = 0;
 const document = {
-  documentElement: { hasAttribute: () => landscape, requestFullscreen: async () => { roomFullscreen++; } },
+  documentElement: { hasAttribute: () => landscape, requestFullscreen: async () => { fullscreenCalls.push('room'); roomFullscreen++; } },
+  exitFullscreen: async () => { fullscreenCalls.push('exit-video'); videoFull = false; },
   get fullscreenElement() { return videoFull ? { hasAttribute: () => true } : null; },
 };
 const hooks = {
@@ -24,10 +27,11 @@ chat.hide(); chat = render(); assert.equal(chat.hidden, true);
 chat.wake(); chat = render(); assert.equal(chat.buttonVisible, true);
 chat.wake(); assert.equal(timers.size, 1, '여러 번 눌러도 숨김 타이머는 하나');
 timers.values().next().value(); assert.equal(render().buttonVisible, false, '잠시 뒤 아이콘만 숨기고 영상 유지');
-chat.open(); chat = render(); assert.equal(chat.hidden, false); assert.equal(chat.buttonVisible, false);
+await chat.open(); chat = render(); assert.equal(chat.hidden, false); assert.equal(chat.buttonVisible, false);
 chat.hide(); landscape = false; chat = render(); chat.wake(); assert.equal(render().buttonVisible, false, '세로에서는 적용하지 않음');
-landscape = true; videoFull = true; chat.open(); assert.equal(roomFullscreen, 1, '영상만 네이티브 전체화면이면 방 전체화면으로 전환');
-chat = render(); chat.wake(); assert.equal(render().buttonVisible, true, '영상만 네이티브 전체화면이어도 아이콘 표시');
+landscape = true; videoFull = true; await chat.open(); assert.equal(roomFullscreen, 1, '영상만 네이티브 전체화면이면 방 전체화면으로 전환');
+assert.deepEqual(fullscreenCalls, ['exit-video', 'room'], '이전 영상 전체화면을 먼저 끝내 채팅을 덮지 않게 한다');
+videoFull = true; chat = render(); chat.wake(); assert.equal(render().buttonVisible, true, '영상만 네이티브 전체화면이어도 아이콘 표시');
 cleanups.forEach(f => f()); assert.equal(timers.size, 0, '방을 나가면 타이머 해제');
 
 // 실제 너비 조절 함수를 실행해 드래그 중 React 갱신 없이 CSS 너비만 바꾸는지 확인.
@@ -47,3 +51,4 @@ listeners.get('pointercancel')(); assert.equal(listeners.size, 0, '손가락 입
 landscape = false; start(); listeners.get('pointermove')({ clientX: 900 }); listeners.get('pointerup')();
 assert.equal(widths.get('--chat-width'), '380px'); assert.deepEqual(saved, [380], 'PC 너비는 손을 뗄 때 한 번만 저장');
 console.log('통과: 채팅 숨김·한 번 눌러 아이콘 표시·다시 열기·타이머 정리·전체화면 복귀·모바일 경계 드래그·PC 너비 저장');
+})().catch(e => { console.error(e); process.exitCode = 1; });

@@ -41,7 +41,7 @@ export function isLocal(req: { headers: Headers }) {
   return LOOPBACK.includes(host) && forwarded.every((ip) => LOOPBACK.includes(ip));
 }
 
-// 운영진 = 서버 켜기 창(scripts/dolive_panel.ps1)의 톱니바퀴에서 적은 도름스 닉네임들 (server/config/staff.txt, 한 줄에 한 명).
+// 운영진 = 서버의 server/config/staff.txt에 등록한 도름스 닉네임들 (한 줄에 한 명, SSH로 관리).
 // 요청마다 파일을 다시 읽어서 고치면 바로 반영된다. 닉네임(name)이나 도름스 아이디(handle) 어느 쪽이 같아도 되고, 대소문자·앞의 @ 는 안 본다.
 // ponytail: 닉네임은 바뀔 수 있어서 바뀌면 목록도 고쳐야 한다 (운영자 결정: 중요한 권한이 아니라 그걸로 충분)
 const STAFF_FILE = path.join(process.cwd(), "..", "..", "server", "config", "staff.txt");

@@ -1,4 +1,4 @@
-# DOLIVE Linux (DigitalOcean 고정 IP) 바깥 접속 설정. Windows는 server/config/Caddyfile 을 그대로 쓴다.
+# DOLIVE Linux (DigitalOcean 고정 IP) 바깥 접속 설정.
 # DOLIVE_DOMAIN 은 /etc/dolive/dolive.env 에서 systemd(dolive-caddy.service)가 넣는다.
 # 인증서와 ACME 계정은 /var/lib/dolive-caddy 에 남아서 다시 설치하거나 업데이트해도 새로 받지 않는다.
 {
