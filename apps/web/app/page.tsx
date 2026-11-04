@@ -31,6 +31,7 @@ export default function Home() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [avatar, setAvatar] = useState(AVATARS[0]);
+  const [avatarReady, setAvatarReady] = useState(false); // 로그인 상태를 알기 전에는 어떤 사진에도 테두리를 그리지 않는다 (1번에 그렸다가 도름스 사진으로 옮겨 가는 게 보여서)
   const [custom, setCustom] = useState<string>(); // 내가 올린 사진 (data: 주소, 이 브라우저에 남는다)
   const [picked, setPicked] = useState<File>(); // 자리 맞추기 중인 사진
   const picker = useRef<HTMLInputElement>(null);
@@ -77,7 +78,8 @@ export default function Home() {
         // 도름스 사진이 있으면 기본으로 골라 둔다. 이 탭에서 사진을 골라 입장한 적이 있으면 그 사진을 그대로 둔다
         else if (!sessionStorage.getItem("avatar")) setAvatar((a) => (a === AVATARS[0] ? DORMS : a));
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setAvatarReady(true));
   }, []);
 
   // sessionStorage는 브라우저에만 있어서 화면이 뜬 뒤(effect)에 읽어야 서버 화면과 어긋나지 않는다
@@ -247,7 +249,7 @@ export default function Home() {
           <button
             onClick={() => (custom ? setAvatar(CUSTOM) : picker.current?.click())}
             aria-label={custom ? "내 사진" : "내 사진 올리기"}
-            className={`rounded-full p-1 ${avatar === CUSTOM ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
+            className={`rounded-full p-1 ${avatarReady && avatar === CUSTOM ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
           >
             {custom ? <Avatar id={custom} className="w-full" /> : <span className="flex aspect-square w-full items-center justify-center rounded-full border-2 border-dashed border-zinc-500 bg-zinc-800 text-zinc-300 hover:bg-zinc-700" />}
           </button>
@@ -256,7 +258,7 @@ export default function Home() {
             <button
               onClick={() => setAvatar(DORMS)}
               aria-label="도름스 프로필 사진"
-              className={`rounded-full p-1 ${avatar === DORMS ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
+              className={`rounded-full p-1 ${avatarReady && avatar === DORMS ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
             >
               <Avatar id={me.picture} className="w-full" />
             </button>
@@ -270,7 +272,7 @@ export default function Home() {
               key={id}
               onClick={() => setAvatar(id)}
               aria-label={`프로필 사진 ${id}`}
-              className={`rounded-full p-1 ${avatar === id ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
+              className={`rounded-full p-1 ${avatarReady && avatar === id ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
             >
               <Avatar id={id} className="w-full" />
             </button>
