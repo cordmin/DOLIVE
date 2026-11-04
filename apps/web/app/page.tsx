@@ -74,6 +74,8 @@ export default function Home() {
         setMe(m);
         if (m.dorms) setName(m.dorms.slice(0, 20));
         if (!m.picture) setAvatar((a) => (a === DORMS ? AVATARS[0] : a)); // 도름스 사진이 없으면 그 칸은 못 고른다
+        // 도름스 사진이 있으면 기본으로 골라 둔다. 이 탭에서 사진을 골라 입장한 적이 있으면 그 사진을 그대로 둔다
+        else if (!sessionStorage.getItem("avatar")) setAvatar((a) => (a === AVATARS[0] ? DORMS : a));
       })
       .catch(() => {});
   }, []);
@@ -223,41 +225,9 @@ export default function Home() {
 
       <section className="flex flex-col gap-2">
         <span className="text-sm text-zinc-400">프로필 사진</span>
-        {/* 2줄 x 6칸 (PC, 휴대폰 같음): 기본 사진 9장, 도름스 사진, 내 사진, [+] 사진 올리기 */}
+        {/* 2줄 x 6칸 (PC, 휴대폰 같음): [+] 사진 올리기, 내 사진, 도름스 사진, 기본 사진 9장 */}
         <div className="grid grid-cols-6 gap-2">
-          {AVATARS.map((id) => (
-            <button
-              key={id}
-              onClick={() => setAvatar(id)}
-              aria-label={`프로필 사진 ${id}`}
-              className={`rounded-full p-1 ${avatar === id ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
-            >
-              <Avatar id={id} className="w-full" />
-            </button>
-          ))}
-          {/* 도름스 프로필 사진 칸. 로그인 전이거나 도름스에 사진이 없으면 점선 빈 원 */}
-          {me?.picture ? (
-            <button
-              onClick={() => setAvatar(DORMS)}
-              aria-label="도름스 프로필 사진"
-              className={`rounded-full p-1 ${avatar === DORMS ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
-            >
-              <Avatar id={me.picture} className="w-full" />
-            </button>
-          ) : (
-            <span className="p-1">
-              <span className="flex aspect-square w-full items-center justify-center rounded-full border-2 border-dashed border-zinc-500 bg-zinc-800 text-zinc-300" />
-            </span>
-          )}
-          {/* 내 사진 칸: 올리기 전엔 점선 빈 원(눌러도 올리기), 올린 뒤엔 그 사진 */}
-          <button
-            onClick={() => (custom ? setAvatar(CUSTOM) : picker.current?.click())}
-            aria-label={custom ? "내 사진" : "내 사진 올리기"}
-            className={`rounded-full p-1 ${avatar === CUSTOM ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
-          >
-            {custom ? <Avatar id={custom} className="w-full" /> : <span className="flex aspect-square w-full items-center justify-center rounded-full border-2 border-dashed border-zinc-500 bg-zinc-800 text-zinc-300 hover:bg-zinc-700" />}
-          </button>
-          {/* 마지막 칸: 사진 올리기 (새로 올리면 내 사진 칸이 바뀐다) */}
+          {/* 첫 칸: 사진 올리기 (새로 올리면 내 사진 칸이 바뀐다) */}
           <button onClick={() => picker.current?.click()} aria-label="사진 올리기" className="rounded-full p-1 hover:bg-zinc-700">
             <span className="flex aspect-square w-full items-center justify-center rounded-full border-2 border-dashed border-zinc-500 bg-zinc-800 text-zinc-300 hover:bg-zinc-700">
               <svg
@@ -273,6 +243,38 @@ export default function Home() {
               </svg>
             </span>
           </button>
+          {/* 내 사진 칸: 올리기 전엔 점선 빈 원(눌러도 올리기), 올린 뒤엔 그 사진 */}
+          <button
+            onClick={() => (custom ? setAvatar(CUSTOM) : picker.current?.click())}
+            aria-label={custom ? "내 사진" : "내 사진 올리기"}
+            className={`rounded-full p-1 ${avatar === CUSTOM ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
+          >
+            {custom ? <Avatar id={custom} className="w-full" /> : <span className="flex aspect-square w-full items-center justify-center rounded-full border-2 border-dashed border-zinc-500 bg-zinc-800 text-zinc-300 hover:bg-zinc-700" />}
+          </button>
+          {/* 도름스 프로필 사진 칸. 로그인 전이거나 도름스에 사진이 없으면 점선 빈 원 */}
+          {me?.picture ? (
+            <button
+              onClick={() => setAvatar(DORMS)}
+              aria-label="도름스 프로필 사진"
+              className={`rounded-full p-1 ${avatar === DORMS ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
+            >
+              <Avatar id={me.picture} className="w-full" />
+            </button>
+          ) : (
+            <span className="p-1">
+              <span className="flex aspect-square w-full items-center justify-center rounded-full border-2 border-dashed border-zinc-500 bg-zinc-800 text-zinc-300" />
+            </span>
+          )}
+          {AVATARS.map((id) => (
+            <button
+              key={id}
+              onClick={() => setAvatar(id)}
+              aria-label={`프로필 사진 ${id}`}
+              className={`rounded-full p-1 ${avatar === id ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
+            >
+              <Avatar id={id} className="w-full" />
+            </button>
+          ))}
           <input
             ref={picker}
             type="file"
