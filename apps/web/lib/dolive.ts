@@ -1,4 +1,4 @@
-// 기본 프로필 사진 "1" ~ "9" (입장 화면에 이 순서로 나온다). 사진은 assets/profile/<id>.webp, 모두 240x300
+// 기본 프로필 사진 "1" ~ "9" (입장 화면에 이 순서로 나온다). 사진은 assets/profile/<id>.webp, 모두 240x300. 1번 도름이의 출처는 assets/profile/CREDITS.md
 // (10·11번 사진 파일은 남아 있지만 그 자리를 도름스 사진·내 사진 칸에 내줘서 고를 수 없다)
 export const AVATARS = Array.from({ length: 9 }, (_, i) => String(i + 1));
 
