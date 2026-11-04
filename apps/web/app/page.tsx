@@ -64,7 +64,7 @@ export default function Home() {
   const full = useRef<HTMLDialogElement>(null); // "방송은 최대 10개까지만 지원합니다" 창 (로그인 안내 창과 같은 모양)
   const [form, setForm] = useState<RoomForm>({ name: "", password: "", guest: false, error: "" });
   // 오른쪽 위: 서버 PC(방장)면 아무것도 없고, 나머지는 도름스 칸 (로그인했으면 도름스 프로필 사진(없으면 이름) + [로그아웃], 아니면 [로그인]).
-  // 도름스 회원만 채팅방에 들어간다. 운영진(서버 켜기 창 톱니바퀴에 적은 도름스 닉네임)은 방에서 방장 권한을 받는다 (lib/server.ts isStaff)
+  // 도름스 회원만 채팅방에 들어간다. 운영진(서버 staff.txt 에 적은 도름스 고유 번호)은 방에서 방장 권한을 받는다 (lib/server.ts isStaff)
   const [me, setMe] = useState<{ local: boolean; admin: boolean; dorms: string | null; picture: string | null; dormsReason: string | null }>();
   // 도름스로 로그인돼 있으면 입장 화면을 열 때마다 닉네임 칸에 도름스 닉네임을 넣어 둔다 (이 탭에서 전에 쓴 닉네임보다 우선. 고쳐 쓸 수는 있다)
   useEffect(() => {

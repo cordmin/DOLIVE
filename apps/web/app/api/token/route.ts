@@ -23,12 +23,12 @@ export async function POST(req: Request) {
   const { user, deny } = await dormsCheck(req);
   const local = isLocal(req);
   // 도름스 연수 방: 도름스에 이 회원이 지금 들어와도 되는지 묻고(입장권을 줄 때마다), 되면 방을 남긴다. 비회원은 들어오지 못한다.
-  // 신청하지 않은 선생님도 지금 열린 연수면 들어온다 (lib/yeonsu.ts askYeonsuEntry)
+  // 신청하지 않은 사람은 못 들어온다. 운영진만 예외 (lib/yeonsu.ts askYeonsuEntry)
   const yeonsuId = yeonsuIdOf(room);
   let yeonsuHost = false;
   if (yeonsuId && !local) {
     if (deny) return deny;
-    const v = await askYeonsuEntry(yeonsuId, user!.id);
+    const v = await askYeonsuEntry(yeonsuId, user!.id, isStaff(user));
     if (!v.ok) return Response.json({ error: YEONSU_DENY[v.reason] ?? YEONSU_DENY.unavailable, reason: `yeonsu_${v.reason}` }, { status: v.reason === "unavailable" ? 503 : 403 });
     registerYeonsuRoom(room, { title: v.title, owner: v.hostId, endsAt: v.endsAt });
     yeonsuHost = v.role === "host";

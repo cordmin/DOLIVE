@@ -39,7 +39,7 @@ function load(name, replacements) {
 class DormsAuthError extends Error {}
 const fakeFs = {
   readFileSync: (f) => {
-    if (f.endsWith("staff.txt")) return "운영진";
+    if (f.endsWith("staff.txt")) return "staff-id";
     if (file === null) throw new Error("없음");
     return file;
   },
@@ -151,7 +151,8 @@ const B = { id: "b", name: "다라" };
   assert.equal(mine.locked, true);
   assert.equal((await roomsApi.PATCH(req("/api/rooms?room=가나의 방", "PATCH", { name: "뺏은 방" }))).status, 403);
   assert.equal((await roomsApi.DELETE(req("/api/rooms?room=가나의 방", "DELETE"))).status, 403);
-  user = { id: "s", name: "운영진" }; // 관리자는 남의 방·고정 방도 고칠 수 있고, 방 안에서는 방장 노릇
+  assert.equal(server.isStaff({ id: "x", name: "staff-id", handle: "staff-id" }), false, "닉네임·아이디만 같으면 운영진이 아니다");
+  user = { id: "staff-id", name: "별명", handle: "다른아이디" }; // 관리자는 남의 방·고정 방도 고칠 수 있고, 방 안에서는 방장 노릇
   assert.equal((await find("가나의 방")).canEdit, true);
   assert.equal((await find("옛 방")).canEdit, true);
   assert.equal((await claims(await ticket("가나의 방"))).c.attributes.roomAdmin, "1");
@@ -207,7 +208,7 @@ const B = { id: "b", name: "다라" };
   assert.equal((await roomsApi.PUT(req("/api/rooms", "PUT", { name: "다라의 새 방" }))).status, 201); // 지웠으니 다시 만들 수 있다
 
   // 마스터(이 PC): 고정 방을 만들고 모든 방을 고친다. 방송은 마스터 것까지 모두 합쳐 MAX_ROOMS(10)개까지
-  user = { id: "s", name: "운영진" };
+  user = { id: "staff-id", name: "별명", handle: "다른아이디" };
   assert.equal((await roomsApi.DELETE(req("/api/rooms?room=다라의 새 방", "DELETE"))).status, 204); // 관리자는 남의 방도 지운다
   user = B;
   assert.equal((await roomsApi.PUT(req("/api/rooms", "PUT", { name: "다라의 새 방 2" }))).status, 201);

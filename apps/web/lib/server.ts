@@ -41,9 +41,8 @@ export function isLocal(req: { headers: Headers }) {
   return LOOPBACK.includes(host) && forwarded.every((ip) => LOOPBACK.includes(ip));
 }
 
-// 운영진 = 서버의 server/config/staff.txt에 등록한 도름스 닉네임들 (한 줄에 한 명, SSH로 관리).
-// 요청마다 파일을 다시 읽어서 고치면 바로 반영된다. 닉네임(name)이나 도름스 아이디(handle) 어느 쪽이 같아도 되고, 대소문자·앞의 @ 는 안 본다.
-// ponytail: 닉네임은 바뀔 수 있어서 바뀌면 목록도 고쳐야 한다 (운영자 결정: 중요한 권한이 아니라 그걸로 충분)
+// 운영진 = 서버의 server/config/staff.txt에 등록한 도름스 고유 번호들 (한 줄에 한 명, SSH로 관리).
+// 요청마다 파일을 다시 읽어서 고치면 바로 반영된다. 도름스 고유 번호(id)만 본다: 닉네임·아이디는 바뀌거나 겹칠 수 있어서 권한 판단에 쓰지 않는다 (사용자 결정). 대소문자는 안 본다.
 const STAFF_FILE = path.join(process.cwd(), "..", "..", "server", "config", "staff.txt");
 const norm = (s: string) => s.trim().replace(/^@/, "").toLowerCase(); // trim 은 메모장이 붙이는 BOM 도 지운다
 export function isStaff(user?: DormsUser) {
@@ -54,7 +53,7 @@ export function isStaff(user?: DormsUser) {
   } catch {
     return false; // 목록 파일이 아직 없으면 운영진도 없다
   }
-  return [user.name, user.handle].some((n) => n && names.includes(norm(n)));
+  return names.includes(norm(user.id));
 }
 
 // 방송 목록 = 마스터가 만든 고정 방 + 도름스 회원이 만든 방 (한 사람에 하나). 모두 server/config/rooms.txt 에 남아서,

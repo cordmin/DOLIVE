@@ -6,8 +6,8 @@ import { DORMS_ISSUER } from "@/lib/dormsLogin";
 // 도름스 연수 방 (2026-10-14)
 // 도름스(dorms.school)에서 연수를 열고 장소로 DoLive 를 고르면, 연수마다 방 하나가 저절로 생긴다. 방 주소는 /yeonsu/<연수 id>.
 // - 방 만들기 목록(rooms.txt, 최대 10개)을 쓰지 않는다. 대신 입장 화면 목록에 도름스에 실시간으로 물어본 '지금 열린 연수'를 함께 보여 준다
-//   (liveYeonsuRooms, 아래). 그래서 연수 링크를 못 받은 선생님도 목록에서 찾아 들어온다.
-// - 들어올 수 있는지는 도름스가 정하되, 신청하지 않은 선생님도 지금 열린 연수면 들어온다 (askYeonsuEntry, 2026-10-20 사용자 지시).
+//   (liveYeonsuRooms, 아래). 그래서 신청한 선생님은 연수 링크가 없어도 목록에서 찾아 들어온다.
+// - 들어올 수 있는지는 도름스가 정한다: 어느 길로 오든 신청하지 않은 사람은 못 들어온다. 운영진만 예외다 (askYeonsuEntry, 2026-11-04 사용자 지시).
 //   입장 화면과 입장권(api/token)이 그때마다 도름스에 서명한 요청으로 다시 묻는다 (아래 askDorms). 비회원은 들어오지 못한다.
 // - 여는 선생님은 그 방의 방장이다 (방장 넘기기는 없다).
 // - 끝나는 시각이 지나도 방을 닫지 않는다 (2026-10-20 사용자 지시): 연수가 생각보다 길어져도 라이브가 끊기지 않아야 한다.
@@ -73,14 +73,14 @@ export async function askDorms(sessionRef: string, dormsUserId: string): Promise
   }
 }
 
-// 신청하지 않은 선생님도 들어온다 (2026-10-20 사용자 지시).
-// 도름스가 '신청 안 함'·'확정 안 됨'으로 막아도, 그 연수가 지금 열려 있으면(liveYeonsuRooms 목록에 있으면) 손님으로 들여보낸다.
-// 그래서 입장 화면 목록에서 연수를 보고 바로 들어올 수 있다. 다른 까닭(없는 연수·막힌 계정·너무 이름·끝난 연수·확인 못 함)은 그대로 막는다.
+// 신청하지 않은 사람은 연수 방에 못 들어온다. 운영진(lib/server.ts isStaff)만 예외다 (2026-11-04 사용자 지시).
+// 운영진은 도름스가 '신청 안 함'·'확정 안 됨'으로 막아도, 그 연수가 지금 열려 있으면(liveYeonsuRooms 목록에 있으면) 손님으로 들여보낸다.
+// 다른 까닭(없는 연수·막힌 계정·너무 이름·끝난 연수·확인 못 함)은 운영진도 그대로 막는다.
 // 비회원은 여전히 못 들어온다 (도름스 로그인은 그대로 받는다). 입장 화면과 입장권이 모두 이것으로 판정한다.
-const OPEN_TO_ALL = new Set(["not_applied", "not_confirmed"]);
-export async function askYeonsuEntry(sessionRef: string, dormsUserId: string): Promise<YeonsuVerdict> {
+const STAFF_PASSES = new Set(["not_applied", "not_confirmed"]);
+export async function askYeonsuEntry(sessionRef: string, dormsUserId: string, staff: boolean): Promise<YeonsuVerdict> {
   const v = await askDorms(sessionRef, dormsUserId);
-  if (v.ok || !OPEN_TO_ALL.has(v.reason)) return v;
+  if (v.ok || !staff || !STAFF_PASSES.has(v.reason)) return v;
   const ref = sessionRef.toLowerCase();
   const open = (await liveYeonsuRooms()).find((r) => r.id === ref || yeonsuSlug(r.id) === ref);
   if (!open) return v;

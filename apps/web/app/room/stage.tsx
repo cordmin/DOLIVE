@@ -133,22 +133,13 @@ const MAX_PHONE_ROW = 5; // 휴대폰 공유 화면 아래 줄
 const GAP = 8;
 const phone = () => typeof window !== "undefined" && isPhone();
 
-// 카메라를 켠 사람들: 나 → 말하는 사람 → 마이크 켠 사람 → 나머지. 같은 순위면 들어온 순서
+// 카메라를 켠 사람들: 나 → 마이크 켠 사람 → 나머지. 같은 순위면 들어온 순서.
+// 말하는 사람을 앞으로 옮기지 않는다: 여러 명이 동시에 말하면 얼굴이 계속 자리를 바꿔 멀미가 난다 (2026-11-04 사용자 지시)
 function useCams() {
   useRoomTick();
-  const cams = useTracks([Track.Source.Camera], { updateOnlyOn: [RoomEvent.ActiveSpeakersChanged] }).filter((t) => !t.publication.isMuted);
-  const rank = (c: TrackReference) => (c.participant.isLocal ? 3 : c.participant.isSpeaking ? 2 : c.participant.isMicrophoneEnabled ? 1 : 0);
+  const cams = useTracks([Track.Source.Camera], { updateOnlyOn: [] }).filter((t) => !t.publication.isMuted);
+  const rank = (c: TrackReference) => (c.participant.isLocal ? 2 : c.participant.isMicrophoneEnabled ? 1 : 0);
   return [...cams].sort((a, b) => rank(b) - rank(a));
-}
-
-// 다른 얼굴들을 보는 중 새로 말하는 사람이 생기면 첫 묶음으로 돌아온다. 소리 크기만 바뀔 때는 그대로
-function useFacePage(cams: TrackReference[]) {
-  const speakers = JSON.stringify(cams.filter((c) => c.participant.isSpeaking).map((c) => c.participant.identity).sort());
-  const [view, setView] = useState({ page: 0, speakers });
-  if (view.speakers !== speakers) {
-    setView({ page: speakers === "[]" ? view.page : 0, speakers });
-  }
-  return [view.page, () => setView({ page: view.page + 1, speakers })] as const;
 }
 
 // 채팅 분리 창 맨 위에 세 버튼을 항상 둔다. 채팅만 골라도 다시 바꿀 수 있다.
@@ -270,7 +261,8 @@ function More({ more, next, style }: { more: number; next: () => void; style: CS
 // PC 줄 높이: 16:9 공유 화면이 폭에 꽉 차고 남는 높이를 다 쓴다 (빈 여백 대신 얼굴을 크게). 최소 84px(또는 칸 높이의 14%), 최대 180px
 function FaceRow({ cams }: { cams: TrackReference[] }) {
   const [ref, { w, h }] = useBoxSize();
-  const [page, next] = useFacePage(cams);
+  const [page, setPage] = useState(0);
+  const next = () => setPage(page + 1);
   const { shown, tw } = rowFit(Math.min(cams.length, phone() ? MAX_PHONE_ROW : MAX_ROW), w, h, GAP);
   const { faces, more } = pageOf(cams, shown, page);
   return (
@@ -285,7 +277,8 @@ function FaceRow({ cams }: { cams: TrackReference[] }) {
 // 휴대폰은 "LIVE 방송 준비 중" 과 같은 16:9 칸 안에
 function FaceGrid({ cams }: { cams: TrackReference[] }) {
   const [ref, { w, h }] = useBoxSize();
-  const [page, next] = useFacePage(cams);
+  const [page, setPage] = useState(0);
+  const next = () => setPage(page + 1);
   const { faces, more } = pageOf(cams, phone() ? MAX_PHONE : MAX_GRID, page);
   const { tw, th } = gridFit(faces.length + (more ? 1 : 0), w, h, GAP);
   const size = { width: tw, height: th };

@@ -175,29 +175,35 @@ const SECRET = "dorms-yeonsu-test-secret-0123456789abcdef";
   assert.equal(await yeonsu.yeonsuIdOfRef("99999999", ok), null);
   assert.equal(await yeonsu.yeonsuIdOfRef("44444444", { ok: false, reason: "ended" }), null);
 
-  // 신청하지 않은 선생님도 지금 열린 연수면 들어온다 (askYeonsuEntry, 2026-10-20 사용자 지시)
+  // 신청하지 않은 사람은 막는다 (2026-11-04 사용자 지시)
   answer = { status: 200, body: { ok: false, reason: "not_applied", title: liveRoom.title } };
-  assert.deepEqual(plain(await yeonsu.askYeonsuEntry("44444444", USER)), {
+  assert.equal((await yeonsu.askYeonsuEntry("44444444", USER, false)).reason, "not_applied");
+  assert.equal((await yeonsu.askYeonsuEntry(LIVE, USER, false)).reason, "not_applied");
+  answer = { status: 200, body: { ok: false, reason: "not_confirmed" } };
+  assert.equal((await yeonsu.askYeonsuEntry(LIVE, USER, false)).reason, "not_confirmed");
+  // 운영진은 신청하지 않아도 지금 열린 연수면 들어온다
+  answer = { status: 200, body: { ok: false, reason: "not_applied", title: liveRoom.title } };
+  assert.deepEqual(plain(await yeonsu.askYeonsuEntry("44444444", USER, true)), {
     ok: true, role: "guest", id: LIVE, title: liveRoom.title, startsAt: liveRoom.startsAt, endsAt: liveRoom.endsAt, hostId: USER, hostName: liveRoom.hostName,
   });
-  assert.equal((await yeonsu.askYeonsuEntry(LIVE, USER)).role, "guest");
+  assert.equal((await yeonsu.askYeonsuEntry(LIVE, USER, true)).role, "guest");
   // 확정 안 됨도 같다. 지금 열린 목록에 없는 연수는 그대로 막는다
   answer = { status: 200, body: { ok: false, reason: "not_confirmed" } };
-  assert.equal((await yeonsu.askYeonsuEntry(LIVE, USER)).ok, true);
-  assert.equal((await yeonsu.askYeonsuEntry(SESSION, USER)).reason, "not_confirmed");
-  // 신청과 상관없는 까닭은 그대로 막는다
+  assert.equal((await yeonsu.askYeonsuEntry(LIVE, USER, true)).ok, true);
+  assert.equal((await yeonsu.askYeonsuEntry(SESSION, USER, true)).reason, "not_confirmed");
+  // 신청과 상관없는 까닭은 운영진도 그대로 막는다
   for (const reason of ["not_found", "blocked", "too_early", "ended", "unavailable"]) {
     answer = { status: 200, body: { ok: false, reason } };
-    assert.equal((await yeonsu.askYeonsuEntry(LIVE, USER)).reason, reason);
+    assert.equal((await yeonsu.askYeonsuEntry(LIVE, USER, true)).reason, reason);
   }
   // 도름스가 들여보내면 그 답을 그대로 쓴다 (여는 선생님은 방장 그대로)
   answer = { status: 200, body: ok };
-  assert.deepEqual(plain(await yeonsu.askYeonsuEntry(SESSION, USER)), ok);
+  assert.deepEqual(plain(await yeonsu.askYeonsuEntry(SESSION, USER, false)), ok);
 
   // 화면에 보이는 한국 시각
   assert.equal(yeonsu.kstTime("2026-10-14T10:05:00.000Z"), "19:05");
   assert.equal(yeonsu.kstTime(undefined), "");
-  console.log("통과: 연수 방 서명·확인·기록·끝 시각 뒤에도 유지·열린 목록·짧은 주소·신청 없이 들어가기");
+  console.log("통과: 연수 방 서명·확인·기록·끝 시각 뒤에도 유지·열린 목록·짧은 주소·신청 안 한 사람 막기·운영진 예외");
 })().catch((e) => {
   console.error(e);
   process.exit(1);

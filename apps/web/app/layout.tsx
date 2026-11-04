@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { SafariNotice } from "@/components/SafariNotice";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,7 +27,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           }}
         />
       </head>
-      <body className="min-h-full flex flex-col bg-zinc-900 text-zinc-100">{children}</body>
+      <body className="min-h-full flex flex-col bg-zinc-900 text-zinc-100">
+        {children}
+        <SafariNotice />
+      </body>
     </html>
   );
 }

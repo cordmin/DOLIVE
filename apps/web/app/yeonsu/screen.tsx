@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { DormsAuthError, getDormsUser } from "@/lib/dormsLogin";
-import { isLocal } from "@/lib/server";
+import { isLocal, isStaff } from "@/lib/server";
 import { askYeonsuEntry, kstTime, liveYeonsuRooms, registerYeonsuRoom, yeonsuIdOfRef, yeonsuRefKind, yeonsuRoomName, yeonsuSlug, type YeonsuVerdict } from "@/lib/yeonsu";
 import { EnterYeonsu } from "./enter";
 
@@ -9,7 +9,7 @@ import { EnterYeonsu } from "./enter";
 //  - dolive.site/<짧은 연수 번호>  (app/[slug]) : 도름스 연수 소개의 'DoLive 방 들어가기'와 입장 화면 목록이 쓰는 주소
 //  - dolive.site/yeonsu/<연수 id>  (app/yeonsu/[id]) : 예전에 나눠 준 주소. 그대로 열린다
 // 도름스 로그인 → 도름스에 이 연수에 들어와도 되는지 묻기 → 되면 그 자리에서 방 화면을 그린다(주소가 그대로 남는다), 안 되면 까닭을 알려 준다.
-// 신청하지 않은 선생님도 지금 열린 연수면 들어온다 (lib/yeonsu.ts askYeonsuEntry, 2026-10-20 사용자 지시).
+// 신청하지 않은 사람은 못 들어온다. 운영진만 예외 (lib/yeonsu.ts askYeonsuEntry, 2026-11-04 사용자 지시).
 // 들어가는 진짜 문은 입장권(api/token)이 도름스에 한 번 더 묻는다.
 const DENY: Record<string, { title: string; text: string }> = {
   not_found: { title: "닫혔거나 없는 연수예요", text: "도름스 연수 일정에서 연수가 그대로 있는지 확인해 주세요." },
@@ -45,7 +45,7 @@ export async function YeonsuEntryScreen({ sessionRef }: { sessionRef: string }) 
     const mine = full ? sessionRef.toLowerCase() : (await liveYeonsuRooms()).find((r) => yeonsuSlug(r.id) === sessionRef.toLowerCase())?.id;
     if (mine) return <EnterYeonsu room={yeonsuRoomName(mine)} name="마스터" picture={null} />;
   }
-  const v: YeonsuVerdict = local ? { ok: false, reason: "not_found" } : await askYeonsuEntry(sessionRef, user!.id);
+  const v: YeonsuVerdict = local ? { ok: false, reason: "not_found" } : await askYeonsuEntry(sessionRef, user!.id, isStaff(user!));
   const id = local ? null : await yeonsuIdOfRef(sessionRef, v);
   if (!v.ok || !id) {
     const opens = v.ok ? "" : v.reason === "too_early" ? kstTime(v.opensAt) : "";
