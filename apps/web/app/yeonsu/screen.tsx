@@ -50,7 +50,7 @@ export async function YeonsuEntryScreen({ sessionRef }: { sessionRef: string }) 
   if (!v.ok || !id) {
     const opens = v.ok ? "" : v.reason === "too_early" ? kstTime(v.opensAt) : "";
     const message = !v.ok && v.reason === "too_early"
-      ? { title: "아직 들어갈 수 없어요", text: `연수 시작 10분 전${opens ? `인 ${opens}` : ""}부터 들어올 수 있어요. 그때 이 화면을 새로 고쳐 주세요.` }
+      ? { title: "아직 들어갈 수 없어요", text: `${opens ? `${opens}부터` : "입장 시간이 되면"} 들어올 수 있어요. 그때 이 화면을 새로 고쳐 주세요.` }
       : (!v.ok && DENY[v.reason]) || DENY.unavailable;
     return (
       <main style={box}>

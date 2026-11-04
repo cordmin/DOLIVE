@@ -10,7 +10,7 @@ const YEONSU_DENY: Record<string, string> = {
   not_applied: "이 연수에 신청한 선생님만 들어올 수 있어요",
   not_confirmed: "신청이 확정되면 들어올 수 있어요",
   blocked: "지금은 이 연수에 들어올 수 없어요",
-  too_early: "연수 시작 10분 전부터 들어올 수 있어요",
+  too_early: "아직 들어올 수 있는 시간이 아니에요",
   ended: "끝난 연수예요",
   unavailable: "도름스에서 확인하지 못했어요. 잠시 뒤 다시 해 주세요",
 };
