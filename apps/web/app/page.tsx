@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AvatarPicker } from "@/components/AvatarPicker";
 import { AVATARS, CUSTOM, DORMS, MAX_ROOMS, leaveForDorms, savedAvatar } from "@/lib/dolive";
 import { ROOM_ENTRY_KEY } from "@/lib/roomHistory";
+import { prepareRoomAudio } from "@/lib/roomAudio";
 
 // 방송 목록 한 줄 (api/rooms GET). guest = 비회원도 들어옴, canEdit = 내가 고칠 수 있는 방(내가 만든 방, 마스터는 모든 방. 그때만 password 가 온다)
 // yeonsu = 도름스 연수 방(도름스에 실시간으로 물어 온다). 이름은 연수 제목이고, 고르면 연수 입장 화면(href)으로 간다 — 들어올 수 있는지는
@@ -120,11 +121,13 @@ export default function Home() {
       askPw.current?.showModal();
       return;
     }
+    prepareRoomAudio();
     go("");
   }
 
   // 비밀번호 창 [입장]: 서버에 맞는지 먼저 물어보고, 틀리면 창에 그대로 두고 알려 준다
   async function checkPw() {
+    prepareRoomAudio(); // 비밀번호 답을 기다리기 전에, 누르는 순간 소리를 준비한다.
     const r = await fetch("/api/rooms", { method: "POST", body: JSON.stringify({ room, password: pw }) }).catch(() => null);
     if (r?.ok) return go(pw);
     const reason = (await r?.json().catch(() => null))?.reason;

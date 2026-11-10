@@ -10,7 +10,7 @@ import {
   useRoomContext,
   useTracks,
 } from "@livekit/components-react";
-import { ConnectionError, ConnectionErrorReason, ConnectionState, DisconnectReason, Track, VideoPresets, type Participant, type RoomOptions } from "livekit-client";
+import { ConnectionError, ConnectionErrorReason, ConnectionState, DisconnectReason, Track, type Participant, type Room } from "livekit-client";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
@@ -20,7 +20,6 @@ import { VOICE_BOT, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
 import { ChatLog } from "./chat";
 import { ChatInput } from "./chat-input";
 import { useReactions } from "./reactions";
-import { CAM_CAPTURE } from "./camera";
 import { MediaControls, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
 import { SplitTop, Stage } from "./stage";
 import { DonationDialog } from "./donation";
@@ -33,6 +32,7 @@ import { RecordKnob } from "./recording";
 import { StatusDialog } from "./status";
 import { useShareHealth } from "./share-report";
 import { ROOM_ENTRY_KEY, leaveRoomHistory, watchRoomBack } from "@/lib/roomHistory";
+import { getEntryRoom, watchAudioUnlock } from "@/lib/roomAudio";
 
 // 방 화면: chat.tsx(채팅 화면), chat-input.tsx(입력칸), messages.ts(채팅 주고받기), participants.tsx(참여자·관리 메뉴), split-chat.ts(채팅 분리 창).
 // stage.tsx(공유 화면), face-grid.tsx(얼굴 칸), status.tsx·share-report.ts(방송 상태), share.tsx(화면공유·마이크), camera.tsx(카메라), reactions.tsx(하트·ㅋ·헐).
@@ -45,14 +45,7 @@ import { ROOM_ENTRY_KEY, leaveRoomHistory, watchRoomBack } from "@/lib/roomHisto
 // 보는 사람 한 명이 받는 양은 화면공유 1080p30(share.tsx) 기준 약 6Mbps 다 (공유 5 + 얼굴 3개 + 마이크).
 // 서버(DigitalOcean 4 vCPU/8GB)의 인터넷 속도 한계는 2Gbps 라 속도로는 수백 명이지만,
 // 한 달 포함 전송량 5TB 가 먼저 차서 3시간 x 주 4~5회 기준 약 30명이 한계다 (docs/linux/README.md 15번)
-const ROOM_OPTIONS: RoomOptions = {
-  adaptiveStream: { pauseVideoInBackground: false },
-  dynacast: true,
-  videoCaptureDefaults: { resolution: CAM_CAPTURE },
-  publishDefaults: { videoEncoding: VideoPresets.h360.encoding, videoSimulcastLayers: [VideoPresets.h180] },
-  // 수정용 서버는 내부 브라우저에서도 열리도록 기존 연결 방식을 쓴다.
-  singlePeerConnection: process.env.NODE_ENV !== "development",
-};
+// 입장 전에 준비한 방과 같은 설정을 쓴다 (lib/roomAudio.ts).
 
 type Conn = { token: string; url: string };
 
@@ -105,6 +98,11 @@ export default function RoomPage() {
   const router = useRouter();
   const [conn, setConn] = useState<Conn>();
   const leavingPage = useRef(false);
+  const liveKitRoom = useRef<Room | null>(null);
+  if (!liveKitRoom.current && typeof window !== "undefined") liveKitRoom.current = getEntryRoom();
+  useEffect(() => {
+    if (liveKitRoom.current) return watchAudioUnlock(liveKitRoom.current);
+  }, []);
   useFitVisibleHeight();
   usePhoneLandscape();
 
@@ -186,7 +184,7 @@ export default function RoomPage() {
       token={conn.token}
       connect
       audio={false} // 마이크는 꺼진 채로 들어간다 (위쪽 스위치로 켠다)
-      options={ROOM_OPTIONS}
+      room={liveKitRoom.current ?? undefined}
       // 방장이 서버를 끄면서 방을 닫았으면(api/end) 물어볼 것 없이 바로 "방송이 끝났어요"
       // 방장이 내보냈으면(api/kick) "방에서 내보내졌어요"
       onDisconnected={(reason) => {
@@ -208,7 +206,7 @@ export default function RoomPage() {
       style={{ height: "var(--vh, 100dvh)" }}
     >
       <RoomAudioRenderer />
-      {/* 소리 켜기 안내 버튼은 두지 않는다. 브라우저가 소리를 막아 두면 화면 아무 데나 처음 누를 때 켠다 (RoomView) */}
+      {/* 소리 켜기 안내 버튼은 두지 않는다. 브라우저가 소리를 막아 두면 화면 아무 데나 처음 누를 때 켠다. */}
       <RoomView token={conn.token} />
     </LiveKitRoom>
   );
@@ -316,15 +314,6 @@ function RoomView({ token }: { token: string }) {
   // PC 로고 아래 불빛: 통화 서버와 이어져 있으면 초록 "방송중", 끊겨서 다시 붙는 중이면 호박색
   const live = useConnectionState() === ConnectionState.Connected;
   const landscapeChat = useLandscapeChat();
-
-  // 브라우저가 소리를 막아 둔 경우, 화면을 한 번이라도 누르면 풀린다
-  useEffect(() => {
-    const unlock = () => {
-      if (!room.canPlaybackAudio) room.startAudio();
-    };
-    document.addEventListener("pointerdown", unlock);
-    return () => document.removeEventListener("pointerdown", unlock);
-  }, [room]);
 
   // 뒤로가기를 누르면 바로 나가지 않고 "메인으로 나가시겠습니까?" 창을 먼저 띄운다.
   // 확인창용 기록은 한 칸만 두고, 퇴장할 때 함께 정리한다.
