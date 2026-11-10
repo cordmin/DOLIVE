@@ -281,7 +281,7 @@ export function StatusDialog({ token, participants, screen, close }: { token: st
             <table className="mt-0.5 mb-2 w-full border-collapse text-xs">
               <thead>
                 <tr className="text-[#7c7973]">
-                  <th className="py-[3px] text-left font-normal">보내는 겹</th>
+                  <th className="py-[3px] text-left font-normal">화질 단계</th>
                   <th className="text-right font-normal">화질</th>
                   <th className="text-right font-normal">초당 프레임</th>
                   <th className="text-right font-normal">속도</th>
