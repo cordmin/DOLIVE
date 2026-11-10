@@ -1,4 +1,4 @@
-// 화면공유 상태판(app/room/status.tsx)과 자동 프레임 줄이기(app/room/share.tsx)가 쓰는 판단 규칙. 시험: node tests/share-health.cjs
+// 화면공유 상태판(app/room/status.tsx)과 자동 프레임 줄이기(app/room/share-report.ts)가 쓰는 판단 규칙. 시험: node tests/share-health.cjs
 
 // 약한 컴퓨터: CPU 4개 이하 또는 메모리 4GB 이하 (크롬은 메모리를 0.5·1·2·4·8 중 하나로만 알려 준다. 모르면 약하다고 보지 않는다)
 export const isLowSpec = (cores?: number, memGB?: number) => (!!cores && cores <= 4) || (!!memGB && memGB <= 4);

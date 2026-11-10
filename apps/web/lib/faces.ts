@@ -1,4 +1,4 @@
-// 얼굴(카메라) 칸 크기 정하기 (app/room/stage.tsx). 시험: node tests/faces.cjs
+// 얼굴(카메라) 칸 크기 정하기 (app/room/face-grid.tsx). 시험: node tests/faces.cjs
 // 칸은 세로로 긴 3:4 부터 가로로 긴 16:9 까지 늘었다 줄었다 하며 자리를 꽉 채운다. 영상(16:9)은 칸에 맞게 가운데를 잘라 보여 준다.
 // 자리가 그보다 더 길쭉하면 칸을 그 비율에서 멈추고 남는 곳은 비운다 (얼굴이 너무 많이 잘리지 않게. 위아래는 절대 안 잘림)
 export const TALL = 3 / 4;

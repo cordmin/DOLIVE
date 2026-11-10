@@ -17,7 +17,8 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Knob } from "@/components/Knob";
 import { Tooltips } from "@/components/Tooltips";
 import { VOICE_BOT, isPhone, leaveForDorms, savedAvatar } from "@/lib/dolive";
-import { ChatInput, ChatLog } from "./chat";
+import { ChatLog } from "./chat";
+import { ChatInput } from "./chat-input";
 import { useReactions } from "./reactions";
 import { CAM_CAPTURE } from "./camera";
 import { MediaControls, useDuckShareAudio, usePauseOldShare, useShareRequests } from "./share";
@@ -29,11 +30,12 @@ import { PersonRow, SplitPeople } from "./participants";
 import { useMessages } from "./messages";
 import { useSplitChat } from "./split-chat";
 import { RecordKnob } from "./recording";
-import { StatusDialog, useShareHealth } from "./status";
+import { StatusDialog } from "./status";
+import { useShareHealth } from "./share-report";
 import { ROOM_ENTRY_KEY, leaveRoomHistory, watchRoomBack } from "@/lib/roomHistory";
 
-// 방 화면: chat.tsx(채팅 화면), messages.ts(채팅 주고받기), participants.tsx(참여자·관리 메뉴), split-chat.ts(채팅 분리 창).
-// stage.tsx(공유 화면·얼굴), share.tsx(화면공유·마이크), camera.tsx(카메라), reactions.tsx(하트·ㅋ·헐).
+// 방 화면: chat.tsx(채팅 화면), chat-input.tsx(입력칸), messages.ts(채팅 주고받기), participants.tsx(참여자·관리 메뉴), split-chat.ts(채팅 분리 창).
+// stage.tsx(공유 화면), face-grid.tsx(얼굴 칸), status.tsx·share-report.ts(방송 상태), share.tsx(화면공유·마이크), camera.tsx(카메라), reactions.tsx(하트·ㅋ·헐).
 
 // 영상은 화면공유와 얼굴(카메라). 안 보이는 영상은 받지 않고, 작게 보이는 영상은 작은 화질로 받음(adaptiveStream).
 // 단, 다른 앱에 갔다 와도 바로 보이게 뒤에 숨어 있는 동안에도 계속 받는다
