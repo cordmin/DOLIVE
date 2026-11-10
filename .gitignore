@@ -24,3 +24,6 @@ server/config/yeonsu-rooms.json.*.tmp
 server/config/status-history.json
 server/config/status-history.json.*.tmp
 server/config/status-notes.json
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
