@@ -124,11 +124,11 @@ const SURFACE: Record<string, string> = { monitor: "전체 화면", window: "창
 const QUALITY_NAME: (string | undefined)[] = ["좋음", "보통", "나쁨"];
 const quality = (p: Participant) =>
   p.connectionQuality === ConnectionQuality.Excellent ? 0 : p.connectionQuality === ConnectionQuality.Good ? 1 : p.connectionQuality === ConnectionQuality.Unknown ? -1 : 2;
-const LEVEL_NAME: Record<Level, string> = { g: "좋음", a: "주의", r: "나쁨" };
 const INK: Record<Level, string> = { g: "text-[#7ed957]", a: "text-[#e8b46a]", r: "text-[#ff6b5e]" };
 const LED: Record<Level, string> = { g: "hw-led-green", a: "hw-led-amber", r: "hw-led-red" };
 const gb = (b: number) => (b / 1024 ** 3).toFixed(1);
-const size = (w?: number, h?: number) => (w && h ? `${w}x${h}` : "-");
+// 세로 크기에서 가장 가까운 이름으로만 보여 준다 (1600x900 → 1080p)
+const res = (h?: number) => (!h ? "-" : h >= 900 ? "1080p" : h >= 540 ? "720p" : "360p");
 
 function Row({ k, children, level }: { k: string; children: ReactNode; level?: Level }) {
   return (
@@ -146,7 +146,6 @@ function Section({ title, who, level, children }: { title: string; who?: string;
         <span className={`hw-led ${level ? LED[level] : ""}`} />
         {title}
         {who && <span className="font-normal text-[#a39f98]">· {who}</span>}
-        {level && <span className={`ml-auto text-xs ${INK[level]}`}>{LEVEL_NAME[level]}</span>}
       </h3>
       {children}
     </section>
@@ -159,8 +158,6 @@ export function StatusDialog({ token, participants, screen, close }: { token: st
   const [got, setGot] = useState<{ from: string; report: ShareReport | null } | null>(null); // 누가 보낸 값인지 같이 둔다
   const [server, setServer] = useState<Server | null>(null);
   const [seenOf, setSeen] = useState<{ sid: string; seen: Seen } | null>(null);
-  const [at, setAt] = useState(0);
-  const [now, setNow] = useState(0);
   const sharer = screen?.participant;
   // 방 화면이 다시 그려질 때마다 screen 객체가 새로 만들어져서, 2초 재기는 공유 화면이 바뀔 때만 새로 시작한다
   const screenNow = useRef(screen);
@@ -180,7 +177,6 @@ export function StatusDialog({ token, participants, screen, close }: { token: st
     if (!sharer || msg.from?.identity !== sharer.identity) return; // 지금 공유 화면 주인이 보낸 것만
     try {
       setGot({ from: sharer.identity, report: JSON.parse(new TextDecoder().decode(msg.payload)) });
-      setAt(Date.now());
     } catch {}
   });
 
@@ -192,10 +188,7 @@ export function StatusDialog({ token, participants, screen, close }: { token: st
       const screen = screenNow.current;
       fetch("/api/status", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ room: room.name }) })
         .then((r) => (r.ok ? r.json() : null))
-        .then((s) => {
-          setServer(s);
-          setAt(Date.now());
-        })
+        .then((s) => setServer(s))
         .catch(() => setServer(null));
       if (screen?.participant.isLocal) {
         setGot({ from: screen.participant.identity, report: localReport });
@@ -223,12 +216,6 @@ export function StatusDialog({ token, participants, screen, close }: { token: st
     return () => clearInterval(iv);
   }, [room, token, sid]);
 
-  // 1초마다 "몇 초 전" 글자만 새로 그린다
-  useEffect(() => {
-    const iv = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(iv);
-  }, []);
-  const ago = at && now ? Math.max(0, Math.round((now - at) / 1000)) : null;
 
   const viewers = participants.filter((p) => p.identity !== sharer?.identity);
   const counts = [0, 1, 2].map((q) => viewers.filter((p) => quality(p) === q));
@@ -254,10 +241,6 @@ export function StatusDialog({ token, participants, screen, close }: { token: st
         </span>
         <span className="translate-y-px rounded-[3px] border border-[#e8b46a]/40 px-1.5 text-[11px] leading-[17px] text-[#e8b46a]">관리자</span>
         <span className="ml-1 text-[15px] font-semibold">방송 상태</span>
-        <span className="ml-auto flex items-center gap-1.5 text-[11px] text-[#a39f98]">
-          <span className={`hw-led ${ago !== null && ago < 6 ? "hw-led-green" : "hw-led-amber"}`} />
-          {ago === null ? "읽는 중" : `${ago}초 전 새로 고침`}
-        </span>
       </div>
 
       <div className="hw-inset mb-3 flex gap-2.5 rounded-[10px] bg-[#1e1e21] px-3.5 py-3 text-[13px] leading-[1.55]">
@@ -292,8 +275,8 @@ export function StatusDialog({ token, participants, screen, close }: { token: st
                   <tr key={i} className="border-t border-white/[.03]">
                     <td className="py-1 text-[#a39f98]">{LAYER[i + 3 - report.layers.length] ?? "-"}</td>
                     <td className={`text-right font-semibold ${i === 0 && short(l.h, report.target.h) ? INK.a : ""}`}>
-                      {size(l.w, l.h)}
-                      {i === 0 && l.h < report.target.h && <span className="text-[#a39f98]"> / {size(report.target.w, report.target.h)}</span>}
+                      {res(l.h)}
+                      {i === 0 && res(l.h) !== res(report.target.h) && <span className="text-[#a39f98]"> / {res(report.target.h)}</span>}
                     </td>
                     <td className={`text-right font-semibold ${i === 0 && short(l.fps, report.target.fps) ? INK.a : ""}`}>
                       {l.fps}
@@ -304,7 +287,7 @@ export function StatusDialog({ token, participants, screen, close }: { token: st
                 ))}
               </tbody>
             </table>
-            <p className="text-xs text-[#a39f98]">화질이 떨어진 까닭 (최근 1분)</p>
+            <p className="text-xs text-[#a39f98]">방송 송출 상태 (최근 1분)</p>
             <div className="mt-1.5 mb-1 flex h-2 overflow-hidden rounded bg-[#2a2a2d] shadow-[inset_0_1px_2px_#000a]">
               <i className="block bg-[#e8b46a]" style={{ width: `${report.recent.cpu * 100}%` }} />
               <i className="block bg-[#e42b20]" style={{ width: `${report.recent.bandwidth * 100}%` }} />
@@ -316,10 +299,10 @@ export function StatusDialog({ token, participants, screen, close }: { token: st
               <span className="flex items-center gap-1"><i className="size-2 rounded-sm bg-[#7ed957]" />{REASON.none} {Math.round(report.recent.none * 100)}%</span>
             </div>
             <div className="grid grid-cols-1 gap-x-[22px] sm:grid-cols-2">
-              <Row k="지금 까닭" level={report.reason === "none" ? undefined : "a"}>{REASON[report.reason] ?? report.reason}</Row>
+              <Row k="현재 송출 상태" level={report.reason === "none" ? undefined : "a"}>{REASON[report.reason] ?? report.reason}</Row>
               <Row k="자동 프레임 줄이기" level={report.capped ? "a" : undefined}>{report.capped ? "15프레임으로 줄임" : "안 함"}</Row>
               <Row k="연결 품질" level={sharerQ === 2 ? "r" : sharerQ === 1 ? "a" : sharerQ === 0 ? "g" : undefined}>{QUALITY_NAME[sharerQ] ?? "모름"}</Row>
-              <Row k="서버까지 왕복">{report.rtt !== undefined ? `${report.rtt}ms` : "-"}</Row>
+              <Row k="서버 응답 시간">{report.rtt !== undefined ? `${report.rtt}ms` : "-"}</Row>
               <Row k="잃어버린 조각" level={report.loss !== undefined && report.loss >= 2 ? "a" : undefined}>{report.loss !== undefined ? `${report.loss.toFixed(1)}%` : "-"}</Row>
               <Row k="압축 방식">{report.codec ?? "-"}</Row>
               <Row k="메모리" level={report.mem && report.mem <= 4 ? "a" : undefined}>{report.mem ? `${report.mem}GB${report.mem >= 8 ? " 이상" : ""}` : "모름"}</Row>
@@ -335,16 +318,17 @@ export function StatusDialog({ token, participants, screen, close }: { token: st
         <div className="grid grid-cols-1 gap-x-[22px] sm:grid-cols-2">
           {sharer && !sharer.isLocal && (
             <>
-              <Row k="내가 받는 화질">{size(seen?.w, seen?.h)}</Row>
+              <Row k="내가 받는 화질">{res(seen?.h)}</Row>
               <Row k="내가 받는 프레임">{seen ? `${seen.fps}프레임` : "-"}</Row>
               <Row k="내가 받는 속도">{seen ? `${seen.mbps.toFixed(1)} Mbps` : "-"}</Row>
               <Row k="끊긴 프레임 (최근 10초)" level={seen && seen.dropped > 0 ? "a" : undefined}>{seen ? `${seen.dropped}프레임` : "-"}</Row>
             </>
           )}
-          <Row k="연결 좋음">{counts[0].length}명</Row>
-          <Row k="연결 보통 / 나쁨">
-            <span className={counts[1].length ? INK.a : ""}>{counts[1].length}명</span> / <span className={counts[2].length ? INK.r : ""}>{counts[2].length}명</span>
-          </Row>
+        </div>
+        <div className="grid grid-cols-3 gap-x-4">
+          <Row k="연결 좋음" level={counts[0].length ? "g" : undefined}>{counts[0].length}명</Row>
+          <Row k="연결 보통" level={counts[1].length ? "a" : undefined}>{counts[1].length}명</Row>
+          <Row k="연결 나쁨" level={counts[2].length ? "r" : undefined}>{counts[2].length}명</Row>
         </div>
         {[1, 2].map((q) =>
           counts[q].length ? (
