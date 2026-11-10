@@ -5,6 +5,7 @@ import { VOICE_BOT, VOICE_ON, VOICES, type VoiceDef } from "@/lib/dolive";
 import { loadTextToSpeech, loadVoiceStyle } from "@/lib/supertonic";
 import { chatOf, store } from "@/lib/chat";
 import { rooms } from "@/lib/server";
+import { noteTts } from "@/lib/status";
 
 // "/글" 음성: 서버가 Supertonic 3 으로 읽고, 방에 "음성"이라는 참여자로 들어가 마이크처럼 흘려보낸다.
 // 소리는 만들자마자 보내고 어디에도 저장하지 않는다. 보낸 사람을 포함해 모두가 바로 듣는다.
@@ -77,11 +78,22 @@ const MAX_GAIN = 4;
 const DRIVE = 0;
 
 // 글을 읽어서 16비트 소리로. 앞뒤에 붙어 나오는 무음(앞 0.4초, 뒤 0.5초쯤)은 잘라서 바로 말이 시작되게 한다
+// 만드는 데 걸린 시간과 실패는 상태 페이지(lib/status.ts)에 알린다. 모델을 처음 올리는 시간은 빼고 잰다
 async function synth(text: string, id: string) {
-  const { tts } = await voice.tts;
+  const { tts } = await voice.tts.catch((e) => {
+    noteTts(0, false);
+    throw e;
+  });
   const v = voiceOf(id);
   const pitch = v.pitch ?? 1;
-  const raw = (await tts.call(text, "ko", styleOf(v), STEPS, (SPEED * (v.speed ?? 1)) / pitch)).wav;
+  const began = Date.now();
+  const raw = (
+    await tts.call(text, "ko", styleOf(v), STEPS, (SPEED * (v.speed ?? 1)) / pitch).catch((e) => {
+      noteTts(Date.now() - began, false);
+      throw e;
+    })
+  ).wav;
+  noteTts(Date.now() - began, true);
   const rate = tts.sampleRate;
   const wav = pitch === 1 ? raw : repitch(raw, pitch);
   const loud = (v: number) => Math.abs(v) > 0.03;

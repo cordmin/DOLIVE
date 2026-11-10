@@ -326,6 +326,29 @@ sudo rm -rf /root/dolive-move
 
 다시 켜기·복구를 하면 방 안 사람들의 연결이 잠시 끊길 수 있습니다. 방송 중에는 꼭 필요할 때만 씁니다.
 
+### 상태 페이지 (`/status`)
+
+`https://도메인/status`에서 누구나 기능별 지금 상태와 지난 90일 기록을 봅니다. 입장 화면 로고 옆 **상태** 점(초록 정상, 노랑 느림, 빨강 장애, 파랑 점검, 회색 확인 못 함)을 누르면 이 페이지로 갑니다.
+
+- 웹이 1분마다 스스로 점검합니다. 웹 화면은 바깥 주소로 `/api/health/ping`을 불러 Caddy·인증서·웹을 함께 보고, 음성·카메라·화면공유는 통화 서버(`127.0.0.1:7880`), 도름스 로그인·도름네이션은 도름스 로그인 열쇠 주소, 글 읽기는 모델 파일과 최근 15분 동안 실제로 만든 시간을 봅니다.
+- 한 번 실패로 바꾸지 않고 같은 결과가 두 번(약 2분) 이어지면 바꿉니다. 문제가 생기면 자동 사건이 열리고, 모두 정상이 되면 '해결'로 닫힙니다.
+- 웹이 3분 넘게 꺼져 있었으면 다시 켤 때 그 시간을 웹 화면·채팅·글 읽기 장애로 적습니다. 1~2분 안에 다시 켜진 것은 세지 않습니다. `dolivectl update`는 웹을 끈 채 몇 분 동안 다시 만들므로, **업데이트 전에 아래 메모에 점검 시간을 적어 두면** 그 시간을 장애가 아니라 점검으로 셉니다.
+- 가동률은 Statuspage 방식으로 (장애 분 + 느림 분 × 0.3)을 뺀 값입니다. 점검 시간은 빼지 않습니다.
+- 기록은 `/opt/dolive/server/config/status-history.json`에 웹이 씁니다. 손으로 고치지 않습니다. 백업에는 들어가지 않으며, 지워지면 그날부터 다시 쌓입니다.
+
+운영자가 알릴 사건과 점검 예정은 `status-notes.json`에 적습니다. 예시는 `server/linux/status-notes.example.json`입니다. 다시 켤 필요 없이 다음 요청부터 보입니다.
+
+```text
+sudo -u dolive cp /opt/dolive/server/linux/status-notes.example.json /opt/dolive/server/config/status-notes.json   # 처음 한 번
+sudo -u dolive nano /opt/dolive/server/config/status-notes.json
+```
+
+- 시각은 `2026-11-13T04:00:00+09:00`처럼 한국 시간(`+09:00`)까지 씁니다.
+- `components`에는 `web`(웹 화면), `voice`(음성·카메라), `share`(화면공유), `chat`(채팅), `tts`(글 읽기), `login`(도름스 로그인), `donation`(도름네이션)을 씁니다.
+- 사건의 `impact`는 `minor`(느림) 또는 `major`(장애)입니다. `updates`는 새 소식을 위에 적고, 끝나면 `resolved`에 끝난 시각을 넣습니다. `resolved`가 없는 동안은 그 기능을 해당 상태로 보여 줍니다.
+- 점검 시간(`maintenance`의 `start`~`end`)에는 그 기능을 '점검 중'으로 보여 주고, 그동안의 실패는 장애로 세지 않습니다. 끝나기 전까지 '예정된 점검'에 보입니다.
+- JSON 모양이 틀리면 메모 전체를 쓰지 않고 `sudo dolivectl logs web`에 `[status]`로 알립니다. 틀린 항목 하나는 그 항목만 건너뜁니다.
+
 ## 11. 운영진과 방송 목록
 
 권한(마스터·운영진·방 주인·회원·비회원)과 방송 만들기는 [첫 화면 안내](../../README.md#입장과-권한)를 따릅니다. 서버에서 관리하는 방법은 다음과 같습니다.
@@ -414,7 +437,7 @@ sudo dolivectl restore /var/backups/dolive/dolive-backup-20261014-120000-000.tar
 
 ## 13. 새 버전으로 바꾸기
 
-1. 사람들에게 점검 시간을 알립니다.
+1. 사람들에게 점검 시간을 알립니다. 상태 페이지 메모(`status-notes.json`)의 `maintenance`에 그 시간을 적으면 `/status`에 예정 점검으로 보이고, 업데이트로 꺼진 시간을 장애로 세지 않습니다([상태 페이지](#상태-페이지-status)).
 2. 실행합니다.
 
    ```text
@@ -466,6 +489,7 @@ Node.js·LiveKit·Caddy·모델의 버전은 [server/linux/versions.env](../../s
 | `/etc/dolive/dolive.env` | 도메인·공인 IP·통화 키·도름스 설정 (root와 `dolive`만 읽음) |
 | `/opt/dolive/server/config/rooms.txt`, `staff.txt` | 방송 목록·운영진 (윈도우와 같은 형식) |
 | `/opt/dolive/server/config/yeonsu-rooms.json` | 도름스 연수 방 기록 (웹이 쓰고 지움) |
+| `/opt/dolive/server/config/status-history.json`, `status-notes.json` | 상태 페이지 기록(웹이 씀)·운영자 메모(사건·점검 예정) |
 | `/opt/dolive/apps/web/models/supertonic` | 글 읽기 모델 |
 | `/opt/dolive/server/bin` | 받은 Node.js·LiveKit·Caddy (버전 기록 `.versions`) |
 | `/var/lib/private/dolive-caddy` | HTTPS 인증서·ACME 계정 (지우면 인증서를 새로 받음) |
