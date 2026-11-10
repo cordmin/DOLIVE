@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AvatarPicker } from "@/components/AvatarPicker";
@@ -58,14 +57,6 @@ export default function Home() {
     const t = setInterval(loadRooms, 10_000);
     return () => clearInterval(t);
   }, [loadRooms]);
-  // 로고 옆 상태 점: 전체 상태(초록 정상·노랑 느림·빨강 장애·파랑 점검, 모르면 회색). 1분마다 다시 묻고, 누르면 상태 페이지(/status)
-  const [health, setHealth] = useState<{ lv: string; text: string }>();
-  useEffect(() => {
-    const load = () => fetch("/api/health?brief=1", { cache: "no-store" }).then((r) => r.json()).then(setHealth).catch(() => {});
-    load();
-    const t = setInterval(load, 60_000);
-    return () => clearInterval(t);
-  }, []);
   const roomDlg = useRef<HTMLDialogElement>(null); // 방 만들기·설정 창 (모양은 아래 창들과 같게)
   const askDelete = useRef<HTMLDialogElement>(null); // "방을 삭제하시겠습니까?" 창 (채팅방의 나가기 창과 같은 모양)
   const full = useRef<HTMLDialogElement>(null); // "방송은 최대 10개까지만 지원합니다" 창 (로그인 안내 창과 같은 모양)
@@ -192,15 +183,9 @@ export default function Home() {
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-4 sm:p-8">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <h1 className="text-3xl font-bold">
-            DO<span className="text-red-500">LIVE</span>
-          </h1>
-          <Link href="/status" title={health?.text ?? "서비스 상태"} className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs text-zinc-400 ring-1 ring-zinc-700 hover:text-zinc-200 hover:ring-zinc-500">
-            <span aria-hidden="true" className={`size-2 rounded-full ${HEALTH_DOT[health?.lv ?? ""] ?? "bg-zinc-500"}`} />
-            상태<span className="sr-only">: {health?.text ?? "확인 중"}</span>
-          </Link>
-        </div>
+        <h1 className="text-3xl font-bold">
+          DO<span className="text-red-500">LIVE</span>
+        </h1>
         {!me || me.local ? null : me.dorms ? (
           <div className="flex items-center gap-3">
             {me.picture ? (
@@ -464,6 +449,3 @@ export default function Home() {
     </main>
   );
 }
-
-// 로고 옆 상태 점 색 (lib/statusCore.ts 의 상태 이름)
-const HEALTH_DOT: Record<string, string> = { ok: "bg-green-500", minor: "bg-amber-400", major: "bg-red-500", maint: "bg-sky-400" };
