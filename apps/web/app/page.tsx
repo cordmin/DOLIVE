@@ -2,8 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Avatar } from "@/components/Avatar";
-import { PhotoCrop } from "@/components/PhotoCrop";
+import { AvatarPicker } from "@/components/AvatarPicker";
 import { AVATARS, CUSTOM, DORMS, MAX_ROOMS, leaveForDorms, savedAvatar } from "@/lib/dolive";
 import { ROOM_ENTRY_KEY } from "@/lib/roomHistory";
 
@@ -33,8 +32,6 @@ export default function Home() {
   const [avatar, setAvatar] = useState(AVATARS[0]);
   const [avatarReady, setAvatarReady] = useState(false); // 로그인 상태를 알기 전에는 어떤 사진에도 테두리를 그리지 않는다 (1번에 그렸다가 도름스 사진으로 옮겨 가는 게 보여서)
   const [custom, setCustom] = useState<string>(); // 내가 올린 사진 (data: 주소, 이 브라우저에 남는다)
-  const [picked, setPicked] = useState<File>(); // 자리 맞추기 중인 사진
-  const picker = useRef<HTMLInputElement>(null);
   const needLogin = useRef<HTMLDialogElement>(null); // "로그인을 먼저 해주세요" 창 (채팅방의 나가기 창과 같은 모양, 화면 가운데)
   const askPw = useRef<HTMLDialogElement>(null); // 비밀번호 방 비밀번호 묻는 창 (모양은 위 창과 같게)
   const [pw, setPw] = useState("");
@@ -96,20 +93,6 @@ export default function Home() {
     const saved = savedAvatar();
     setAvatar(saved === CUSTOM && !photo ? AVATARS[0] : saved);
   }, []);
-
-  function choosePhoto(jpeg: Blob) {
-    setPicked(undefined);
-    const reader = new FileReader();
-    reader.onload = () => {
-      // 새로 올리면 내 사진 칸의 사진이 바뀐다. 다음에 와도 남게 이 브라우저에 저장 (못 하면 이번에만 쓴다)
-      setCustom(reader.result as string);
-      setAvatar(CUSTOM);
-      try {
-        localStorage.setItem("photo", reader.result as string);
-      } catch {}
-    };
-    reader.readAsDataURL(jpeg);
-  }
 
   function enter() {
     if (!name.trim() || !room) return;
@@ -227,71 +210,8 @@ export default function Home() {
 
       <section className="flex flex-col gap-2">
         <span className="text-sm text-zinc-400">프로필 사진</span>
-        {/* 2줄 x 6칸 (PC, 휴대폰 같음): [+] 사진 올리기, 내 사진, 도름스 사진, 기본 사진 9장 */}
-        <div className="grid grid-cols-6 gap-2">
-          {/* 첫 칸: 사진 올리기 (새로 올리면 내 사진 칸이 바뀐다) */}
-          <button onClick={() => picker.current?.click()} aria-label="사진 올리기" className="rounded-full p-1 hover:bg-zinc-700">
-            <span className="flex aspect-square w-full items-center justify-center rounded-full border-2 border-dashed border-zinc-500 bg-zinc-800 text-zinc-300 hover:bg-zinc-700">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                aria-hidden
-                className="w-1/2"
-              >
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-            </span>
-          </button>
-          {/* 내 사진 칸: 올리기 전엔 점선 빈 원(눌러도 올리기), 올린 뒤엔 그 사진 */}
-          <button
-            onClick={() => (custom ? setAvatar(CUSTOM) : picker.current?.click())}
-            aria-label={custom ? "내 사진" : "내 사진 올리기"}
-            className={`rounded-full p-1 ${avatarReady && avatar === CUSTOM ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
-          >
-            {custom ? <Avatar id={custom} className="w-full" /> : <span className="flex aspect-square w-full items-center justify-center rounded-full border-2 border-dashed border-zinc-500 bg-zinc-800 text-zinc-300 hover:bg-zinc-700" />}
-          </button>
-          {/* 도름스 프로필 사진 칸. 로그인 전이거나 도름스에 사진이 없으면 점선 빈 원 */}
-          {me?.picture ? (
-            <button
-              onClick={() => setAvatar(DORMS)}
-              aria-label="도름스 프로필 사진"
-              className={`rounded-full p-1 ${avatarReady && avatar === DORMS ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
-            >
-              <Avatar id={me.picture} className="w-full" />
-            </button>
-          ) : (
-            <span className="p-1">
-              <span className="flex aspect-square w-full items-center justify-center rounded-full border-2 border-dashed border-zinc-500 bg-zinc-800 text-zinc-300" />
-            </span>
-          )}
-          {AVATARS.map((id) => (
-            <button
-              key={id}
-              onClick={() => setAvatar(id)}
-              aria-label={`프로필 사진 ${id}`}
-              className={`rounded-full p-1 ${avatarReady && avatar === id ? "bg-indigo-600" : "hover:bg-zinc-700"}`}
-            >
-              <Avatar id={id} className="w-full" />
-            </button>
-          ))}
-          <input
-            ref={picker}
-            type="file"
-            accept="image/*"
-            hidden
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = ""; // 같은 사진을 다시 골라도 반응하게
-              if (file) setPicked(file);
-            }}
-          />
-        </div>
+        <AvatarPicker avatar={avatar} onAvatar={setAvatar} custom={custom} onCustom={setCustom} dormsPicture={me?.picture} ready={avatarReady} />
       </section>
-
-      {picked && <PhotoCrop file={picked} onDone={choosePhoto} onCancel={() => setPicked(undefined)} />}
 
       <label className="flex flex-col gap-2">
         <span className="flex items-center gap-1 text-sm text-zinc-400">

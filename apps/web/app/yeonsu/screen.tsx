@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { DormsAuthError, getDormsUser } from "@/lib/dormsLogin";
 import { isLocal, isStaff } from "@/lib/server";
 import { askYeonsuEntry, kstTime, liveYeonsuRooms, registerYeonsuRoom, yeonsuIdOfRef, yeonsuRefKind, yeonsuRoomName, yeonsuSlug, type YeonsuVerdict } from "@/lib/yeonsu";
-import { EnterYeonsu } from "./enter";
+import { EnterYeonsu, type YeonsuInfo } from "./enter";
 
 // 도름스 연수 방 입장 화면. 주소는 두 가지이고 둘 다 이 화면을 쓴다.
 //  - dolive.site/<짧은 연수 번호>  (app/[slug]) : 도름스 연수 소개의 'DoLive 방 들어가기'와 입장 화면 목록이 쓰는 주소
@@ -42,8 +42,9 @@ export async function YeonsuEntryScreen({ sessionRef }: { sessionRef: string }) 
 
   if (local) {
     // 짧은 번호로 왔으면 지금 열린 연수 목록에서 그 연수를 찾는다
-    const mine = full ? sessionRef.toLowerCase() : (await liveYeonsuRooms()).find((r) => yeonsuSlug(r.id) === sessionRef.toLowerCase())?.id;
-    if (mine) return <EnterYeonsu room={yeonsuRoomName(mine)} name="마스터" picture={null} />;
+    const live = (await liveYeonsuRooms()).find((r) => (full ? r.id === sessionRef.toLowerCase() : yeonsuSlug(r.id) === sessionRef.toLowerCase()));
+    const mine = full ? sessionRef.toLowerCase() : live?.id;
+    if (mine) return <EnterYeonsu room={yeonsuRoomName(mine)} name="마스터" picture={null} info={live && infoOf(live)} dormsHref={dormsHref} />;
   }
   const v: YeonsuVerdict = local ? { ok: false, reason: "not_found" } : await askYeonsuEntry(sessionRef, user!.id, isStaff(user!));
   const id = local ? null : await yeonsuIdOfRef(sessionRef, v);
@@ -64,5 +65,11 @@ export async function YeonsuEntryScreen({ sessionRef }: { sessionRef: string }) 
   const room = yeonsuRoomName(id);
   registerYeonsuRoom(room, { title: v.title, owner: v.hostId, endsAt: v.endsAt });
   const name = (user!.name || user!.handle || "선생님").trim().slice(0, 20);
-  return <EnterYeonsu room={room} name={name} picture={user!.picture?.startsWith("https://") ? user!.picture : null} />;
+  return <EnterYeonsu room={room} name={name} picture={user!.picture?.startsWith("https://") ? user!.picture : null} info={infoOf(v)} dormsHref={`https://dorms.school/learn/yeonsu?id=${id}`} />;
+}
+
+// 입장 창에 보일 연수 제목·여는 선생님·시간 (입장 화면 목록과 같은 24시간 표기)
+function infoOf(r: { title: string; hostName: string; startsAt: string; endsAt: string }): YeonsuInfo {
+  const [from, to] = [kstTime(r.startsAt), kstTime(r.endsAt)];
+  return { title: r.title, hostName: r.hostName, time: from && to ? `${from}–${to}` : "" };
 }
