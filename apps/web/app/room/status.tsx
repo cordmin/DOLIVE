@@ -194,7 +194,7 @@ export function StatusDialog({ token, participants, screen, close }: { token: st
               <Row k="자동 프레임 줄이기" level={report.capped ? "a" : undefined}>{report.capped ? "15프레임으로 줄임" : "안 함"}</Row>
               <Row k="연결 품질" level={sharerQ === 2 ? "r" : sharerQ === 1 ? "a" : sharerQ === 0 ? "g" : undefined}>{QUALITY_NAME[sharerQ] ?? "모름"}</Row>
               <Row k="서버 응답 시간">{report.rtt !== undefined ? `${report.rtt}ms` : "-"}</Row>
-              <Row k="잃어버린 조각" level={report.loss !== undefined && report.loss >= 2 ? "a" : undefined}>{report.loss !== undefined ? `${report.loss.toFixed(1)}%` : "-"}</Row>
+              <Row k="패킷 손실" level={report.loss !== undefined && report.loss >= 2 ? "a" : undefined}>{report.loss !== undefined ? `${report.loss.toFixed(1)}%` : "-"}</Row>
               <Row k="압축 방식">{report.codec ?? "-"}</Row>
               <Row k="메모리" level={report.mem && report.mem <= 4 ? "a" : undefined}>{report.mem ? `${report.mem}GB${report.mem >= 8 ? " 이상" : ""}` : "모름"}</Row>
               <Row k="CPU" level={report.cores && report.cores <= 4 ? "a" : undefined}>{report.cores ? `${report.cores}코어` : "모름"}</Row>
