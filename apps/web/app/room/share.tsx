@@ -3,6 +3,7 @@ import { ScreenSharePresets, RoomEvent, Track, type Participant, type RemotePart
 import { useEffect, useState, type ReactNode } from "react";
 import { Knob } from "@/components/Knob";
 import { VOICE_BOT, VOICE_ON } from "@/lib/dolive";
+import { isLowSpec } from "@/lib/shareHealth";
 import { CameraKnob } from "./camera";
 import { TtsButton } from "./tts";
 import { MicrophoneKnob } from "./microphone";
@@ -20,6 +21,14 @@ const QUALITY = {
   mid: ScreenSharePresets.h720fps30, // 1280x720, 1초 30장, 2Mbps
   low: ScreenSharePresets.h360fps15, // 640x360, 1초 15장, 0.4Mbps
 };
+// 송출자 컴퓨터가 약하면(CPU 4개 이하 또는 메모리 4GB 이하) 공유를 시작할 때 맨 위를 720p30 으로, 겹을 둘(720p·360p)로 줄인다.
+// 브라우저는 겹마다 따로 압축해서 겹 수와 크기가 컴퓨터 부담을 가장 크게 좌우한다. 공유 중에 버벅이면 status.tsx 가 프레임을 줄인다
+// 크롬은 메모리를 0.5·1·2·4·8GB 중 하나로만 알려 준다 (8 이상도 8)
+export const deviceMemory = () => (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+const pickQuality = () =>
+  isLowSpec(navigator.hardwareConcurrency, deviceMemory())
+    ? { top: QUALITY.mid, layers: [QUALITY.low] }
+    : { top: QUALITY.top, layers: [QUALITY.low, QUALITY.mid] };
 
 // 화면공유 요청("request")과 거부("denied")를 주고받는 채널
 const SHARE_TOPIC = "dolive-share";
@@ -160,8 +169,9 @@ export function MediaControls({ asked, requestShare, token, record }: { asked: b
     !isScreenShareEnabled && !allowed
       ? requestShare()
       : run(
-        () =>
-          me.setScreenShareEnabled(
+        () => {
+          const q = pickQuality();
+          return me.setScreenShareEnabled(
             !isScreenShareEnabled,
             {
               audio: {
@@ -172,14 +182,15 @@ export function MediaControls({ asked, requestShare, token, record }: { asked: b
                 // 안 빼면 그 소리가 공유 소리에 섞여 한 번 더 나가서, 모두에게 늦게 두 번 들린다 (말한 사람에겐 자기 목소리가 되돌아옴)
                 restrictOwnAudio: true,
               },
-              resolution: QUALITY.top.resolution,
+              resolution: q.top.resolution,
               contentHint: "detail",
               video: { displaySurface: "monitor" }, // 고르는 창에서 '전체 화면' 칸이 먼저 열리게
               selfBrowserSurface: "exclude", // 이 탭은 목록에서 뺀다 (화면 속 화면이 끝없이 비치는 것 방지)
               systemAudio: "include", // '전체 화면'에서 '시스템 오디오와 공유'를 늘 보여 준다 (켜짐이 기본)
             },
-            { screenShareEncoding: QUALITY.top.encoding, screenShareSimulcastLayers: [QUALITY.low, QUALITY.mid] },
-          ),
+            { screenShareEncoding: q.top.encoding, screenShareSimulcastLayers: q.layers },
+          );
+        },
         "화면공유",
       );
   const shareLabel = isScreenShareEnabled

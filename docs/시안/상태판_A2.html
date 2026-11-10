@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #0b0b0c; color: #d6d3cd; font-family: "Malgun Gothic", system-ui, sans-serif; padding: 28px; width: 1260px; }
+  h1 { font-size: 20px; margin-bottom: 6px; color: #d4d4d8; }
+  .sub { font-size: 13px; color: #a1a1aa; margin-bottom: 18px; }
+  .row { display: flex; gap: 28px; align-items: flex-start; }
+  .label { font-size: 15px; font-weight: 700; margin-bottom: 10px; color: #f4f4f5; }
+  .bg { position: relative; padding: 24px; border-radius: 16px; background: #18181b; box-shadow: 0 0 0 1px #27272a; display: flex; justify-content: center; }
+  .bg::before { content: ""; position: absolute; inset: 0; border-radius: 16px; background: #000a; }
+
+  .dlg { position: relative; width: 560px; border-radius: 14px; background: #141416; padding: 22px 18px 18px; box-shadow: 0 0 0 1px #000, 0 0 0 2px #ffffff14, 0 12px 30px #000a; }
+  .top { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+  .logo { font-size: 22px; font-weight: 700; letter-spacing: -.02em; color: #d3d0ca; }
+  .logo span { color: #ef4444; }
+  .badge { translate: 0 1px; border: 1px solid #e8b46a66; color: #e8b46a; border-radius: 3px; font-size: 11px; line-height: 17px; padding: 0 6px; }
+  .title { font-size: 15px; font-weight: 600; color: #d6d3cd; margin-left: 4px; }
+  .fresh { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; color: #a39f98; }
+
+  .led { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; background: #33312f; box-shadow: inset 0 1px 1px #000b; }
+  .led.g { background: #7ed957; box-shadow: 0 0 0 1px #0009, 0 0 6px #7ed9578c; }
+  .led.a { background: #e8b46a; box-shadow: 0 0 0 1px #0009, 0 0 6px #e8b46a6b; }
+  .led.r { background: #e42b20; box-shadow: 0 0 0 1px #0009, 0 0 6px #e42b2099; }
+  .g { color: #7ed957; } .a { color: #e8b46a; } .r { color: #ff6b5e; } .m { color: #a39f98; } .gold { color: #d1b77f; }
+
+  .inset { border-radius: 10px; background: #1e1e21; box-shadow: inset 0 1px 0 #000000f2, inset 0 3px 6px #00000099, inset 0 0 0 1px #00000099, inset 0 -1px 0 #ffffff0b, 0 1px 0 #ffffff0a; }
+  .diag { display: flex; gap: 10px; padding: 12px 14px; margin-bottom: 12px; font-size: 13px; line-height: 1.55; }
+  .diag .led { margin-top: 6px; }
+  .diag b { color: #e8b46a; font-weight: 600; }
+  .diag p + p { color: #a39f98; font-size: 12px; margin-top: 2px; }
+
+  .sec { padding: 12px 14px 10px; margin-bottom: 10px; }
+  .sec h3 { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #d6d3cd; }
+  .sec h3 .who { color: #a39f98; font-weight: 400; }
+  .sec h3 .state { margin-left: auto; font-size: 12px; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 22px; }
+  .kv { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; line-height: 25px; border-bottom: 1px solid #ffffff08; }
+  .kv span:first-child { color: #a39f98; white-space: nowrap; }
+  .kv span:last-child { font-weight: 600; text-align: right; white-space: nowrap; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 2px 0 8px; }
+  th { color: #7c7973; font-weight: 400; text-align: right; padding: 3px 0; }
+  th:first-child, td:first-child { text-align: left; }
+  td { padding: 4px 0; text-align: right; font-weight: 600; border-top: 1px solid #ffffff08; }
+  td:first-child { color: #a39f98; font-weight: 400; }
+
+  .why { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: #2a2a2d; margin: 6px 0 4px; box-shadow: inset 0 1px 2px #000a; }
+  .why i { display: block; height: 100%; }
+  .legend { display: flex; gap: 12px; font-size: 11px; color: #a39f98; margin-bottom: 6px; }
+  .legend span { display: flex; align-items: center; gap: 4px; }
+  .legend i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+
+  .people { font-size: 12px; color: #a39f98; margin-top: 6px; line-height: 1.6; }
+  .people b { color: #e8b46a; font-weight: 600; }
+
+  .btn { margin-top: 14px; padding: 9px; border-radius: 10px; text-align: center; font-size: 14px; font-weight: 600; color: #d1b77f;
+    background: radial-gradient(ellipse at 50% 0%, #ffffff18, transparent 65%), linear-gradient(#373739, #1c1c1e);
+    box-shadow: 0 0 0 1px #111112, inset 0 1px 0 #ffffff38, inset 0 -2px 2px #0009, 0 2px 3px #0008; }
+
+  .small { width: 400px; }
+  .empty { padding: 26px 14px; text-align: center; font-size: 13px; color: #a39f98; margin-bottom: 10px; }
+  .note { font-size: 12.5px; color: #a1a1aa; line-height: 1.7; margin-top: 16px; width: 448px; }
+  .note b { color: #e4e4e7; }
+</style>
+</head>
+<body>
+<h1>상태판 A안 다시 만들기 - DOLIVE 창 모양</h1>
+<p class="sub">관리자 배지를 누르면 뜨는 창. 2초마다 새로 고침. 색: 초록 = 좋음, 호박 = 주의, 빨강 = 나쁨 (방 위쪽 "방송중" 불빛과 같은 색)</p>
+<div class="row">
+
+<div>
+  <p class="label">화면공유 중일 때</p>
+  <div class="bg"><div class="dlg">
+    <div class="top">
+      <span class="logo">DO<span>LIVE</span></span><span class="badge">관리자</span><span class="title">방송 상태</span>
+      <span class="fresh"><span class="led g"></span>1초 전 새로 고침</span>
+    </div>
+
+    <div class="diag inset">
+      <span class="led a"></span>
+      <div>
+        <p><b>송출자 컴퓨터가 바빠서</b> 화질과 프레임를 낮추고 있어요.</p>
+        <p>송출자에게 다른 프로그램·크롬 탭을 닫아 달라고 해 보세요. 인터넷과 서버는 괜찮아요.</p>
+      </div>
+    </div>
+
+    <div class="sec inset">
+      <h3><span class="led a"></span>송출자 <span class="who">· 도름이</span><span class="state a">주의</span></h3>
+      <table>
+        <tr><th>보내는 겹</th><th>화질</th><th>초당 프레임</th><th>속도</th></tr>
+        <tr><td>원본</td><td class="a">1280x720 <span class="m">/ 1920x1080</span></td><td class="a">18 <span class="m">/ 30</span></td><td>2.1 Mbps</td></tr>
+        <tr><td>중간</td><td>1280x720</td><td>30</td><td>1.4 Mbps</td></tr>
+        <tr><td>낮음</td><td>640x360</td><td>15</td><td>0.3 Mbps</td></tr>
+      </table>
+      <p class="m" style="font-size:12px">화질이 떨어진 까닭 (최근 1분)</p>
+      <div class="why"><i style="width:62%;background:#e8b46a"></i><i style="width:8%;background:#e42b20"></i><i style="width:30%;background:#7ed957"></i></div>
+      <div class="legend"><span><i style="background:#e8b46a"></i>컴퓨터가 바쁨 62%</span><span><i style="background:#e42b20"></i>인터넷이 느림 8%</span><span><i style="background:#7ed957"></i>제대로 나감 30%</span></div>
+      <div class="grid">
+        <div class="kv"><span>연결 품질</span><span class="g">좋음</span></div>
+        <div class="kv"><span>서버까지 왕복</span><span>38ms</span></div>
+        <div class="kv"><span>잃어버린 조각</span><span class="g">0.1%</span></div>
+        <div class="kv"><span>압축 방식</span><span>VP8</span></div>
+        <div class="kv"><span>메모리</span><span class="a">4GB</span></div>
+        <div class="kv"><span>CPU</span><span class="a">4코어</span></div>
+        <div class="kv"><span>공유한 것</span><span>전체 화면</span></div>
+        <div class="kv"><span>브라우저</span><span>크롬 · Windows</span></div>
+      </div>
+    </div>
+
+    <div class="sec inset">
+      <h3><span class="led g"></span>보는 사람 <span class="who">· 12명</span><span class="state g">좋음</span></h3>
+      <div class="grid">
+        <div class="kv"><span>내가 받는 화질</span><span>1280x720</span></div>
+        <div class="kv"><span>내가 받는 프레임</span><span>18프레임</span></div>
+        <div class="kv"><span>내가 받는 속도</span><span>2.0 Mbps</span></div>
+        <div class="kv"><span>끊긴 프레임 (최근 10초)</span><span class="g">0프레임</span></div>
+        <div class="kv"><span>연결 좋음</span><span class="g">10명</span></div>
+        <div class="kv"><span>연결 보통 / 나쁨</span><span><span class="a">2명</span> / <span class="g">0명</span></span></div>
+      </div>
+      <p class="people">연결 보통: <b>민지</b>, <b>수학쌤</b></p>
+    </div>
+
+    <div class="sec inset">
+      <h3><span class="led g"></span>DOLIVE 서버<span class="state g">좋음</span></h3>
+      <div class="grid">
+        <div class="kv"><span>CPU 사용 (1분 평균)</span><span>35%</span></div>
+        <div class="kv"><span>CPU</span><span>4코어</span></div>
+        <div class="kv"><span>메모리</span><span>3.1 / 7.8GB</span></div>
+        <div class="kv"><span>켜진 지</span><span>12일 4시간</span></div>
+        <div class="kv"><span>지금 방송</span><span>2개</span></div>
+        <div class="kv"><span>전체 참여</span><span>19명</span></div>
+      </div>
+    </div>
+
+    <div class="btn">닫기</div>
+  </div></div>
+</div>
+
+<div>
+  <p class="label">아무도 화면공유를 안 할 때</p>
+  <div class="bg"><div class="dlg small">
+    <div class="top">
+      <span class="logo">DO<span>LIVE</span></span><span class="badge">관리자</span><span class="title">방송 상태</span>
+      <span class="fresh"><span class="led g"></span>1초 전</span>
+    </div>
+    <div class="sec inset">
+      <h3><span class="led"></span>송출자</h3>
+      <p class="empty">지금 화면공유하는 사람이 없어요</p>
+    </div>
+    <div class="sec inset">
+      <h3><span class="led g"></span>보는 사람 <span class="who">· 12명</span><span class="state g">좋음</span></h3>
+      <div class="kv"><span>연결 좋음 / 보통 / 나쁨</span><span><span class="g">12</span> / 0 / 0명</span></div>
+    </div>
+    <div class="sec inset">
+      <h3><span class="led r"></span>DOLIVE 서버<span class="state r">나쁨</span></h3>
+      <div class="kv"><span>CPU 사용 (1분 평균)</span><span class="r">92%</span></div>
+      <div class="kv"><span>메모리</span><span class="a">6.9 / 7.8GB</span></div>
+    </div>
+    <div class="btn">닫기</div>
+  </div></div>
+  <div class="note">
+    <b>값을 어디서 가져오나요</b><br>
+    송출자 칸: 송출자 브라우저가 2초마다 재서 관리자에게만 보내요.<br>
+    메모리는 크롬이 대략값만 알려 줘요 (0.5, 1, 2, 4, 8GB 중 하나, 8 이상도 8).<br>
+    보는 사람 칸: 내(관리자) 화면이 받는 값 + 모두의 연결 품질 불빛.<br>
+    서버 칸: 웹 프로그램이 서버 컴퓨터의 CPU·메모리를 읽어요. 관리자 아니면 서버가 거절해요.<br>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

@@ -445,3 +445,9 @@ body {
     0 0 0 1px rgba(0, 0, 0, 0.6),
     0 0 6px rgba(232, 180, 106, 0.42);
 }
+@utility hw-led-red {
+  background: #e42b20;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 0 6px rgba(228, 43, 32, 0.6);
+}

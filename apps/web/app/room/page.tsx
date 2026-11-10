@@ -29,6 +29,7 @@ import { PersonRow, SplitPeople } from "./participants";
 import { useMessages } from "./messages";
 import { useSplitChat } from "./split-chat";
 import { RecordKnob } from "./recording";
+import { StatusDialog, useShareHealth } from "./status";
 import { ROOM_ENTRY_KEY, leaveRoomHistory, watchRoomBack } from "@/lib/roomHistory";
 
 // 방 화면: chat.tsx(채팅 화면), messages.ts(채팅 주고받기), participants.tsx(참여자·관리 메뉴), split-chat.ts(채팅 분리 창).
@@ -239,6 +240,8 @@ function RoomView({ token }: { token: string }) {
   usePhoneAudio(room, isMicrophoneEnabled);
   usePauseOldShare();
   useDuckShareAudio();
+  useShareHealth(); // 내가 화면공유 중이면 상태를 재서 관리자에게 보내고, 버벅이면 프레임을 줄인다
+  const [showStatus, setShowStatus] = useState(false); // 관리자: 방송 상태 창
 
   const { floats, react, donation } = useReactions();
   const [donating, setDonating] = useState(false);
@@ -391,9 +394,9 @@ function RoomView({ token }: { token: string }) {
               <button type="button" aria-label="메인화면으로 가기" onClick={() => leave.current?.showModal()} className="cursor-pointer text-2xl font-bold tracking-tight text-[#d3d0ca] transition-[filter,text-shadow] duration-150 hover:brightness-125 hover:[text-shadow:0_0_10px_rgb(255_255_255/0.2)] focus-visible:rounded focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400">
                 DO<span className="text-red-500">LIVE</span>
               </button>
-              {/* 서버 PC에서 들어온 사람도, 운영진 목록에 있는 도름스 회원도 "관리자". 아니면 배지 없음 */}
+              {/* 서버 PC에서 들어온 사람도, 운영진 목록에 있는 도름스 회원도 "관리자". 아니면 배지 없음. 누르면 방송 상태 창 (status.tsx) */}
               {isAdmin && (
-                <span className="translate-y-px rounded-[3px] border border-[#e8b46a]/40 px-1.5 text-[11px] leading-[17px] text-[#e8b46a]">관리자</span>
+                <button type="button" onClick={() => setShowStatus(true)} data-tip="방송 상태 보기" className="translate-y-px cursor-pointer rounded-[3px] border border-[#e8b46a]/40 px-1.5 text-[11px] leading-[17px] text-[#e8b46a] transition-colors hover:border-[#e8b46a]/80 hover:bg-[#e8b46a]/10 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400">관리자</button>
               )}
             </div>
             <span className="flex items-center gap-1.5 text-[11px] text-[#a39f98]">
@@ -554,6 +557,7 @@ function RoomView({ token }: { token: string }) {
           </div>,
           pip.document.body,
         )}
+      {isAdmin && showStatus && <StatusDialog token={token} participants={participants} screen={screen} close={() => setShowStatus(false)} />}
       {donating && <DonationDialog token={token} room={room.name} isGuest={!mine?.dorms} close={() => setDonating(false)} success={donation} />}
       <Tooltips />
     </>
