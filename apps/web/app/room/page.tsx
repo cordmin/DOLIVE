@@ -31,6 +31,7 @@ import { useMessages } from "./messages";
 import { useSplitChat } from "./split-chat";
 import { RecordKnob } from "./recording";
 import { StatusDialog } from "./status";
+import { AttendanceDialog } from "./attendance";
 import { useShareHealth } from "./share-report";
 import { ROOM_ENTRY_KEY, leaveRoomHistory, watchRoomBack } from "@/lib/roomHistory";
 
@@ -54,7 +55,8 @@ const ROOM_OPTIONS: RoomOptions = {
   singlePeerConnection: process.env.NODE_ENV !== "development",
 };
 
-type Conn = { token: string; url: string };
+// yeonsuHost: 도름스 연수를 연 선생님 (참석 기록 단추가 보인다. api/token)
+type Conn = { token: string; url: string; yeonsuHost?: boolean };
 
 const CHAT_W_KEY = "dolive-chat-width"; // PC 채팅 카드 폭 기억 (이 브라우저에만)
 
@@ -209,7 +211,7 @@ export default function RoomPage() {
     >
       <RoomAudioRenderer />
       {/* 소리 켜기 안내 버튼은 두지 않는다. 브라우저가 소리를 막아 두면 화면 아무 데나 처음 누를 때 켠다 (RoomView) */}
-      <RoomView token={conn.token} />
+      <RoomView token={conn.token} yeonsuHost={!!conn.yeonsuHost} />
     </LiveKitRoom>
   );
 }
@@ -218,7 +220,7 @@ export default function RoomPage() {
 // 휴대폰: [화면공유 또는 프로필 사진 / 채팅 내용 / 메시지 입력칸]  (참여자 목록은 눌러서 연다)
 // PC:     [화면공유 또는 프로필 사진 | 채팅 내용  ]
 //         [참여자 한 줄              | 메시지 입력칸]
-function RoomView({ token }: { token: string }) {
+function RoomView({ token, yeonsuHost }: { token: string; yeonsuHost: boolean }) {
   // 이 방의 방장 노릇(마스터·운영진·방을 만든 사람)과 방 주인. 방장을 넘기면 서버가 표시를 바꿔서 바로 바뀐다 (api/owner)
   const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
   const mine = useParticipantAttributes({ participant: localParticipant }).attributes;
@@ -244,6 +246,7 @@ function RoomView({ token }: { token: string }) {
   useDuckShareAudio();
   useShareHealth(); // 내가 화면공유 중이면 상태를 재서 관리자에게 보내고, 버벅이면 프레임을 줄인다
   const [showStatus, setShowStatus] = useState(false); // 관리자: 방송 상태 창
+  const [showAttendance, setShowAttendance] = useState(false); // 연수를 연 선생님: 참석 기록 창 (attendance.tsx)
 
   const { floats, react, donation } = useReactions();
   const [donating, setDonating] = useState(false);
@@ -400,6 +403,10 @@ function RoomView({ token }: { token: string }) {
               {isAdmin && (
                 <button type="button" onClick={() => setShowStatus(true)} data-tip="방송 상태 보기" className="translate-y-px cursor-pointer rounded-[3px] border border-[#e8b46a]/40 px-1.5 text-[11px] leading-[17px] text-[#e8b46a] transition-colors hover:border-[#e8b46a]/80 hover:bg-[#e8b46a]/10 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400">관리자</button>
               )}
+              {/* 도름스 연수를 연 선생님만: 누가 왔는지·얼마나 있었는지 (운영진·마스터에게는 안 보인다) */}
+              {yeonsuHost && (
+                <button type="button" onClick={() => setShowAttendance(true)} data-tip="참석 기록 보기" className="translate-y-px cursor-pointer rounded-[3px] border border-[#e8b46a]/40 px-1.5 text-[11px] leading-[17px] text-[#e8b46a] transition-colors hover:border-[#e8b46a]/80 hover:bg-[#e8b46a]/10 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400">참석 기록</button>
+              )}
             </div>
             <span className="flex items-center gap-1.5 text-[11px] text-[#a39f98]">
               <span className={`hw-led ${live ? "hw-led-green" : "hw-led-amber"}`} />
@@ -509,6 +516,9 @@ function RoomView({ token }: { token: string }) {
               style={{ left: peopleAt.left, top: peopleAt.top }}
               className={`fixed z-30 flex max-h-[60dvh] w-max max-w-[80vw] origin-top -translate-x-1/2 flex-col gap-1 overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-2 shadow-xl shadow-black/50 transition-[opacity,translate,scale,visibility] duration-200 ease-out ${showPeople ? "" : "pointer-events-none invisible -translate-y-2 scale-95 opacity-0"} md:hidden phone-land:flex!`}
             >
+              {yeonsuHost && (
+                <button type="button" onClick={() => { setShowPeople(false); setShowAttendance(true); }} className="mb-1 min-h-11 rounded-xl border border-[#e8b46a]/40 px-3 text-sm text-[#e8b46a] active:bg-[#e8b46a]/10">참석 기록 보기</button>
+              )}
               {participants.map((p) => (
                 <PersonRow key={p.identity} p={p} isAdmin={isAdmin} isOwner={isOwner} token={token} />
               ))}
@@ -559,6 +569,7 @@ function RoomView({ token }: { token: string }) {
           </div>,
           pip.document.body,
         )}
+      {yeonsuHost && showAttendance && <AttendanceDialog room={room.name} close={() => setShowAttendance(false)} />}
       {isAdmin && showStatus && <StatusDialog token={token} participants={participants} screen={screen} close={() => setShowStatus(false)} />}
       {donating && <DonationDialog token={token} room={room.name} isGuest={!mine?.dorms} close={() => setDonating(false)} success={donation} />}
       <Tooltips />
