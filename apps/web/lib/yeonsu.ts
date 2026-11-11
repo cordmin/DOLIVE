@@ -163,6 +163,12 @@ export function yeonsuRoomDef(name: unknown) {
   return { name: name as string, password: "", guest: false, owner: r.owner, title: r.title };
 }
 
+// 그 연수 방 기록 그대로 (참석 기록 lib/attendance.ts 가 여는 선생님·제목·끝나는 시각을 읽는다). 없으면 undefined
+export function yeonsuRoomInfo(name: unknown): YeonsuRoom | undefined {
+  if (!yeonsuIdOf(name)) return undefined;
+  return readAll()[name as string];
+}
+
 // 도름스가 들여보낸 뒤 방을 남긴다. 제목·끝나는 시각이 바뀌었으면 고쳐 쓴다 (임시 파일에 쓰고 바꿔 끼워 반쯤 쓴 파일이 남지 않게)
 export function registerYeonsuRoom(name: string, room: YeonsuRoom) {
   const all = readAll();

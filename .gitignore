@@ -20,6 +20,8 @@ server/config/rooms.txt
 # 도름스 연수 방 기록 (서버가 쓰고 지운다)
 server/config/yeonsu-rooms.json
 server/config/yeonsu-rooms.json.*.tmp
+# 도름스 연수 참석 기록 (서버가 쓰고, 연수가 끝난 지 30일 지나면 지운다. 연 선생님만 본다)
+server/config/yeonsu-attendance/
 # 상태 페이지(/status) 기록과 운영자 메모 (서버가 쓰고, 운영자가 SSH로 고친다)
 server/config/status-history.json
 server/config/status-history.json.*.tmp
