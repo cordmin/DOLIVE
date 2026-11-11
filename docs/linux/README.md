@@ -378,6 +378,7 @@ sudo -u dolive nano /opt/dolive/server/config/status-notes.json
 
   비워 두면 연수 방에는 아무도 들어오지 못하고(“도름스에서 확인하지 못했어요”) 다른 방은 그대로 씁니다.
 - 들여보낸 연수 방은 `/opt/dolive/server/config/yeonsu-rooms.json`에 남아 다시 켜도 알아봅니다. 끝나는 시간이 되면 방을 닫고, 끝난 지 하루 지난 기록은 저절로 지웁니다. 손으로 고칠 필요는 없습니다.
+- 연수 참석 기록(누가 왔는지, 들어오고 나간 시각, 머문 시간)은 `/opt/dolive/server/config/yeonsu-attendance/<연수 id>.json`에 남습니다. 통화 서버의 입·퇴장 알림과 1분마다 하는 인원 대조로 적고, 연수가 끝난 지 30일 지나면 저절로 지웁니다. 연수를 연 선생님만 방 안의 `참석 기록` 단추나 `https://dolive.site/<짧은 연수 번호>/attendance`에서 봅니다. 운영진과 마스터 화면에는 보이지 않습니다.
 
 ## 12. 백업과 복원
 
@@ -489,6 +490,7 @@ Node.js·LiveKit·Caddy·모델의 버전은 [server/linux/versions.env](../../s
 | `/etc/dolive/dolive.env` | 도메인·공인 IP·통화 키·도름스 설정 (root와 `dolive`만 읽음) |
 | `/opt/dolive/server/config/rooms.txt`, `staff.txt` | 방송 목록·운영진 (윈도우와 같은 형식) |
 | `/opt/dolive/server/config/yeonsu-rooms.json` | 도름스 연수 방 기록 (웹이 쓰고 지움) |
+| `/opt/dolive/server/config/yeonsu-attendance/` | 연수 참석 기록 (웹이 쓰고 30일 뒤 지움, 연 선생님만 봄) |
 | `/opt/dolive/server/config/status-history.json`, `status-notes.json` | 상태 페이지 기록(웹이 씀)·운영자 메모(사건·점검 예정) |
 | `/opt/dolive/apps/web/models/supertonic` | 글 읽기 모델 |
 | `/opt/dolive/server/bin` | 받은 Node.js·LiveKit·Caddy (버전 기록 `.versions`) |
