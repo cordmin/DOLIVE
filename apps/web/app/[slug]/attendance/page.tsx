@@ -30,7 +30,7 @@ export default async function YeonsuAttendance({ params }: { params: Promise<{ s
   return (
     <main className="mx-auto w-full max-w-[560px] px-4 py-10 break-keep">
       <p className="mb-1 text-sm text-[#a39f98]">
-        DO<span className="text-red-500">LIVE</span> 연수 참석 기록
+        DO<span className="text-red-500">LIVE</span> 연수 참석기록
       </p>
       {!view ? (
         <>
@@ -43,14 +43,14 @@ export default async function YeonsuAttendance({ params }: { params: Promise<{ s
           <p className="mb-4 text-sm text-[#a39f98]">
             {Number.isFinite(Date.parse(view.startsAt)) && `${kstDate(Date.parse(view.startsAt))} ${kstClock(Date.parse(view.startsAt))}`}
             {Number.isFinite(Date.parse(view.endsAt)) && ` – ${kstClock(Date.parse(view.endsAt))}`}
-            {" · "}참석 <b className="font-semibold text-[#e4c691]">{view.count}</b>명{view.here > 0 && ` · 지금 ${view.here}명`}
+            {" · "}참석 <b className="font-semibold text-[#e4c691]">{view.count}</b>명{view.here > 0 && ` · 현재 ${view.here}명`}
           </p>
           <section className="hw-inset rounded-[10px] bg-[#1e1e21] px-3.5 py-1">
             <AttendanceList view={view} />
           </section>
           <p className="mt-3 flex flex-wrap justify-between gap-2 text-xs text-[#a39f98]">
             <span>여는 선생님은 인원에서 뺐어요. 시각은 한국 시간이에요.</span>
-            <a href={`/api/yeonsu/attendance?ref=${ref}&csv=1`} download className="text-[#e8b46a] hover:underline">표로 내려받기</a>
+            <a href={`/api/yeonsu/attendance?ref=${ref}&csv=1`} download className="text-[#e8b46a] hover:underline">이력 다운로드</a>
           </p>
         </>
       )}

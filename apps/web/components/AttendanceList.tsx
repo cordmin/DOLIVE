@@ -8,12 +8,12 @@ export function AttendanceList({ view }: { view: AttendSummary }) {
     <ul className="divide-y divide-white/[.04]">
       {view.rows.map((r, i) => (
         <li key={i} className="flex items-center gap-3 py-2 text-[13px]">
-          <span className={`hw-led shrink-0 ${r.here ? "hw-led-green" : ""}`} aria-label={r.here ? "지금 있음" : "나감"} />
+          <span className={`hw-led shrink-0 ${r.here ? "hw-led-green" : "hw-led-red"}`} aria-label={r.here ? "지금 있음" : "나감"} />
           <div className="min-w-0 flex-1">
             <p className="truncate font-semibold text-[#d6d3cd]">
               {r.name}
               {r.dormsName && r.dormsName !== r.name && <span className="font-normal text-[#a39f98]"> · 도름스 {r.dormsName}</span>}
-              {r.host && <span className="ml-1.5 rounded-[3px] border border-[#e8b46a]/40 px-1 text-[10px] font-normal text-[#e8b46a]">여는 선생님</span>}
+              {r.host && <span className="ml-1.5 rounded-[3px] border border-[#e8b46a]/40 px-1 text-[10px] font-normal text-[#e8b46a]">연수 개설</span>}
             </p>
             <p className="text-xs text-[#a39f98]">
               {kstClock(r.first)} – {r.here ? "지금 있음" : kstClock(r.last)}

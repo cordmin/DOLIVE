@@ -388,13 +388,18 @@ function RoomView({ token, yeonsuHost }: { token: string; yeonsuHost: boolean })
               <button type="button" aria-label="메인화면으로 가기" onClick={() => leave.current?.showModal()} className="cursor-pointer text-2xl font-bold tracking-tight text-[#d3d0ca] transition-[filter,text-shadow] duration-150 hover:brightness-125 hover:[text-shadow:0_0_10px_rgb(255_255_255/0.2)] focus-visible:rounded focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400">
                 DO<span className="text-red-500">LIVE</span>
               </button>
-              {/* 서버 PC에서 들어온 사람도, 운영진 목록에 있는 도름스 회원도 "관리자". 아니면 배지 없음. 누르면 방송 상태 창 (status.tsx) */}
-              {isAdmin && (
-                <button type="button" onClick={() => setShowStatus(true)} data-tip="방송 상태 보기" className="translate-y-px cursor-pointer rounded-[3px] border border-[#e8b46a]/40 px-1.5 text-[11px] leading-[17px] text-[#e8b46a] transition-colors hover:border-[#e8b46a]/80 hover:bg-[#e8b46a]/10 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400">관리자</button>
-              )}
-              {/* 도름스 연수를 연 선생님만: 누가 왔는지·얼마나 있었는지 (운영진·마스터에게는 안 보인다) */}
-              {yeonsuHost && (
-                <button type="button" onClick={() => setShowAttendance(true)} data-tip="참석 기록 보기" className="translate-y-px cursor-pointer rounded-[3px] border border-[#e8b46a]/40 px-1.5 text-[11px] leading-[17px] text-[#e8b46a] transition-colors hover:border-[#e8b46a]/80 hover:bg-[#e8b46a]/10 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400">참석 기록</button>
+              {/* 관리자 아래에 참석기록. 한 칸(grid)에 넣어 두 단추 너비를 맞춘다 */}
+              {(isAdmin || yeonsuHost) && (
+                <div className="grid translate-y-px gap-1">
+                  {/* 서버 PC에서 들어온 사람도, 운영진 목록에 있는 도름스 회원도 "관리자". 아니면 배지 없음. 누르면 방송 상태 창 (status.tsx) */}
+                  {isAdmin && (
+                    <button type="button" onClick={() => setShowStatus(true)} data-tip="방송 상태 보기" className="cursor-pointer rounded-[3px] border border-[#e8b46a]/40 px-1.5 text-[11px] leading-[17px] text-[#e8b46a] transition-colors hover:border-[#e8b46a]/80 hover:bg-[#e8b46a]/10 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400">관리자</button>
+                  )}
+                  {/* 도름스 연수를 연 선생님만: 누가 왔는지·얼마나 있었는지 (운영진·마스터에게는 안 보인다) */}
+                  {yeonsuHost && (
+                    <button type="button" onClick={() => setShowAttendance(true)} data-tip="참석기록 보기" className="cursor-pointer rounded-[3px] border border-[#e8b46a]/40 px-1.5 text-[11px] leading-[17px] text-[#e8b46a] transition-colors hover:border-[#e8b46a]/80 hover:bg-[#e8b46a]/10 focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400">참석기록</button>
+                  )}
+                </div>
               )}
             </div>
             <span className="flex items-center gap-1.5 text-[11px] text-[#a39f98]">
@@ -506,7 +511,7 @@ function RoomView({ token, yeonsuHost }: { token: string; yeonsuHost: boolean })
               className={`fixed z-30 flex max-h-[60dvh] w-max max-w-[80vw] origin-top -translate-x-1/2 flex-col gap-1 overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-2 shadow-xl shadow-black/50 transition-[opacity,translate,scale,visibility] duration-200 ease-out ${showPeople ? "" : "pointer-events-none invisible -translate-y-2 scale-95 opacity-0"} md:hidden phone-land:flex!`}
             >
               {yeonsuHost && (
-                <button type="button" onClick={() => { setShowPeople(false); setShowAttendance(true); }} className="mb-1 min-h-11 rounded-xl border border-[#e8b46a]/40 px-3 text-sm text-[#e8b46a] active:bg-[#e8b46a]/10">참석 기록 보기</button>
+                <button type="button" onClick={() => { setShowPeople(false); setShowAttendance(true); }} className="mb-1 min-h-11 rounded-xl border border-[#e8b46a]/40 px-3 text-sm text-[#e8b46a] active:bg-[#e8b46a]/10">참석기록 보기</button>
               )}
               {participants.map((p) => (
                 <PersonRow key={p.identity} p={p} isAdmin={isAdmin} isOwner={isOwner} token={token} />
