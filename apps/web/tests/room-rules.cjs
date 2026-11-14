@@ -64,7 +64,7 @@ let sender = {};
 const chat = { clearEmptyRoom: async () => false, keepImage: () => {}, endRoom: async (n) => void ended.push(n), whoSent: async () => sender };
 const dolive = load("lib/dolive.ts", {});
 const chatAuth = load("lib/chat.ts", { "@/lib/server": server, "@/lib/dolive": dolive, "./donationTargets": { clearDonationTargets: () => {} } });
-const token = load("app/api/token/route.ts", { "@/lib/server": server, "@/lib/chat": chat, "@/lib/dolive": dolive, "@/lib/yeonsu": yeonsu });
+const token = load("app/api/token/route.ts", { "@/lib/server": server, "@/lib/chat": chat, "@/lib/dolive": dolive, "@/lib/yeonsu": yeonsu, "@/lib/attendance": { noteYeonsuEntrant() {} } });
 const roomsApi = load("app/api/rooms/route.ts", { "@/lib/server": server, "@/lib/chat": chat, "@/lib/dolive": dolive, "@/lib/yeonsu": yeonsu });
 const ownerApi = load("app/api/owner/route.ts", { "@/lib/server": server, "@/lib/chat": chat, "@/lib/yeonsu": yeonsu });
 

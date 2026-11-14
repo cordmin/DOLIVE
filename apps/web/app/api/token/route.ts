@@ -3,6 +3,7 @@ import { clearEmptyRoom, keepImage } from "@/lib/chat";
 import { AVATARS, CUSTOM, DORMS, isAvatar } from "@/lib/dolive";
 import { GUEST_COOKIE, MIC_CAM, WITH_SCREEN, dormsCheck, findRoom, isLocal, isStaff, roomDeny } from "@/lib/server";
 import { askYeonsuEntry, registerYeonsuRoom, yeonsuIdOf } from "@/lib/yeonsu";
+import { noteYeonsuEntrant } from "@/lib/attendance";
 
 // 도름스 연수 방에 못 들어올 때 이유별 안내 (입장 화면 app/yeonsu/[id] 가 같은 이유를 더 자세히 보여 준다)
 const YEONSU_DENY: Record<string, string> = {
@@ -26,12 +27,14 @@ export async function POST(req: Request) {
   // 신청하지 않은 사람은 못 들어온다. 운영진만 예외 (lib/yeonsu.ts askYeonsuEntry)
   const yeonsuId = yeonsuIdOf(room);
   let yeonsuHost = false;
+  let yeonsuStartsAt = "";
   if (yeonsuId && !local) {
     if (deny) return deny;
     const v = await askYeonsuEntry(yeonsuId, user!.id, isStaff(user));
     if (!v.ok) return Response.json({ error: YEONSU_DENY[v.reason] ?? YEONSU_DENY.unavailable, reason: `yeonsu_${v.reason}` }, { status: v.reason === "unavailable" ? 503 : 403 });
     registerYeonsuRoom(room, { title: v.title, owner: v.hostId, endsAt: v.endsAt });
     yeonsuHost = v.role === "host";
+    yeonsuStartsAt = v.startsAt;
   }
   const r = findRoom(room);
   if (deny && !(deny.status === 401 && r?.guest)) return deny;
@@ -64,6 +67,8 @@ export async function POST(req: Request) {
   }
 
   const identity = `${nickname}#${crypto.randomUUID().slice(0, 4)}`;
+  // 연수 참석 기록에 도름스 이름을 함께 남긴다 (입장 이름은 바꿀 수 있어서). 방 안 사람들에게 보이는 입장권에는 넣지 않는다
+  if (yeonsuId && user) noteYeonsuEntrant(room, identity, (user.name || user.handle || "").trim(), yeonsuStartsAt);
   const at = new AccessToken(process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET, {
     identity,
     name: nickname,
@@ -88,7 +93,8 @@ export async function POST(req: Request) {
     !local && process.env.LIVEKIT_PUBLIC_URL ? process.env.LIVEKIT_PUBLIC_URL : "ws://localhost:7880";
 
   const token = await at.toJwt();
-  const res = Response.json({ token, url, isAdmin: admin });
+  // yeonsuHost: 연수를 연 선생님 (방 화면에 '참석 기록' 단추가 보인다. 기록은 api/yeonsu/attendance 가 다시 확인한다)
+  const res = Response.json({ token, url, isAdmin: admin, yeonsuHost: !!yeonsuId && yeonsuHost });
   // 비회원은 입장권을 쿠키로도 받는다: 채팅 사진·다시 듣기처럼 입장권을 같이 못 보내는 요청이 이걸로 확인한다 (lib/server.ts accessCheck)
   if (!user && !local) res.headers.append("set-cookie", `${GUEST_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200; Secure`);
   return res;

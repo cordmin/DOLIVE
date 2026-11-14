@@ -153,7 +153,7 @@ async function main() {
   const chat = load("lib/chat.ts", { "@/lib/dolive": load("lib/dolive.ts"), "@/lib/server": server, "./donationTargets": targets });
   // 서명 없는 공유 알림과 예전 입장 알림으로는 받을 자격을 만들 수 없다.
   env.LIVEKIT_API_KEY = "시험 통화 키"; env.LIVEKIT_API_SECRET = "test-only-livekit-secret-with-at-least-32-bytes";
-  const webhook = load("app/api/livekit/route.ts", { "@/lib/server": server, "@/lib/donationTargets": targets, "@/lib/chat": { clearEmptyRoom: async (room) => { if (!present) targets.clearDonationTargets(room); } } });
+  const webhook = load("app/api/livekit/route.ts", { "@/lib/server": server, "@/lib/donationTargets": targets, "@/lib/attendance": { attendJoined() {}, attendLeft() {} }, "@/lib/chat": { clearEmptyRoom: async (room) => { if (!present) targets.clearDonationTargets(room); } } });
   async function notify(event, authorized = true) {
     const body = JSON.stringify(event);
     const token = await new jose.SignJWT({ sha256: createHash("sha256").update(body).digest("base64") }).setProtectedHeader({ alg: "HS256" }).setIssuer(env.LIVEKIT_API_KEY).setExpirationTime("1m").sign(new TextEncoder().encode(env.LIVEKIT_API_SECRET));
