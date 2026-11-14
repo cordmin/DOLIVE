@@ -7,17 +7,18 @@ import { CameraSize } from "./camera-size";
 import { useHoldMenu } from "./menu";
 import { SCREEN_SHARE_SOURCE } from "./share";
 import { applyBlur } from "@/lib/cameraBlur";
+import { CAM_CAPTURE } from "@/lib/roomAudio";
 
 // 카메라(얼굴). 버튼을 누르면 바로 켜지 않고 카메라 설정 창부터 띄운다 (내 모습이 준비 없이 나가지 않게).
 // 창 안에서 미리 보며 캠·화면공유 시 얼굴 위치·모양·좌우 반전을 고르고 [카메라 켜기]를 눌러야 모두에게 보인다.
-// 켜져 있을 때 버튼을 누르면 바로 끈다. 오른쪽 클릭(휴대폰은 꾹 누르기)하면 켜져 있어도 설정 창. 얼굴은 작게 보낸다 (page.tsx ROOM_OPTIONS)
+// 켜져 있을 때 버튼을 누르면 바로 끈다. 오른쪽 클릭(휴대폰은 꾹 누르기)하면 켜져 있어도 설정 창. 얼굴은 작게 보낸다 (lib/roomAudio.ts ROOM_OPTIONS)
 
 // 휴대폰·태블릿처럼 캠 이름이 "camera2 1, facing front" 같은 것은 목록 대신 전면·후면 두 개로만 보여 준다
 const FACING = /front|back|rear|facing/i;
 // PC 캠 이름 뒤에 붙는 장치 번호 "(046d:0825)" 는 뺀다
 const camName = (d: MediaDeviceInfo, i: number) => d.label.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, "") || `카메라 ${i + 1}`;
 // 캠은 640x360, 1초에 20장 (30장으로 올려 봤지만 블러 문제가 장 수 탓이 아니어서 되돌림)
-export const CAM_CAPTURE = { width: 640, height: 360, frameRate: 20 };
+export { CAM_CAPTURE } from "@/lib/roomAudio";
 const capture = (c: CamSettings, facing: boolean): VideoCaptureOptions => ({
   resolution: CAM_CAPTURE,
   ...(facing ? { facingMode: c.facing } : c.device ? { deviceId: c.device } : {}),

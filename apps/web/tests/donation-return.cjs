@@ -32,6 +32,7 @@ function setup() {
       if (name === 'next/navigation') return { useRouter: () => ({ replace() { throw new Error('허용 중 첫 화면 이동'); } }) };
       if (name === '@/lib/dolive') return { isPhone: () => false, savedAvatar: () => '1' };
       if (name === '@/lib/roomHistory') return { ROOM_ENTRY_KEY: 'dolive-room-active' };
+      if (name === '@/lib/roomAudio') return { getEntryRoom: () => ({}), watchAudioUnlock: () => () => {} };
       return {};
     },
   };

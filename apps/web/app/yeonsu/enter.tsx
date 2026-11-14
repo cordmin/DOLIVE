@@ -5,9 +5,10 @@ import { useEffect, useState } from "react";
 import { AvatarPicker } from "@/components/AvatarPicker";
 import { AVATARS, CUSTOM, DORMS } from "@/lib/dolive";
 import { ROOM_ENTRY_KEY } from "@/lib/roomHistory";
+import { prepareRoomAudio } from "@/lib/roomAudio";
 
 // 연수 방 들어가기: 먼저 입장 창(연수 제목, 프로필 사진, 닉네임)을 띄우고, [입장하기]를 누르면 그 자리에서 방 화면을 그린다.
-// 도름스 링크로 바로 오면 이 페이지에서 한 번도 누른 적이 없어 브라우저가 방 소리를 막는다. [입장하기]를 한 번 누르게 해서 소리가 처음부터 나오게 한다.
+// 도름스 링크로 바로 오면 브라우저가 방 소리를 막을 수 있다. [입장하기]를 누르는 순간 소리를 준비하고 같은 방 객체로 입장한다.
 // 다른 주소로 옮겨 가지 않아서 주소창에 연수 주소(dolive.site/<짧은 번호>)가 그대로 남는다 (2026-10-20 사용자 지시).
 // 이름은 도름스 닉네임, 사진은 도름스 사진(없으면 첫 사진)을 미리 골라 두고 바꿀 수 있다. 연수 방은 비밀번호가 없다.
 // 입장 창 모양: 시안 C-1, [입장하기]는 빨간 몸체 (2026-11-10 사용자 선택)
@@ -34,6 +35,7 @@ export function EnterYeonsu({ room, name, picture, info, dormsHref }: { room: st
 
   function enter() {
     if (!nick.trim()) return;
+    prepareRoomAudio();
     // 방 화면이 이 값으로 입장권을 받는다 (입장 화면 app/page.tsx 의 go() 와 같은 값)
     sessionStorage.setItem("name", nick.trim());
     sessionStorage.setItem("avatar", avatar);
