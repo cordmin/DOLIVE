@@ -223,6 +223,16 @@ export type StatusView = {
   past: { key: string; label: string; items: IncView[] }[];
 };
 
+// 90일 막대에 올리면 보이는 설명 (상태 페이지와 방송 상태 창이 같이 쓴다)
+export function dayTip(d: DayView) {
+  const lines = [dayLabel(d.key), d.lv === "none" ? "기록 없음" : `${LONG[d.lv]}${d.up === null ? "" : ` · ${d.up}%`}`];
+  if (d.mins) {
+    const parts = [["장애", d.mins[2]], ["느림", d.mins[1]], ["점검", d.mins[3]]].filter(([, m]) => +m > 0).map(([t, m]) => `${t} ${m}분`);
+    if (parts.length) lines.push(parts.join(" · "));
+  }
+  return [...lines, ...d.titles].join("\n");
+}
+
 const upOf = (b: Bucket) => {
   const total = b[0] + b[1] + b[2] + b[3];
   return total ? Math.max(0, 1 - (b[2] + b[1] * 0.3) / total) * 100 : null;

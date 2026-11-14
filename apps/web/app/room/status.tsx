@@ -1,12 +1,14 @@
 import { useDataChannel, useRoomContext, type TrackReference } from "@livekit/components-react";
 import { ConnectionQuality, type Participant, type RemoteVideoTrack } from "livekit-client";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { REASON, diagnose, type Level } from "@/lib/shareHealth";
+import { LONG, dayTip, type StatusView } from "@/lib/statusCore";
 import { STATUS_TOPIC, TICK, lastLocalReport, type ShareReport } from "./share-report";
 
 // 관리자 배지를 누르면 뜨는 "방송 상태" 창 (시안: docs/시안/상태판_A2.png, 2026-11-11 사용자 선택).
 // 송출자 칸: 송출자 브라우저가 2초마다 재서 이 방 관리자에게만 보낸다 (share-report.ts 의 useShareHealth). 받는 쪽은 지금 공유 화면 주인이 보낸 것만 쓴다.
 // 보는 사람 칸: 내(관리자) 화면이 받는 값 + 모두의 연결 품질. 서버 칸: api/status (관리자 아니면 서버가 거절)
+// 서비스 상태 칸: 상태 페이지(/status)와 같은 내용 (api/health)
 
 type Server = { cpu: number; cores: number; memUsed: number; memTotal: number; uptime: number; rooms: number; people: number };
 type Seen = { w?: number; h?: number; fps: number; mbps: number; dropped: number };
@@ -42,6 +44,80 @@ function Section({ title, who, level, children }: { title: string; who?: string;
     </section>
   );
 }
+
+const SERVICE_LEVEL: Partial<Record<StatusView["lv"], Level>> = { ok: "g", minor: "a", major: "r" };
+const SERVICE_INK: Record<StatusView["lv"], string> = { ok: "text-[#7ed957]", minor: "text-[#e8b46a]", major: "text-[#ff6b5e]", maint: "text-[#7fb2ee]", none: "text-[#a39f98]" };
+const SERVICE_BAR: Record<StatusView["lv"], string> = { ok: "bg-[#7ed957]", minor: "bg-[#e8b46a]", major: "bg-[#ff6b5e]", maint: "bg-[#7fb2ee]", none: "bg-[#2a2a2d]" };
+
+// 방 창이 1초마다 다시 그려져도 막대 630개는 새로 그리지 않게 따로 둔다. 내용은 서버가 1분마다 점검하므로 1분마다 받는다
+const ServiceSection = memo(function ServiceSection() {
+  const [view, setView] = useState<StatusView | null>(); // 받기 전 undefined, 못 받으면 null
+  useEffect(() => {
+    const load = () =>
+      fetch("/api/health", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then(setView)
+        .catch(() => setView(null));
+    load();
+    const iv = setInterval(load, 60_000);
+    return () => clearInterval(iv);
+  }, []);
+  const past = view?.past.flatMap((d) => d.items).slice(0, 3) ?? [];
+
+  return (
+    <Section title="서비스 상태" who={view?.text} level={view ? SERVICE_LEVEL[view.lv] : undefined}>
+      {!view ? (
+        <p className="py-3 text-center text-[13px] text-[#a39f98]">{view === undefined ? "서비스 상태를 읽는 중이에요" : "서비스 상태를 읽지 못했어요"}</p>
+      ) : (
+        <>
+          {view.open.map((i) => (
+            <p key={i.id} className="mb-2 text-xs leading-relaxed">
+              <b className={`font-semibold ${SERVICE_INK[i.impact]}`}>{i.title}</b>
+              <span className="text-[#a39f98]"> · {i.span}</span>
+              {i.updates[0] && <span className="block text-[#a39f98]">{i.updates[0].state} · {i.updates[0].text}</span>}
+            </p>
+          ))}
+          {view.planned.map((p) => (
+            <p key={p.title + p.span} className="mb-2 text-xs leading-relaxed">
+              <b className={`font-semibold ${SERVICE_INK.maint}`}>{p.now ? "점검 중" : "예정된 점검"} · {p.title}</b>
+              <span className="block text-[#a39f98]">{p.span}{p.comps && ` · ${p.comps}`}</span>
+            </p>
+          ))}
+          {view.comps.map((c) => (
+            <div key={c.id} className="border-b border-white/[.03] py-1.5">
+              <div className="flex justify-between gap-2 text-[12.5px] leading-5">
+                <span className="text-[#a39f98]" title={c.desc}>{c.name}</span>
+                <span className="whitespace-nowrap">
+                  <span className="text-[#a39f98]">{c.up90 === null ? "기록 없음" : `90일 ${c.up90}%`}</span>
+                  <b className={`ml-2 font-semibold ${SERVICE_INK[view.stale ? "none" : c.lv]}`}>{view.stale ? "확인 못 함" : LONG[c.lv]}</b>
+                </span>
+              </div>
+              <div className="mt-1 grid h-3 grid-cols-[repeat(90,1fr)] gap-px">
+                {c.days.map((d) => <span key={d.key} title={dayTip(d)} className={`rounded-[1px] ${SERVICE_BAR[d.lv]}`} />)}
+              </div>
+            </div>
+          ))}
+          {past.length > 0 && (
+            <div className="mt-2">
+              <p className="text-xs text-[#a39f98]">지난 사건</p>
+              {past.map((i) => (
+                <p key={i.id} className="mt-1 text-xs leading-relaxed">
+                  <b className={`font-semibold ${SERVICE_INK[i.impact]}`}>{i.title}</b>
+                  <span className="text-[#a39f98]"> · {i.span}</span>
+                </p>
+              ))}
+            </div>
+          )}
+          <p className="mt-2 flex justify-between gap-2 text-[11px] text-[#a39f98]">
+            <span>{view.checked ? `${view.checked} 확인` : "아직 확인 전"}</span>
+            {/* 방송이 끊기지 않게 새 탭으로 연다 */}
+            <a href="/status" target="_blank" rel="noreferrer" className="text-[#e8b46a] hover:underline">전체 기록 보기</a>
+          </p>
+        </>
+      )}
+    </Section>
+  );
+});
 
 export function StatusDialog({ token, participants, screen, close }: { token: string; participants: Participant[]; screen?: TrackReference; close: () => void }) {
   const room = useRoomContext();
@@ -246,6 +322,8 @@ export function StatusDialog({ token, participants, screen, close }: { token: st
           </div>
         )}
       </Section>
+
+      <ServiceSection />
 
       <button onClick={() => dlg.current?.close()} className="dolive-button dolive-primary mt-3.5 w-full py-2 text-sm">
         <span className="dolive-button-cap">닫기</span>

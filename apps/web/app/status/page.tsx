@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { connection } from "next/server";
 import { statusView } from "@/lib/status";
-import { dayLabel, LONG, type DayView, type IncView } from "@/lib/statusCore";
+import { dayTip, LONG, type IncView } from "@/lib/statusCore";
 import { StatusLive } from "./live";
 import "./status.css";
 
@@ -12,15 +12,6 @@ export const metadata: Metadata = {
   title: "DOLIVE 상태",
   description: "DOLIVE 기능별 지금 상태와 지난 90일 기록",
 };
-
-function dayTip(d: DayView) {
-  const lines = [dayLabel(d.key), d.lv === "none" ? "기록 없음" : `${LONG[d.lv]}${d.up === null ? "" : ` · ${d.up}%`}`];
-  if (d.mins) {
-    const parts = [["장애", d.mins[2]], ["느림", d.mins[1]], ["점검", d.mins[3]]].filter(([, m]) => +m > 0).map(([t, m]) => `${t} ${m}분`);
-    if (parts.length) lines.push(parts.join(" · "));
-  }
-  return [...lines, ...d.titles].join("\n");
-}
 
 function Incident({ i, wide }: { i: IncView; wide?: boolean }) {
   return wide ? (
