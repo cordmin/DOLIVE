@@ -21,7 +21,16 @@ const messages: Record<string, string> = {
   self_donation: "자신에게는 도름을 보낼 수 없어요.",
   recipient_unavailable: "이 방의 방 주인이나 화면공유를 했던 회원만 받을 수 있어요. 목록을 다시 확인해 주세요.",
   idempotency_conflict: "이전에 보낸 요청과 내용이 달라요. 새로 보내지 않고 확인을 멈췄어요.",
+  forbidden: "페이지를 새로 열고 다시 시도해 주세요.",
+  invalid_request: "요청 내용을 확인하지 못했어요. 창을 닫고 다시 열어 주세요.",
 };
+// 상태 확인에서만 쓰는 안내. 보내기 뒤의 장애는 성공 여부가 미확정이라 '같은 요청으로 다시 확인' 안내를 유지한다.
+const statusMessages: Record<string, string> = {
+  temporarily_unavailable: "도름스 응답을 확인하지 못했어요. 잠시 뒤 다시 확인해 주세요.",
+  rate_limited: "요청이 많아요. 잠시 뒤 다시 확인해 주세요.",
+};
+// 안내표에 없는 이유는 코드를 같이 보여 줘서 원인을 구분한다.
+const code = (reason: unknown) => typeof reason === "string" && /^[a-z_]{1,80}$/.test(reason) ? ` (${reason})` : "";
 const pendingKey = "dolive-donation-pending";
 const permissionHref = "/api/auth/dorms/donation/start?next=%2Fdorms-donation-allowed";
 const loginHref = "/api/auth/dorms/start?next=%2Fdorms-donation-allowed";
@@ -70,7 +79,7 @@ export function DonationDialog({ token, room, target, close, success, isGuest = 
       const body = await response.json();
       if (!alive) return;
       if (!response.ok) {
-        setReason(body.reason); setMessage(messages[body.reason] ?? "도름스에 연결하지 못했어요. 잠시 뒤 다시 확인해 주세요.");
+        setReason(body.reason); setMessage(messages[body.reason] ?? statusMessages[body.reason] ?? `도름스에 연결하지 못했어요. 잠시 뒤 다시 확인해 주세요.${code(body.reason)}`);
       }
       else { setStatus(body); setReason(""); setMessage(""); }
     }).catch(() => { if (alive) setMessage("도름스에 연결하지 못했어요. 잠시 뒤 다시 확인해 주세요."); }).finally(() => { if (alive) setChecking(false); });
@@ -109,7 +118,7 @@ export function DonationDialog({ token, room, target, close, success, isGuest = 
         if (["insufficient_dorms", "insufficient_balance", "daily_limit", "daily_limit_exceeded", "self_donation", "invalid_request", "recipient_unavailable"].includes(result.reason)) {
           sessionStorage.removeItem(pendingKey); setPending(null);
         }
-        setMessage(messages[result.reason] ?? "결과를 확인하지 못했어요. 같은 요청으로 다시 확인해 주세요.");
+        setMessage(messages[result.reason] ?? `결과를 확인하지 못했어요. 같은 요청으로 다시 확인해 주세요.${code(result.reason)}`);
         return;
       }
       if (typeof result.transferId !== "string" || result.amount !== intent.amount || typeof result.availableBalance !== "number" || !Number.isInteger(result.dailyRemaining)) throw new Error();
