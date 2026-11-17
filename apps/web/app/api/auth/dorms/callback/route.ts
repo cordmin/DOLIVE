@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { DormsAuthError, finishDormsLogin, parseFlowCookie, safeDormsNext, sessionCookieOptions, FLOW_COOKIE, SESSION_COOKIE } from "../../../../../lib/dormsLogin";
-import { finishDonationLogin, donationCookieOptions, DONATION_COOKIE, DONATION_LOGIN_FLOW_COOKIE } from "../../../../../lib/dormsDonation";
+import { finishDonationLogin, donationCookieOptions, noteDonation, DormsDonationError, DONATION_COOKIE, DONATION_LOGIN_FLOW_COOKIE } from "../../../../../lib/dormsDonation";
 // 바깥 주소 (Caddy 뒤라 request.url 은 localhost 로 나온다. lib/server.ts)
 import { publicUrl } from "@/lib/server";
 
@@ -36,7 +36,13 @@ export async function GET(request: NextRequest) {
       try {
         const pass = await finishDonationLogin(publicUrl(request), { idToken, subject, expiresAt, state: params.get("state"), code: params.get("donation_code"), flow: donationFlow });
         response.cookies.set(DONATION_COOKIE, pass.value, donationCookieOptions(pass.maxAge));
-      } catch { /* 보내기만 제한하고 로그인은 완료한다. 방 안에서는 자동 이동하지 않는다. */ }
+      } catch (error) {
+        // 보내기만 제한하고 로그인은 완료한다. 방 안에서는 자동 이동하지 않는다. 이유 코드만 서버 기록에 남긴다.
+        noteDonation("login", `전송 권한 교환 실패 reason=${error instanceof DormsDonationError ? error.reason : "unknown"}`);
+      }
+    } else if (donationFlow && params.get("donation_error")) {
+      const reason = params.get("donation_error") ?? "";
+      noteDonation("login", `도름스가 전송 권한을 주지 않음 reason=${/^[a-z_]{1,80}$/.test(reason) ? reason : "(형식 다름)"}`);
     }
     response.cookies.set(DONATION_LOGIN_FLOW_COOKIE, "", donationCookieOptions(0));
     response.headers.set("Cache-Control", "no-store");

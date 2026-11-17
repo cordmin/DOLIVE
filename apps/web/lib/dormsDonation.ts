@@ -43,14 +43,24 @@ async function session() {
   return { user, hash: digest(token), loginToken: token };
 }
 function callback(requestUrl: string) { return new URL(`${BASE}/callback`, callbackUrl(requestUrl)).toString(); }
+/** 서버 기록(`dolivectl logs web`)에 [donation]으로 남긴다. 이유 코드·HTTP 상태·필드 이름만 쓰고 토큰·쿠키·응답 원문은 쓰지 않는다. */
+export function noteDonation(where: string, detail: string) { console.warn(`[donation] ${where}: ${detail}`); }
 async function request(path: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
   try {
     const response = await fetch(`${API}/api/connect/donations/${path}`, { ...init, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(8000) });
     const body = await response.json().catch(() => null);
-    if (!response.ok) throw new DormsDonationError(typeof body?.reason === "string" && /^[a-z_]{1,80}$/.test(body.reason) ? body.reason : "temporarily_unavailable", response.status);
-    if (!body || typeof body !== "object" || Array.isArray(body)) throw new DormsDonationError("temporarily_unavailable");
+    if (!response.ok) {
+      const reason = typeof body?.reason === "string" && /^[a-z_]{1,80}$/.test(body.reason) ? body.reason : null;
+      noteDonation(path, `도름스 거절 HTTP ${response.status} reason=${reason ?? "(형식 다름)"}`);
+      throw new DormsDonationError(reason ?? "temporarily_unavailable", response.status);
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body)) { noteDonation(path, `응답 형식 다름 HTTP ${response.status}`); throw new DormsDonationError("temporarily_unavailable"); }
     return body;
-  } catch (error) { if (error instanceof DormsDonationError) throw error; throw new DormsDonationError("temporarily_unavailable"); }
+  } catch (error) {
+    if (error instanceof DormsDonationError) throw error;
+    noteDonation(path, `연결 실패 ${(error as Error)?.name ?? "Error"}`);
+    throw new DormsDonationError("temporarily_unavailable");
+  }
 }
 export async function beginDonation(requestUrl: string, next?: string | null) {
   const current = await session();
@@ -71,7 +81,10 @@ export async function finishDonation(requestUrl: string, code: string | null, st
 /** Trade a donation code for the server-only donation token, bound to this exact login token. */
 async function exchangeDonationCode(input: { requestUrl: string; loginToken: string; subject: string; loginExpiresAt: number; code: string; verifier: string }) {
   const body = await request("token", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${input.loginToken}` }, body: JSON.stringify({ client_id: process.env.DORMS_CLIENT_ID, redirect_uri: callback(input.requestUrl), code: input.code, code_verifier: input.verifier }) });
-  if (body.subject !== input.subject || typeof body.donation_token !== "string" || body.donation_token.length < 32 || body.donation_token.length > 1024 || typeof body.expires_in !== "number" || !Number.isInteger(body.expires_in) || body.expires_in <= 0) throw new DormsDonationError("temporarily_unavailable");
+  if (body.subject !== input.subject || typeof body.donation_token !== "string" || body.donation_token.length < 32 || body.donation_token.length > 1024 || typeof body.expires_in !== "number" || !Number.isInteger(body.expires_in) || body.expires_in <= 0) {
+    noteDonation("token", `응답 형식 다름 (${[body.subject !== input.subject && "subject", (typeof body.donation_token !== "string" || body.donation_token.length < 32 || body.donation_token.length > 1024) && "donation_token", !(typeof body.expires_in === "number" && Number.isInteger(body.expires_in) && body.expires_in > 0) && "expires_in"].filter(Boolean).join(", ")})`);
+    throw new DormsDonationError("temporarily_unavailable");
+  }
   const expiresAt = Math.min(now() + body.expires_in, now() + 604800, input.loginExpiresAt);
   if (expiresAt <= now()) throw new DormsDonationError("authentication_required", 401);
   return { value: encode({ token: body.donation_token, session: digest(input.loginToken), expiresAt }), maxAge: expiresAt - now() };
@@ -109,14 +122,21 @@ async function credential() {
   if (!saved || saved.session !== current.hash || !Number.isInteger(saved.expiresAt) || saved.expiresAt <= now() || typeof saved.token !== "string" || saved.token.length < 32 || saved.token.length > 1024) throw new DormsDonationError("connection_required", 403);
   return { token: saved.token, subject: current.user.id };
 }
-function balances(body: Record<string, unknown>) {
-  if (typeof body.availableBalance !== "number" || !Number.isFinite(body.availableBalance) || body.availableBalance < 0 || !Number.isInteger(body.dailyRemaining) || Number(body.dailyRemaining) < 0 || Number(body.dailyRemaining) > 3 || typeof body.resetsAt !== "string" || !Number.isFinite(Date.parse(body.resetsAt))) throw new DormsDonationError("temporarily_unavailable");
+// 하루 한도는 도름스가 정한다(도름스 공지는 하루 최대 15도름). 공식 도구 0.5.0은 남은 한도가 3을 넘으면 거절하므로
+// 한도가 3보다 크게 오면 상태 확인과 보내기가 모두 실패한다. 0 이상의 정수면 받고, 한 번에 보내는 양(1~3)만 따로 막는다.
+function balances(where: string, body: Record<string, unknown>) {
+  const bad = [
+    !(typeof body.availableBalance === "number" && Number.isFinite(body.availableBalance) && body.availableBalance >= 0) && "availableBalance",
+    !(Number.isInteger(body.dailyRemaining) && Number(body.dailyRemaining) >= 0) && `dailyRemaining=${typeof body.dailyRemaining === "number" ? body.dailyRemaining : typeof body.dailyRemaining}`,
+    !(typeof body.resetsAt === "string" && Number.isFinite(Date.parse(body.resetsAt))) && "resetsAt",
+  ].filter(Boolean);
+  if (bad.length) { noteDonation(where, `응답 형식 다름 (${bad.join(", ")})`); throw new DormsDonationError("temporarily_unavailable"); }
 }
 export async function getDonationStatus(): Promise<DonationStatus> {
   const current = await credential();
   const body = await request("status", { headers: { Authorization: `Bearer ${current.token}` } });
-  balances(body);
-  if (body.subject !== current.subject) throw new DormsDonationError("authentication_required", 401);
+  balances("status", body);
+  if (body.subject !== current.subject) { noteDonation("status", "응답 회원 번호가 로그인 회원과 다름"); throw new DormsDonationError("authentication_required", 401); }
   return body as DonationStatus;
 }
 /** Cookie-authenticated mutations require a same-origin POST, even from custom route handlers/server actions. */
@@ -133,8 +153,8 @@ export async function sendDonation(input: { recipientId: string; amount: number;
   if (!UUID.test(input.recipientId) || !Number.isInteger(input.amount) || input.amount < 1 || input.amount > 3 || !UUID.test(input.requestId)) throw new DormsDonationError("invalid_request", 400);
   const current = await credential();
   const body = await request("send", { method: "POST", headers: { Authorization: `Bearer ${current.token}`, "Content-Type": "application/json" }, body: JSON.stringify(input) });
-  balances(body);
-  if (typeof body.transferId !== "string" || !UUID.test(body.transferId) || body.amount !== input.amount) throw new DormsDonationError("temporarily_unavailable");
+  balances("send", body);
+  if (typeof body.transferId !== "string" || !UUID.test(body.transferId) || body.amount !== input.amount) { noteDonation("send", "응답 형식 다름 (transferId 또는 amount)"); throw new DormsDonationError("temporarily_unavailable"); }
   return body as DonationResult;
 }
 export async function revokeDonation() {

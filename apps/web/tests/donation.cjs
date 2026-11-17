@@ -16,6 +16,8 @@ const subject = randomUUID(), recipient = randomUUID(), grants = randomUUID();
 const saved = new Map();
 const announcements = [];
 const chatAnnouncements = [];
+// 서버 기록([donation])을 모은다. 토큰이 기록에 섞이지 않는지 마지막에 확인한다.
+const logs = [];
 let privateKey, publicKey, nonce, signed, sends = 0, checks = 0, sharing = true, member = true, inRoom = true, host = false, owner = false, present = true;
 const balances = () => ({ availableBalance: state.balance, dailyRemaining: state.daily, resetsAt: "2026-10-10T00:00:00+09:00" });
 const fail = (reason, status) => Response.json({ reason }, { status });
@@ -37,7 +39,7 @@ async function provider(raw, init = {}) {
   }
   if (url.pathname.endsWith("/revoke")) { state.donationValid = false; return Response.json({ ok: true }); }
   if (!state.donationValid) return fail("access_denied", 403);
-  if (url.pathname.endsWith("/status")) return Response.json({ subject, ...balances() });
+  if (url.pathname.endsWith("/status")) return Response.json({ subject, ...balances(), ...(state.statusPatch ?? {}) });
   if (url.pathname.endsWith("/send")) {
     sends++;
     assert.equal(init.method, "POST");
@@ -61,7 +63,7 @@ function load(name, replacements = {}) {
   const source = fs.readFileSync(path.join(__dirname, "..", name), "utf8");
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
   const module = { exports: {} };
-  vm.runInNewContext(code, { module, exports: module.exports, require: (n) => n === "server-only" ? {} : replacements[n] ?? require(n), process: { env }, fetch: provider, Request, Response, Headers, URL, Buffer, AbortSignal, TextEncoder, crypto, setTimeout }, { filename: name });
+  vm.runInNewContext(code, { module, exports: module.exports, require: (n) => n === "server-only" ? {} : replacements[n] ?? require(n), process: { env }, fetch: provider, Request, Response, Headers, URL, Buffer, AbortSignal, TextEncoder, crypto, setTimeout, console: { log: console.log, error: console.error, warn: (m) => logs.push(String(m)) } }, { filename: name });
   return module.exports;
 }
 async function main() {
@@ -102,6 +104,10 @@ async function main() {
   const loginOnly = await loginCallback.GET(callbackRequest(null));
   assert.equal(loginOnly.cookies.get(login.SESSION_COOKIE).value, signed, '도름네이션 없이 로그인만 허용');
   assert.equal(loginOnly.cookies.get(donation.DONATION_COOKIE).value, '', '예전 전송 권한 삭제');
+  // 도름스가 로그인 때 전송 권한을 주지 않은 이유는 서버 기록에 남기고 로그인은 유지한다.
+  const refused = await loginCallback.GET({ ...callbackRequest(null), nextUrl: new URL(`https://test.example/api/auth/dorms/callback?code=login-code&state=${flow.state}&donation_error=consent_required`) });
+  assert.equal(refused.cookies.get(login.SESSION_COOKIE).value, signed, '전송 권한 거절에도 로그인 유지');
+  assert.ok(logs.some((l) => l === '[donation] login: 도름스가 전송 권한을 주지 않음 reason=consent_required'));
   state.tokenFailure = true;
   const unavailable = await loginCallback.GET(callbackRequest(donationCode));
   assert.equal(unavailable.cookies.get(login.SESSION_COOKIE).value, signed, '전송 권한 교환 실패해도 로그인 유지');
@@ -147,6 +153,18 @@ async function main() {
   jar.set(donation.DONATION_COOKIE, restored.value);
   assert.equal((await donation.getDonationStatus()).dailyRemaining, 3);
   assert.equal(sends, 0, "재연결만으로 도름을 보내지 않음");
+  // 도름스 하루 한도가 3보다 커도(공지 기준 하루 15도름) 상태 확인이 된다. 예전에는 temporarily_unavailable 이었다.
+  state.daily = 15;
+  assert.equal((await donation.getDonationStatus()).dailyRemaining, 15, "하루 한도 15도름");
+  state.daily = 3;
+  // 형식이 틀린 응답은 그대로 거절하고 이유만 서버 기록에 남긴다.
+  for (const patch of [{ dailyRemaining: -1 }, { dailyRemaining: 1.5 }, { availableBalance: "10" }, { resetsAt: "아님" }]) {
+    state.statusPatch = patch;
+    await assert.rejects(donation.getDonationStatus(), { reason: "temporarily_unavailable" });
+  }
+  state.statusPatch = null;
+  assert.ok(logs.includes("[donation] status: 응답 형식 다름 (dailyRemaining=-1)"));
+  assert.ok(logs.includes("[donation] status: 응답 형식 다름 (availableBalance)"));
   const participant = () => ({ sid: "PA_receiver", identity: "receiver", name: "시험 받는 사람", attributes: { dorms: member ? recipient : "", roomAdmin: host ? "1" : "" }, tracks: [{ source: sdk.TrackSource.SCREEN_SHARE, muted: !sharing }] });
   const server = { findRoom: () => ({ owner: owner ? recipient : "" }), rooms: { listParticipants: async () => present ? [participant()] : [], getParticipant: async () => participant(), sendData: async (_room, data, _kind, options) => (options.topic === "dolive-donation" ? announcements : chatAnnouncements).push(JSON.parse(new TextDecoder().decode(data))) }, publicUrl: () => "https://test.example/" };
   const targets = load("lib/donationTargets.ts", { "./server": server });
@@ -256,6 +274,8 @@ async function main() {
   jar.delete(login.SESSION_COOKIE);
   await assert.rejects(donation.sendDonation(input), { reason: "authentication_required" });
   assert.ok(checks > 10);
+  assert.ok(logs.some((l) => l.startsWith("[donation] login: 전송 권한 교환 실패 reason=temporarily_unavailable")));
+  assert.ok(logs.length > 0 && logs.every((l) => l.startsWith("[donation] ") && !l.includes("test-only-donation-token") && !l.includes(signed)), "기록에 토큰을 남기지 않음");
   console.log("가짜 도름스로 로그인·허용·1/3도름·중복·응답 끊김·승인·철회·잔액·한도·로그아웃 확인 통과");
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });
